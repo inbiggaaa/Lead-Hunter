@@ -1,0 +1,37 @@
+# Секреты
+.env
+
+# Сессии userbot
+sessions/*.session
+sessions/*.session-journal
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Виртуальное окружение
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Бэкапы БД
+/backups/
+*.sql
+*.dump
+
+# Docker
+docker-compose.override.yml
+
+# OS
+.DS_Store
+Thumbs.db

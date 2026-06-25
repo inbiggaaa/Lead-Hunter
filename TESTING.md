@@ -1,0 +1,251 @@
+# TESTING.md — Стратегия тестирования LeadHunter
+
+Этот файл описывает как, когда и что тестировать. CLAUDE.md и CODING_STYLE.md ссылаются на него.
+
+---
+
+## 0. Пирамида тестов
+
+```
+         ┌─────────┐
+         │  Smoke  │  ← ручной, перед деплоем
+         │  1-2    │
+        ┌┴─────────┴┐
+        │ Integration│ ← pytest-asyncio + тестовая БД
+        │   ~15-20   │
+       ┌┴─────────────┴┐
+       │     Unit       │ ← pytest, чистые функции
+       │    ~50-80      │
+       └────────────────┘
+```
+
+---
+
+## 1. Unit-тесты (pytest)
+
+### Что покрываем
+- Чистые функции без внешних зависимостей
+- Классификатор (`classifier.py`)
+- Хеш-функции, парсинг, валидацию
+- Retry-логику
+
+### Правила
+- **Каждая новая публичная функция → тест.** Без исключений с Фазы 2.
+- Имя теста: `test_<функция>_<сценарий>`
+- Использовать AAA (Arrange → Act → Assert)
+- Один тест — один сценарий
+- Фикстуры в `conftest.py`
+
+### Пример
+```python
+# tests/test_keyword_matches.py
+
+def test_exact_word_match():
+    """Целое слово матчится."""
+    assert keyword_matches("ищу повара на день", "повар") is False  # нет границы
+    assert keyword_matches("ищу повара на день", "повара") is True   # граница слова
+
+def test_substring_no_match():
+    """Подстрока без границы слова НЕ матчится."""
+    assert keyword_matches("работаю удалённо", "работа") is False
+
+def test_unicode_boundary():
+    """Unicode-границы: кириллица, вьетнамский."""
+    assert keyword_matches("cần thợ nấu ăn", "thợ nấu") is True
+
+def test_case_insensitive():
+    """Регистр неважен."""
+    assert keyword_matches("ИЩУ ПОВАРА", "ищу") is True
+```
+
+### Запуск
+```bash
+# Все unit-тесты
+pytest tests/ -v -k "not integration and not smoke"
+
+# Конкретный файл
+pytest tests/test_classifier.py -v
+
+# С coverage
+pytest tests/ --cov=app --cov-report=term-missing
+```
+
+---
+
+## 2. Integration-тесты (pytest-asyncio)
+
+### Что покрываем
+- CRUD операции через SQLAlchemy
+- Redis-кэш (инвалидация, загрузка)
+- FSM-цепочки
+- Реферальную механику
+
+### Тестовая БД
+- Отдельная PostgreSQL база `leadhunter_test` (создаётся в `conftest.py`)
+- Миграции применяются перед тестами: `alembic upgrade head`
+- Данные очищаются после каждого теста (транзакция + rollback)
+
+### Фикстуры (conftest.py)
+```python
+@pytest_asyncio.fixture
+async def db_session():
+    """Чистая сессия с rollback после теста."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with AsyncSession(engine) as session:
+        async with session.begin():
+            yield session
+            await session.rollback()
+
+@pytest_asyncio.fixture
+async def test_user(db_session):
+    """Тестовый пользователь Free."""
+    user = User(telegram_id=123456, plan="free", language="ru")
+    db_session.add(user)
+    await db_session.flush()
+    return user
+```
+
+### Пример
+```python
+# tests/test_subscriptions.py
+
+@pytest.mark.asyncio
+async def test_subscribe_to_segment_all_cities(db_session, test_user):
+    """Подписка на направление — все города."""
+    sub = UserSubscription(
+        user_id=test_user.id,
+        segment_id=1,
+        country_id=1,
+        mode="all"
+    )
+    db_session.add(sub)
+    await db_session.flush()
+
+    assert sub.id is not None
+    assert sub.mode == "all"
+
+@pytest.mark.asyncio
+async def test_subscribe_to_segment_specific_cities(db_session, test_user):
+    """Подписка на направление — конкретные города."""
+    sub = UserSubscription(
+        user_id=test_user.id,
+        segment_id=1,
+        country_id=1,
+        mode="cities"
+    )
+    db_session.add(sub)
+    await db_session.flush()
+
+    sc = SubscriptionCity(subscription_id=sub.id, city_id=1)
+    db_session.add(sc)
+    await db_session.flush()
+
+    assert sc.subscription_id == sub.id
+```
+
+### Запуск
+```bash
+# Только integration
+pytest tests/ -v -k "integration"
+
+# Все тесты
+pytest tests/ -v
+```
+
+---
+
+## 3. Smoke-тесты (ручной скрипт)
+
+### Что проверяем
+Полный цикл: сообщение в тестовом канале → классификация → подбор пользователей → уведомление в личку.
+
+### Запуск (ручной, перед деплоем)
+```bash
+# Убедись что бот и воркер запущены:
+docker compose ps
+
+python tests/smoke_test.py
+```
+
+### smoke_test.py (скелет)
+```python
+"""
+Smoke-тест: проверяет полный путь уведомления.
+
+1. Создаёт тестового пользователя в БД с подпиской на сегмент
+2. Отправляет тестовое сообщение в тестовый канал через userbot
+3. Ждёт до 30 секунд уведомления в личку через Bot API
+4. Проверяет: сообщение получено, формат корректный
+
+Требования:
+- Бот и worker запущены (docker compose up -d)
+- Тестовый канал существует и userbot в нём есть
+- BOT_TOKEN и USERBOT_SESSION в .env
+"""
+...
+```
+
+### Когда запускать
+- Перед каждым `git push` на продакшен
+- После фазы 5 (рассыльщик) и дальше
+- При любых изменениях в listener.py или sender.py
+
+---
+
+## 4. Pre-commit checklist (QA)
+
+Перед каждым `git commit`:
+
+### Все фазы
+- [ ] `pytest tests/ -v` — все тесты зелёные
+- [ ] `docker compose up -d --build` — проект запускается без ошибок
+- [ ] `docker compose logs --tail=20` — нет WARNING/ERROR в логах
+- [ ] `.env` не в git (`git status` не показывает `.env`)
+
+### Фазы 3+ (бизнес-логика)
+- [ ] artifact-code-reviewer на диффе:
+  > Проверь дифф на качество кода, соответствие CODING_STYLE.md
+  > и потенциальные баги. Верни blocker/concern/suggestion.
+- [ ] Исправлены все blocker'ы
+- [ ] Новые публичные функции имеют тесты
+
+### Фазы 5+ (рассыльщик)
+- [ ] `python tests/smoke_test.py` — полный цикл проходит
+
+### Фазы 7+ (оплата)
+- [ ] Тестовый платёж проходит (Stars test environment)
+- [ ] План пользователя меняется после оплаты
+- [ ] Лимиты расширяются соответственно тарифу
+
+---
+
+## 5. Регрессия: как не сломать работающее
+
+### Правило: перед изменением существующей функции
+1. Прочитать все тесты на эту функцию
+2. Добавить тест на новый сценарий ДО изменения кода
+3. Убедиться что старые тесты ломаются (если ожидаемо)
+4. Изменить код
+5. Все тесты зелёные → готово
+
+### Git bisect
+Если что-то сломалось и неясно когда:
+```bash
+git bisect start
+git bisect bad HEAD
+git bisect good phase-5-done  # последний стабильный тег
+# ... тестируем каждый шаг ...
+git bisect good  # или bad
+# ... в конце:
+git bisect reset
+```
+
+---
+
+## 6. Известные ограничения
+
+- **Smoke-тест требует живого Telegram-соединения** — не в CI, только локально
+- **Тестовая БД требует отдельной PostgreSQL** — создаётся в `docker-compose.override.yml` для тестов
+- **Userbot-тесты требуют живого session-файла** — не автоматизированы в v1
+- **Платёжные тесты требуют тестового окружения (Stars sandbox / CryptoBot testnet)** — см. Фазу 7
