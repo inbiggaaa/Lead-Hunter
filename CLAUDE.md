@@ -78,7 +78,7 @@ SaaS-сервис на базе Telegram-бота. Отслеживает соо
 
 **Главное меню (9 кнопок):** 🔍 Поиск клиентов → FSM-воронка | ⚙️ Ключевые слова | 📢 Каналы | 📋 Подписки | 🎁 Рефералы | 💰 Тариф | 🌐 Язык | ⚙️ Настройки | ℹ️ О сервисе
 
-**FSM-воронка:** направление (счётчик N/M) → страна → режим (все/выбрать) → города → подтверждение → триал/оплата. Free=1 сегмент, Pro=3, Business=∞.
+**FSM-воронка:** направление (счётчик N/M) → страна → география (по всей стране / в городах) → города → подтверждение → триал/оплата. Free=1 сегмент, Pro=3, Business=∞.
 
 **Форматы уведомлений:** Free — контакты скрыты, кнопка «💰 Активировать подписку». Paid (Pro/Business/Trial) — полный формат с @отправителем и чатом, кнопки «💬 Ответить». 🔥 для срочных.
 
@@ -451,7 +451,7 @@ heartbeat:userbot:{id}           → timestamp
 ## 5г. FSM CatStates
 
 ```
-choosing_segment → choosing_country → choosing_mode →
+choosing_segment → choosing_country → choosing_geo →
 choosing_cities / confirm_subscription → trial_activation / payment_offer →
 show_last_leads → done
 ```
