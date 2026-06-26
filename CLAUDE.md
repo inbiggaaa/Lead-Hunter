@@ -77,7 +77,7 @@ SaaS-сервис на базе Telegram-бота. Отслеживает соо
 
 **Принципы:** только inline-клавиатуры, все экраны с «◀️ Назад», FSM с `/cancel`. Картинки позже.
 
-**Главное меню (9 кнопок):** 🔍 Поиск клиентов → FSM-воронка | ⚙️ Ключевые слова | 📢 Каналы | 📋 Подписки | 🎁 Рефералы | 💰 Тариф | 🌐 Язык | ⚙️ Настройки | ℹ️ О сервисе
+**Главное меню (9 кнопок):** 🔍 Поиск клиентов → FSM-воронка | ⚙️ Мои ключевые слова | 📢 Мои каналы | 📋 Мои подписки | 🎁 Пригласить друга | 💰 Тариф и оплата | 🌐 Язык | ⚙️ Настройки | ℹ️ О сервисе
 
 **FSM-воронка:** направление (счётчик N/M) → страна → география (по всей стране / в городах) → города → подтверждение → триал/оплата. Free=1 сегмент, Pro=3, Business=∞.
 
@@ -384,9 +384,19 @@ reminders (
     id              BIGSERIAL PRIMARY KEY,
     user_id         BIGINT REFERENCES users(id) ON DELETE CASCADE,
     type            VARCHAR(30) NOT NULL,          -- trial_expired / subscription_expired / inactive
-    day_number      INT NOT NULL,
+    day_number      INT NOT NULL,                  -- 1,3,7 (trial/подписка); 14,28 (неактивность)
     sent_at         TIMESTAMPTZ DEFAULT now(),
     is_disabled     BOOLEAN DEFAULT false
+)
+
+periodic_prefs (                                  -- настройки периодических сообщений Free
+    user_id     BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    msg_type    VARCHAR(30) NOT NULL CHECK (msg_type IN (
+                    'weekly_digest', 'niche_growth', 'monthly_summary'
+                )),
+    is_disabled BOOLEAN DEFAULT false,
+    last_sent_at TIMESTAMPTZ,
+    PRIMARY KEY (user_id, msg_type)
 )
 ```
 
