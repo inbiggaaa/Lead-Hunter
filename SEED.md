@@ -718,3 +718,166 @@
 **Охват:** ~80 стран, 150+ городов. Покрывает те же регионы что и @slavianskiy_forum, но с большей детализацией по категориям (медицина, финансы, релокация, отзывы об отелях и т.д.)
 
 **Использование:** названия стран и городов из этого каталога могут использоваться для авто-матчинга при импорте публичных каналов.
+
+---
+
+## 📋 Источник: @tele_360chat (каталог «ЭМИГРАНТЫ 360°»)
+
+**Дата:** 2026-06-26
+**Новых:** 141 канал (40 уже в SEED.md из @slavianskiy_forum)
+**Всего от этого источника:** 181 канал
+
+### Новые каналы (по алфавиту)
+
+| Канал | Страна/Город (из контекста) |
+|---|---|
+| afganistan_forum | 🇦🇫 Афганистан |
+| aljir_chat | 🇩🇿 Алжир |
+| america_chatik | 🇺🇸 США |
+| ankara_tyrciya | 🇹🇷 Турция, Анкара |
+| armeniya_chatik | 🇦🇲 Армения |
+| avstriya_chat | 🇦🇹 Австрия |
+| avstriya_forum | 🇦🇹 Австрия |
+| azerbaidjanchat | 🇦🇿 Азербайджан |
+| bahrein_chat | 🇧🇭 Бахрейн |
+| bali_baraholka | 🇮🇩 Индонезия, Бали |
+| bangkok_chat | 🇹🇭 Таиланд, Бангкок |
+| bangladesh_chatik | 🇧🇩 Бангладеш |
+| baraholka_niachang | 🇻🇳 Вьетнам, Нячанг |
+| barbados_chat | 🇧🇧 Барбадос |
+| batumi_360 | 🇬🇪 Грузия, Батуми |
+| belgiya_chat | 🇧🇪 Бельгия |
+| belgiya_chatik | 🇧🇪 Бельгия |
+| belgrad_serbia | 🇷🇸 Сербия, Белград |
+| berlin_chat1 | 🇩🇪 Германия, Берлин |
+| bishcek_chat | 🇰🇬 Киргизия, Бишкек |
+| bodrum_chat | 🇹🇷 Турция, Бодрум |
+| bolgariia_chat | 🇧🇬 Болгария |
+| boliviya_chat | 🇧🇴 Боливия |
+| boliviya_chatik | 🇧🇴 Боливия |
+| bosniya_gercegovina | 🇧🇦 Босния и Герцеговина |
+| braziliya_360 | 🇧🇷 Бразилия |
+| brunei_chat | 🇧🇳 Бруней |
+| bursa_turciya | 🇹🇷 Турция, Бурса |
+| butan_chat | 🇧🇹 Бутан |
+| byharest_chat | 🇷🇴 Румыния, Бухарест |
+| cambodja_chatik | 🇰🇭 Камбоджа |
+| chili_forum | 🇨🇱 Чили |
+| cyprus_market | 🇨🇾 Кипр |
+| daniya_chat | 🇩🇰 Дания |
+| daniyachatik | 🇩🇰 Дания |
+| djibuti_chat | 🇩🇯 Джибути |
+| dominikana_chat | 🇩🇴 Доминикана |
+| dybai_chatik | 🇦🇪 ОАЭ, Дубай |
+| egipet_chatik | 🇪🇬 Египет |
+| ethiopia_chat | 🇪🇹 Эфиопия |
+| fethie_chat | 🇹🇷 Турция, Фетхие |
+| fidji_chat | 🇫🇯 Фиджи |
+| forum_belarus | 🇧🇾 Беларусь |
+| forum_beliz | 🇧🇿 Белиз |
+| forum_cuba | 🇨🇺 Куба |
+| forum_czech_republic | 🇨🇿 Чехия |
+| forum_england | 🇬🇧 Англия |
+| forum_lithuania | 🇱🇹 Литва |
+| forum_madagascar | 🇲🇬 Мадагаскар |
+| forum_maldives | 🇲🇻 Мальдивы |
+| forum_mongolia | 🇲🇳 Монголия |
+| forum_norway | 🇳🇴 Норвегия |
+| forum_slovenia | 🇸🇮 Словения |
+| forum_switzerland | 🇨🇭 Швейцария |
+| forum_tunisia | 🇹🇳 Тунис |
+| franciya_chat | 🇫🇷 Франция |
+| gambyrg_chat | 🇩🇪 Германия, Гамбург |
+| germaniia_chat | 🇩🇪 Германия |
+| goamarket | 🇮🇳 Индия, Гоа |
+| gonkong_chat | 🇭🇰 Гонконг |
+| grenada_ru | 🇬🇩 Гренада |
+| hanoi_chat | 🇻🇳 Вьетнам, Ханой |
+| hongkong_obyavleniya | 🇭🇰 Гонконг |
+| hoshimin_chatik | 🇻🇳 Вьетнам, Хошимин |
+| iordaniya_chat | 🇯🇴 Иордания |
+| irak_chat | 🇮🇶 Ирак |
+| irlandiya_chat | 🇮🇪 Ирландия |
+| islandiia_chat | 🇮🇸 Исландия |
+| ispaniya_chatik | 🇪🇸 Испания |
+| italiya_chatik | 🇮🇹 Италия |
+| izrail_avito | 🇮🇱 Израиль |
+| katar_ru | 🇶🇦 Катар |
+| kazahstan_ru | 🇰🇿 Казахстан |
+| keniya_chatik | 🇰🇪 Кения |
+| kipr_chat | 🇨🇾 Кипр |
+| kirgiziya_chatik | 🇰🇬 Киргизия |
+| kishinev_chatik | 🇲🇩 Молдова, Кишинёв |
+| kostarika_chat | 🇨🇷 Коста-Рика |
+| kyba_chat | 🇨🇺 Куба |
+| kyveit_chat | 🇰🇼 Кувейт |
+| laos_forum | 🇱🇦 Лаос |
+| latviya_chatik | 🇱🇻 Латвия |
+| lihtenshtein_chat | 🇱🇮 Лихтенштейн |
+| litva_chatik | 🇱🇹 Литва |
+| liwan_forum | 🇱🇧 Ливан |
+| london_360 | 🇬🇧 Англия, Лондон |
+| makedoniya_chat | 🇲🇰 Северная Македония |
+| malaziya_chat | 🇲🇾 Малайзия |
+| malta_forum | 🇲🇹 Мальта |
+| mavrikii | 🇲🇺 Маврикий |
+| meksica_chat | 🇲🇽 Мексика |
+| mersin_chatt | 🇹🇷 Турция, Мерсин |
+| moldova_forum | 🇲🇩 Молдова |
+| montenegro_market | 🇲🇪 Черногория |
+| myanmar_forum | 🇲🇲 Мьянма |
+| mynhen_chat | 🇩🇪 Германия, Мюнхен |
+| nepal_forum | 🇳🇵 Непал |
+| nicaragua_chat | 🇳🇮 Никарагуа |
+| niderland_chat | 🇳🇱 Нидерланды |
+| nigeriya_chat | 🇳🇬 Нигерия |
+| oman_forum | 🇴🇲 Оман |
+| pacistan_chat | 🇵🇰 Пакистан |
+| panama_ru | 🇵🇦 Панама |
+| papua_novaia_gvineia | 🇵🇬 Папуа-Новая Гвинея |
+| peru_forum | 🇵🇪 Перу |
+| portygaliya | 🇵🇹 Португалия |
+| pragachat | 🇨🇿 Чехия, Прага |
+| rymuniya | 🇷🇴 Румыния |
+| seishel_chat | 🇸🇨 Сейшелы |
+| seishelu_forum | 🇸🇨 Сейшелы |
+| seul_chatik | 🇰🇷 Корея, Сеул |
+| severnaia_koreia | 🇰🇵 КНДР |
+| shveciya | 🇸🇪 Швеция |
+| shveicariya_chat | 🇨🇭 Швейцария |
+| shwecia_chat | 🇸🇪 Швеция |
+| singapur_chatik | 🇸🇬 Сингапур |
+| siriya_chat | 🇸🇾 Сирия |
+| slovakiya_chat | 🇸🇰 Словакия |
+| slovakiya_chatik | 🇸🇰 Словакия |
+| srilanka_baraholka | 🇱🇰 Шри-Ланка |
+| tadjikistan_chatik | 🇹🇯 Таджикистан |
+| taiwan_forum | 🇹🇼 Тайвань |
+| tallin_estoniya | 🇪🇪 Эстония, Таллин |
+| tbilisi_360 | 🇬🇪 Грузия, Тбилиси |
+| tenerife_chatik | 🇪🇸 Испания, Тенерифе |
+| thailand_rus | 🇹🇭 Таиланд |
+| trabzon_turciya | 🇹🇷 Турция, Трабзон |
+| trinidad_i_tobago | 🇹🇹 Тринидад и Тобаго |
+| turcmenistan_chat | 🇹🇲 Туркменистан |
+| tyrciya_chatik | 🇹🇷 Турция |
+| unawatuna_chatik | 🇺🇿 Узбекистан |
+| urugvai_chat | 🇺🇾 Уругвай |
+| uzbekistan_avito | 🇺🇿 Узбекистан |
+| vengriya_chat | 🇭🇺 Венгрия |
+| vungtau_360 | 🇻🇳 Вьетнам, Вунгтау |
+| warshawa_chat | 🇵🇱 Польша, Варшава |
+| wengria_forum | 🇭🇺 Венгрия |
+| yamaika_chat | 🇯🇲 Ямайка |
+| yaponiya_chatik | 🇯🇵 Япония |
+| zanzibar_360 | 🇹🇿 Танзания, Занзибар |
+
+## 📊 Общая статистика SEED.md
+
+| Параметр | Значение |
+|---|---|
+| @slavianskiy_forum | 185 каналов |
+| @tele_360chat (новые) | 141 канал |
+| TravelAsk (приватные, справочник) | 442 канала |
+| **Всего публичных** | **326 каналов** |
+| **Стран** | **90+** |
