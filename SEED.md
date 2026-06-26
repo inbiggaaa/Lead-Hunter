@@ -21,7 +21,6 @@
 | fudjeira_chat | Фуджейра | общий |
 | relokaciya_dubai | Дубай | релокация |
 | dubai_poputchiki | Дубай | попутчики |
-| dybai_afisha | Дубай | афиша |
 
 ## 🇦🇷 Аргентина
 
@@ -35,9 +34,7 @@
 | argentina_medicina | — | медицина |
 | byenos_aires | Буэнос-Айрес | экспаты |
 | argentina_relokaciia | — | релокация |
-| argentina_novosti_ru | — | новости |
 | buenosaires_chatik | Буэнос-Айрес | тусовки |
-| buenosaires_afisha | Буэнос-Айрес | афиша |
 
 ## 🇦🇱 Албания
 
@@ -55,7 +52,6 @@
 | erevan_dengi | Ереван | обмен валют |
 | armeniya_pitomci | — | питомцы |
 | armeniya_ru | — | туристы |
-| erewan_afisha | Ереван | афиша |
 
 ## 🇦🇴 Ангола
 
@@ -86,7 +82,6 @@
 | portualegri | Порту-Алегри | общий |
 | riodejaneiro_expats | Рио-де-Жанейро | экспаты |
 | santos_chatik | Сантос | общий |
-| floripa_afisha | Флорианополис | афиша |
 | florianopolis_woman | Флорианополис | женский |
 | florianopolis_chat | Флорианополис | объявления |
 | rio_dejaneiro_chat | Рио-де-Жанейро | объявления |
@@ -132,13 +127,9 @@
 | vungtau_chat | Вунгтау | общий |
 | nhatrang_moto | Нячанг | мото |
 | dalat_ru | Далат | объявления |
-| nyachang_ru | Нячанг | афиша |
 | hanoi_chatik | Ханой | тусовки |
 | vietnam_poputchiki | — | попутчики |
 | danang_chatik | Дананг | отдам |
-| danang_afisha | Дананг | афиша |
-| phuquoc_afisha | Фукуок | афиша |
-| hoshimin_afisha | Хошимин | афиша |
 
 ## 🇬🇧 Великобритания
 
@@ -161,9 +152,6 @@
 | rystavi_baraholka | Рустави | объявления |
 | relokaciya_gruziya | — | релокация |
 | gruziyaa | — | банки |
-| gruziya_novosti | — | новости |
-| tbilisi_afisha | Тбилиси | афиша |
-| batumi_ge | Батуми | афиша |
 | borjomi_chatik | Боржоми | объявления |
 
 ## 🇩🇪 Германия
@@ -193,7 +181,6 @@
 | izrail_pitomci | — | питомцы |
 | izrail_poputchiki | — | попутчики |
 | izrailru | — | туристы |
-| haifa_afisha | Хайфа | афиша |
 
 ## 🇮🇳 Индия
 
@@ -207,8 +194,6 @@
 | indiya_poputchiki | — | попутчики |
 | goa_moto | Гоа | мото |
 | indiya_chat | — | туристы |
-| indiya_novosti | — | новости |
-| goa_afishaa | Гоа | афиша |
 
 ## 🇮🇩 Индонезия
 
@@ -219,8 +204,6 @@
 | lombok_chat | Ломбок | общий |
 | sumatra_ru | Суматра | общий |
 | bali_i | Бали | туристы |
-| bali_afishaa | Бали | афиша |
-| afisha_ubud | Бали (Убуд) | афиша |
 
 ## 🇮🇷 Иран
 
@@ -281,7 +264,6 @@
 | kipr_relokaciya | — | релокация |
 | kiriniya | Кириния | общий |
 | famagusta_ru | Фамагуста | общий |
-| limassol_afisha | Лимассол | афиша |
 
 ## 🇨🇳 Китай
 
@@ -347,7 +329,6 @@
 | Канал | Город | Тема |
 |---|---|---|
 | mavrikiy_chatik | Порт-Луи | объявления |
-| mauritius_afisha | — | афиша |
 
 ## 🇲🇴 Макао
 
@@ -402,7 +383,6 @@
 | puerto_vallarta_chat | Пуэрто-Валлярта | общий |
 | playa_del_carmen_chat | Плайя-дель-Кармен | общий |
 | tulum_chat | Тулум | общий |
-| cancun_afisha | Канкун | афиша |
 
 ## 🇲🇿 Мозамбик
 
@@ -414,7 +394,6 @@
 
 | Канал | Город | Тема |
 |---|---|---|
-| panama_afisha | Панама-Сити | афиша |
 
 ## 🇵🇾 Парагвай
 
@@ -445,7 +424,6 @@
 | novisad_chatik | Нови-Сад | общий |
 | serbiya_poputchiki | — | попутчики |
 | serbiya_avto | — | авторынок |
-| belgrad_afisha | Белград | афиша |
 
 ## 🇸🇦 Саудовская Аравия
 
@@ -494,12 +472,7 @@
 | samui_uslugi | Самуи | услуги |
 | phuket_mastera | Пхукет | мастера |
 | tailand_chatu | — | туристы |
-| phyket_afisha | Пхукет | афиша |
-| tailand_novosti | — | новости |
 | tailand_poputchiki | — | попутчики |
-| samyi_afisha | Самуи | афиша |
-| pattaia_afisha | Паттайя | афиша |
-| pangan_afisha | Панган | афиша |
 
 ## 🇹🇷 Турция
 
@@ -535,9 +508,6 @@
 | relokaciya_turciya | — | релокация |
 | tuzla_chat | Стамбул (Тузла) | общий |
 | pendik_ru | Стамбул (Пендик) | общий |
-| turciya_novosti | — | новости |
-| antaliya_afisha | Анталья | афиша |
-| alaniya_afisha | Аланья | афиша |
 | anamur_chat | Анамур | общий |
 | alachati_chat | Алачати | общий |
 | ayvalik_chat | Айвалык | общий |
@@ -545,11 +515,9 @@
 | iskenderun_chat | Искандерун | общий |
 | kodjaeli_chat | Коджаэли | общий |
 | payallar_chat | Паяллар | общий |
-| stambul_afisha | Стамбул | афиша |
 | finike_chat | Финике | общий |
 | cheshme_chat | Чешме | общий |
 | chanakkale_chat | Чанаккале | общий |
-| fethie_afisha | Фетхие | афиша |
 | olydeniz_chat | Олюдениз | общий |
 
 ## 🇫🇮 Финляндия
@@ -590,7 +558,6 @@
 | chernogoriya_pitomci | — | питомцы |
 | top360_chat | — | банки |
 | bar_chernogoriya | Бар | общий |
-| budva_afisha | Будва | афиша |
 
 ## 🇨🇱 Чили
 
@@ -605,7 +572,6 @@
 |---|---|---|
 | quito_chat | Кито | экспаты |
 | cuenca_chat | Куэнка | экспаты |
-| ekvador_novosti | — | новости |
 | galapagos_chat | Галапагосы | общий |
 | ekvador_ru | — | объявления |
 
@@ -626,7 +592,6 @@
 | africa_market | — | объявления |
 | keiptaun_chat | Кейптаун | экспаты |
 | keiptayn_chat | Кейптаун | тусовки |
-| capetown_afisha | Кейптаун | афиша |
 | ceiptaun_chat | Кейптаун | объявления |
 | iohannesburg_chat | Йоханнесбург | общий |
 | port_elizabet | Порт-Элизабет | общий |
@@ -879,5 +844,5 @@
 | @slavianskiy_forum | 185 каналов |
 | @tele_360chat (новые) | 141 канал |
 | TravelAsk (приватные, справочник) | 442 канала |
-| **Всего публичных** | **326 каналов** |
+| **Всего публичных** | **291 канал** |
 | **Стран** | **90+** |
