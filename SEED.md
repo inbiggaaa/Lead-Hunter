@@ -846,3 +846,320 @@
 | TravelAsk (приватные, справочник) | 442 канала |
 | **Всего публичных** | **291 канал** |
 | **Стран** | **90+** |
+
+---
+
+## 📋 Источник: прямой список (Vietnam, Turkey, Egypt, Thailand, Maldives, Sri Lanka, Bali, Seychelles)
+
+**Дата:** 2026-06-26
+**Новых:** 210 каналов
+**Дубликатов:** 1 (danang_expats)
+
+### 🇻🇳 Вьетнам — Da Nang (14 новых)
+
+| Канал | Название |
+|---|---|
+| arenda_v_danang | Дананг Недвижимость №1 |
+| danang001 | Дананг Барахолка №1 — Объявления |
+| danang3 | Дананг Чат Объявления |
+| danang_chats | Дананг \| Вьетнам — Общение Чат |
+| danang_housing | Da Nang Housing |
+| danang_jobs | Jobs Da Nang |
+| danang_movers | Дананг транспорт |
+| danang_rent | Дананг аренда жилья |
+| danang_viet | ДАНАНГ 🇻🇳 ЧАТ |
+| danangc | Дананг Чат Объявления #1 |
+| danangchat_ask | ДАНАНГ ЧАТ 🇻🇳 ОБЩЕНИЕ |
+| proshedanang | Проще говоря. Дананг |
+| vietnam_danang1 | Дананг Чат Bazaar |
+| vietnam_general | Вьетнам \| Визы, гиды, обмен |
+
+### 🇻🇳 Вьетнам — Nha Trang (11 новых)
+
+| Канал | Название |
+|---|---|
+| arenda_v_nyachang | Нячанг Недвижимость №1 |
+| nha_trang_1 | Проще говоря. Нячанг |
+| nhatrang_life | Нячанг \| Жизнь и сервисы |
+| nhatrang_rent | Nha Trang Housing |
+| nhatrang_sport | НЯЧАНГ \| Спортивный |
+| nyachang1 | Нячанг Чат Объявления Барахолка |
+| nyachang_chatask | НЯЧАНГ ЧАТ 🇻🇳 ОБЩЕНИЕ |
+| nyachang_uslugi | Нячанг Барахолка №1 🇻🇳 Объявления |
+| nyachang_vietnam | Чат Нячанг 🇻🇳 Вьетнам |
+| nyachangb | Нячанг Объявления |
+| nyachangs | Нячанг Чат Объявления |
+
+### 🇻🇳 Вьетнам — Ho Chi Minh City (4 новых)
+
+| Канал | Название |
+|---|---|
+| hcmc_jobs | Jobs Ho Chi Minh City |
+| hochiminh_saigon | Хошимин 🇻🇳 чат |
+| saigon_services | Хошимин \| Красота и клининг |
+| saigon_vetnam | Хошимин Чат Bazaar |
+
+### 🇻🇳 Вьетнам — Phu Quoc (2 новых)
+
+| Канал | Название |
+|---|---|
+| phu_quoc_vietnam | ФУКУОК 🇻🇳 ЧАТ |
+| phuquoc_vetnam | Фукуок Чат Bazaar |
+
+### 🇻🇳 Вьетнам — Hanoi (1 новый)
+
+| Канал | Название |
+|---|---|
+| khanoi_vetnam | Ханой Чат Bazaar |
+
+### 🇻🇳 Вьетнам — Mui Ne (1 новый)
+
+| Канал | Название |
+|---|---|
+| mui_ne_vietnam | Муйне Фантьет 🇻🇳 |
+
+### 🇻🇳 Вьетнам — вся страна (6 новых)
+
+| Канал | Название |
+|---|---|
+| chat_vietnam_ru | Чат Вьетнам 🇻🇳 |
+| fem_vietnam | Женский 🇻🇳 Вьетнам |
+| gid_vietnam | Экскурсии Гиды 🇻🇳 Вьетнам |
+| rent_vietnam | Недвижимость Вьетнам — аренда |
+| vietnam_bazaar | Вьетнам Чат Bazaar |
+| vietnam_jobs | Jobs Vietnam (all cities) |
+
+### 🇹🇷 Турция — города (16 новых)
+
+| Канал | Город |
+|---|---|
+| stambul21 | Istanbul |
+| antalya16 | Antalya |
+| alanya_tursia | Alanya |
+| bodrum_tursia | Bodrum |
+| fethie_tursia | Fethiye |
+| marmaris_tursia | Marmaris |
+| izmir_tursia | Izmir |
+| ankara_tursia | Ankara |
+| mersin_tursia | Mersin |
+| kemerc | Kemer |
+| bursa_turtsia | Bursa |
+| bursap | Bursa |
+| trabzonb | Trabzon |
+| kyshadasi_tursia | Kusadasi |
+| gazipasha_tursia | Gazipasha |
+| cappadociac | Cappadocia |
+
+### 🇹🇷 Турция — вся страна (20 новых)
+
+| Канал | Тема |
+|---|---|
+| arenda_tursia | Недвижимость |
+| avto_tursia | Авто Мото |
+| baraholka_tursia | Объявления Купи Продай |
+| biznes_tursia | Бизнес |
+| deti_tursia | С детьми |
+| eda_tursia | Рестораны Кафе |
+| ekskursii_tursia | Экскурсии |
+| medicina_tursia | Медицина |
+| obmen_tursia | Обмен валют |
+| oteli_tursia | Отели |
+| otzovy_tursia | Отзывы |
+| party_tursia | Движ Вечеринки |
+| posylki_tursia | Посылки |
+| rabota_tursia | Работа |
+| transfer_tursia | Трансфер Попутчики |
+| turtsiab | Чат Турция |
+| uslugi_tursia | Услуги |
+| vnz_tursia | Виза ВНЖ |
+| women_tursia | Женский чат |
+| zhivotnie_tursia | Животные |
+
+### 🇪🇬 Египет — города (10 новых)
+
+| Канал | Город |
+|---|---|
+| alexandria_egipet | Alexandria |
+| kair_egipet | Cairo |
+| khurgadab | Hurghada |
+| sharmelsheih_egipet | Sharm El-Sheikh |
+| el_guna | El Gouna |
+| sahlhasheeshe | Sahl Hasheesh |
+| marsaalam_egipet | Marsa Alam |
+| mersamatrukh | Marsa Matrouh |
+| nuveiba | Nuweiba |
+| taba_egipet | Taba |
+
+### 🇪🇬 Египет — вся страна (26 новых)
+
+| Канал | Тема |
+|---|---|
+| avto_egipet | Аренда Авто/Мото |
+| biznes_egipet | Бизнес |
+| dakhaba | Дахаб чат |
+| deti_egipet | С детьми |
+| diving_egipet | Дайвинг |
+| egipet_baraholka | Объявления Барахолка |
+| egipet_obmen_valut | Обмен валюты |
+| egipet_otzyvy | Отзывы |
+| egipet_uslugi | Услуги |
+| egipetb | Египет чат |
+| ekskursii_egipet | Экскурсии |
+| ekspaty_egipet | Экспаты |
+| fem_egipet | Женский |
+| kvartiry_doma_egipet | Недвижимость |
+| meditsina_egipet | Медицина |
+| oteli_egipet | Отели |
+| party_egipet | Движ |
+| posylki_egipet | Посылки |
+| restorany_egipet | Рестораны/Кафе |
+| transfer_egipet | Трансфер Попутчики |
+| vakansii_egipet | Работа |
+| viza_egipet | Виза ВНЖ |
+| zhivotnye_egipet | Животные |
+| kaytserfing | Кайтсерфинг (Египет) |
+| makadibey | Макади Бэй (Хургада) |
+
+### 🇹🇭 Таиланд — города (8 новых)
+
+| Канал | Город |
+|---|---|
+| bangkok17 | Bangkok |
+| pkhuket10 | Phuket |
+| phuket_community | Phuket |
+| pattaiaa | Pattaya |
+| samui7 | Koh Samui |
+| phanganc | Koh Phangan |
+| kochang_tailand | Koh Chang |
+| krabi_tai | Krabi |
+
+### 🇹🇭 Таиланд — вся страна (19 новых)
+
+| Канал | Тема |
+|---|---|
+| aviabilety_tailand | Авиабилеты |
+| bike_tailand | Авто Байк |
+| biznes_tailand | Бизнес |
+| ekskursii_tailand | Экскурсии |
+| fem_tailand | Для женщин |
+| kids_tailand | С детьми |
+| medicina_tailand | Медицина |
+| obmen_valuti_tailand | Обмен валют |
+| oteli_tailand | Отели |
+| party_tailand | Движ |
+| pets_tailand | Животные |
+| posylki_tailand | Посылки |
+| rabota_tayland | Работа |
+| tai_nedvizhimost | Недвижимость |
+| tailand_avito | Доска объявлений |
+| tailand_visa | Виза |
+| tailandr | ЧАТ ТАИЛАНД |
+| taxi_tailand | Трансфер |
+| uslugi_tailand | Услуги |
+
+### 🇲🇻 Мальдивы (15 новых)
+
+| Канал | Остров/Тема |
+|---|---|
+| bandos_maldivy | Bandos |
+| digura_maldivy | Dhigurah |
+| feridu_maldivy | Feridhoo |
+| fuladu_maldivy | Fulidhoo |
+| guraido_maldivy | Guraidhoo |
+| maafushi_maldivy | Maafushi |
+| male_maldivy | Male |
+| rasdu_maldivy | Rasdhoo |
+| tinadu_vaavu | Tinadu |
+| toddu_maldivy | Thulusdhoo |
+| ukulhas_maldivy | Ukulhas |
+| vaadhu_maldivy | Vaadhoo |
+| maldivy_oteli | Отели |
+| maldivyc | Чат Мальдивы |
+| san_maldivy | Сан Мальдивы |
+
+### 🇱🇰 Шри-Ланка — города (18 новых)
+
+| Канал | Город |
+|---|---|
+| shri_lanka_ahangama | Ahangama |
+| shri_lanka_ambalangoda | Ambalangoda |
+| shri_lanka_arugambay | Arugam Bay |
+| shri_lanka_bentota | Bentota |
+| shri_lanka_beruwala | Beruwala |
+| shri_lanka_kolombo_negonbo | Colombo |
+| shri_lanka_ella | Ella |
+| shri_lanka_galle | Galle |
+| shri_lanka_tangalle | Tangalle |
+| shri_lanka_hikkaduwa | Hikkaduwa |
+| shri_lanka_kalpitiya | Kalpitiya |
+| shri_lanka_kandy | Kandy |
+| shri_lanka_mirissa | Mirissa |
+| shri_lanka_passekudah_kalkudah | Passekudah |
+| shri_lanka_trincomalee | Trincomalee |
+| shri_lanka_unawatuna | Unawatuna |
+| shri_lanka_wadduwa | Wadduwa |
+| shri_lanka_weligama | Weligama |
+
+### 🇱🇰 Шри-Ланка — вся страна (26 новых)
+
+| Канал | Тема |
+|---|---|
+| news_shri_lanka | Чаты Шри-Ланка |
+| obmen_valut_sri_lanka | Обмен |
+| shri_lanka_air_tickets | Авиаперелеты |
+| shri_lanka_baby | С детьми |
+| shri_lanka_bike | Авто байки |
+| shri_lanka_by_sell | Купи/Продай |
+| shri_lanka_ekskursii | Экскурсии |
+| shri_lanka_fem | Для Женщин |
+| shri_lanka_hotels | Отели |
+| shri_lanka_insurance | Страховка |
+| shri_lanka_mamkin_businessman | Бизнес |
+| shri_lanka_med | Медицина |
+| shri_lanka_michelin | Рестораны/кафе |
+| shri_lanka_party | Движ |
+| shri_lanka_prices | Цены |
+| shri_lanka_rent | Недвижимость |
+| shri_lanka_ru | ЧАТ Шри-Ланка |
+| shri_lanka_surfing | Серфинг |
+| shri_lanka_tranfer | Трансфер |
+| shri_lanka_uslugi | Услуги |
+| shri_lanka_visa | Виза |
+| shri_lanka_yoga | Йога |
+| sri_lanka_fun | Кунсткамера |
+| sri_lanka_otzyvy | Отзывы |
+| sri_lanka_pets | Животные |
+| sri_lanka_rabota | Работа |
+
+### 🇮🇩 Индонезия, Бали (3 новых)
+
+| Канал | Название |
+|---|---|
+| bali_expat_home | Bali Expat Housing |
+| bali_rent | Bali Rent & Housing |
+| bali_expats | Bali Expats Community |
+
+### 🇸🇨 Сейшелы (11 новых)
+
+| Канал | Остров/Тема |
+|---|---|
+| seychelles_ru | Сейшелы чат |
+| seyshely_avto | Аренда машины байка |
+| seyshely_dayving | Дайвинг |
+| seyshely_ekskursii | Экскурсии |
+| seyshely_oteli | Отели |
+| transfer_seyshely | Трансфер такси |
+| ostrov_fregat | Фрегат |
+| ostrov_la_dig | Ла Диг |
+| ostrov_praslin | Праслин |
+| ostrov_sent_ann | Сент-Анн |
+| ostrov_siluet | Силуэт |
+
+## 📊 Итого SEED.md
+
+| Параметр | Значение |
+|---|---|
+| @slavianskiy_forum + @tele_360chat | 291 канал |
+| Прямой список (этот) | **+210** каналов |
+| **Всего публичных** | **501 канал** |
+| **Стран** | **90+** |
