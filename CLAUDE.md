@@ -188,8 +188,10 @@ LeadHunter/
     ├── db/
     │   ├── models.py, session.py, crud.py
     ├── userbot/
-    │   ├── pool.py, listener.py, classifier.py
-    │   ├── llm_validator.py   ← DeepSeek-V3 (выключен, DEEPSEEK_ENABLED=false)
+    │   ├── pool.py          ← пул аккаунтов (Фаза 9)
+    │   ├── poller.py        ← умный поллинг каналов (без вступления, по tier'ам)
+    │   ├── classifier.py    ← трёхпроходный NLP
+    │   ├── llm_validator.py ← DeepSeek-V3 (выключен)
     │   └── discovery.py
     ├── cache/subscription_cache.py
     ├── payments/              ← stars.py, cryptobot.py (PaymentProvider Protocol)
