@@ -1,178 +1,8 @@
 # SEED.md — Каталог каналов LeadHunter
 
-Единый справочник публичных каналов. Формат: @username | Локация | Название.
-**Всего:** 1086 каналов | **Стран:** 84
+**Всего:** 945 каналов | **Стран:** 86
 
 ---
-
-## 🇨🇦 Канада (164 каналов)
-
-| Канал | Локация | Название |
-|---|---|---|
-| @afganistan_forum | 🇦🇫 Афганистан | — |
-| @aljir_chat | 🇩🇿 Алжир | — |
-| @america_chatik | 🇺🇸 США | — |
-| @ankara_tyrciya | 🇹🇷 Турция, Анкара | — |
-| @armeniya_chatik | 🇦🇲 Армения | — |
-| @avstriya_chat | 🇦🇹 Австрия | — |
-| @avstriya_forum | 🇦🇹 Австрия | — |
-| @azerbaidjanchat | 🇦🇿 Азербайджан | — |
-| @bahrein_chat | 🇧🇭 Бахрейн | — |
-| @bali_baraholka | 🇮🇩 Индонезия, Бали | — |
-| @bangkok_chat | 🇹🇭 Таиланд, Бангкок | — |
-| @bangladesh_chatik | 🇧🇩 Бангладеш | — |
-| @baraholka_niachang | 🇻🇳 Вьетнам, Нячанг | — |
-| @barbados_chat | 🇧🇧 Барбадос | — |
-| @batumi_360 | 🇬🇪 Грузия, Батуми | — |
-| @belgiya_chat | 🇧🇪 Бельгия | — |
-| @belgiya_chatik | 🇧🇪 Бельгия | — |
-| @belgrad_serbia | 🇷🇸 Сербия, Белград | — |
-| @berlin_chat1 | 🇩🇪 Германия, Берлин | — |
-| @bishcek_chat | 🇰🇬 Киргизия, Бишкек | — |
-| @bodrum_chat | 🇹🇷 Турция, Бодрум | — |
-| @bolgariia_chat | 🇧🇬 Болгария | — |
-| @boliviya_chat | 🇧🇴 Боливия | — |
-| @boliviya_chatik | 🇧🇴 Боливия | — |
-| @bosniya_gercegovina | 🇧🇦 Босния и Герцеговина | — |
-| @braziliya_360 | 🇧🇷 Бразилия | — |
-| @brunei_chat | 🇧🇳 Бруней | — |
-| @bursa_turciya | 🇹🇷 Турция, Бурса | — |
-| @butan_chat | 🇧🇹 Бутан | — |
-| @byharest_chat | 🇷🇴 Румыния, Бухарест | — |
-| @caboverde_chat | Кабо-Верде | Прая |
-| @calgary_chat | Калгари | общий |
-| @cambodja_chatik | 🇰🇭 Камбоджа | — |
-| @chili_forum | 🇨🇱 Чили | — |
-| @cyprus_market | 🇨🇾 Кипр | — |
-| @daniya_chat | 🇩🇰 Дания | — |
-| @daniyachatik | 🇩🇰 Дания | — |
-| @djibuti_chat | 🇩🇯 Джибути | — |
-| @dominica_chatik | Доминика | Розо |
-| @dominikana_chat | 🇩🇴 Доминикана | — |
-| @dybai_chatik | 🇦🇪 ОАЭ, Дубай | — |
-| @egipet_chatik | 🇪🇬 Египет | — |
-| @ethiopia_chat | 🇪🇹 Эфиопия | — |
-| @fethie_chat | 🇹🇷 Турция, Фетхие | — |
-| @fidji_chat | 🇫🇯 Фиджи | — |
-| @forum_belarus | 🇧🇾 Беларусь | — |
-| @forum_beliz | 🇧🇿 Белиз | — |
-| @forum_cuba | 🇨🇺 Куба | — |
-| @forum_czech_republic | 🇨🇿 Чехия | — |
-| @forum_england | 🇬🇧 Англия | — |
-| @forum_lithuania | 🇱🇹 Литва | — |
-| @forum_madagascar | 🇲🇬 Мадагаскар | — |
-| @forum_maldives | 🇲🇻 Мальдивы | — |
-| @forum_mongolia | 🇲🇳 Монголия | — |
-| @forum_norway | 🇳🇴 Норвегия | — |
-| @forum_slovenia | 🇸🇮 Словения | — |
-| @forum_switzerland | 🇨🇭 Швейцария | — |
-| @forum_tunisia | 🇹🇳 Тунис | — |
-| @franciya_chat | 🇫🇷 Франция | — |
-| @gabon_ru | Габон | Либревиль |
-| @gaiana_chat | Гайана | Джорджтаун |
-| @gaiti_chat | Гаити | Порт-о-Пренс |
-| @gambyrg_chat | 🇩🇪 Германия, Гамбург | — |
-| @gana_chat | Гана | Аккра |
-| @germaniia_chat | 🇩🇪 Германия | — |
-| @goamarket | 🇮🇳 Индия, Гоа | — |
-| @gonduras_chat | Гондурас | Тегусигальпа |
-| @gonkong_chat | 🇭🇰 Гонконг | — |
-| @grenada_ru | 🇬🇩 Гренада | — |
-| @gvatemala_chat | Гватемала | Гватемала |
-| @hanoi_chat | 🇻🇳 Вьетнам, Ханой | — |
-| @hongkong_obyavleniya | 🇭🇰 Гонконг | — |
-| @hoshimin_chatik | 🇻🇳 Вьетнам, Хошимин | — |
-| @iordaniya_chat | 🇯🇴 Иордания | — |
-| @irak_chat | 🇮🇶 Ирак | — |
-| @irlandiya_chat | 🇮🇪 Ирландия | — |
-| @islandiia_chat | 🇮🇸 Исландия | — |
-| @ispaniya_chatik | 🇪🇸 Испания | — |
-| @italiya_chatik | 🇮🇹 Италия | — |
-| @izrail_avito | 🇮🇱 Израиль | — |
-| @kamerun_chat | Камерун | Яунде |
-| @katar_ru | 🇶🇦 Катар | — |
-| @kazahstan_ru | 🇰🇿 Казахстан | — |
-| @keniya_chatik | 🇰🇪 Кения | — |
-| @kipr_chat | 🇨🇾 Кипр | — |
-| @kirgiziya_chatik | 🇰🇬 Киргизия | — |
-| @kishinev_chatik | 🇲🇩 Молдова, Кишинёв | — |
-| @kostarika_chat | 🇨🇷 Коста-Рика | — |
-| @kyba_chat | 🇨🇺 Куба | — |
-| @kyveit_chat | 🇰🇼 Кувейт | — |
-| @laos_forum | 🇱🇦 Лаос | — |
-| @latviya_chatik | 🇱🇻 Латвия | — |
-| @lihtenshtein_chat | 🇱🇮 Лихтенштейн | — |
-| @litva_chatik | 🇱🇹 Литва | — |
-| @liwan_forum | 🇱🇧 Ливан | — |
-| @london_360 | 🇬🇧 Англия, Лондон | — |
-| @macedoniya_chat | Северная Македония | Скопье |
-| @makedoniya_chat | 🇲🇰 Северная Македония | — |
-| @malaziya_chat | 🇲🇾 Малайзия | — |
-| @malta_forum | 🇲🇹 Мальта | — |
-| @martinika_chat | Мартиника | Фор-де-Франс |
-| @mavrikii | 🇲🇺 Маврикий | — |
-| @meksica_chat | 🇲🇽 Мексика | — |
-| @mersin_chatt | 🇹🇷 Турция, Мерсин | — |
-| @moldova_forum | 🇲🇩 Молдова | — |
-| @monreal_ru | Монреаль | общий |
-| @montenegro_market | 🇲🇪 Черногория | — |
-| @myanmar_forum | 🇲🇲 Мьянма | — |
-| @mynhen_chat | 🇩🇪 Германия, Мюнхен | — |
-| @namibiya_chat | Намибия | Виндхук |
-| @nauru_chat | Науру | Ярен |
-| @nepal_forum | 🇳🇵 Непал | — |
-| @nicaragua_chat | 🇳🇮 Никарагуа | — |
-| @niderland_chat | 🇳🇱 Нидерланды | — |
-| @nigeriya_chat | 🇳🇬 Нигерия | — |
-| @oman_forum | 🇴🇲 Оман | — |
-| @ottawa_ru | Оттава | общий |
-| @pacistan_chat | 🇵🇰 Пакистан | — |
-| @panama_ru | 🇵🇦 Панама | — |
-| @papua_novaia_gvineia | 🇵🇬 Папуа-Новая Гвинея | — |
-| @peru_forum | 🇵🇪 Перу | — |
-| @portygaliya | 🇵🇹 Португалия | — |
-| @pragachat | 🇨🇿 Чехия, Прага | — |
-| @pyerto_riko | Пуэрто-Рико | Сан-Хуан |
-| @ruanda_chat | Руанда | Кигали |
-| @rymuniya | 🇷🇴 Румыния | — |
-| @salwador_chat | Сальвадор | Сан-Сальвадор |
-| @seishel_chat | 🇸🇨 Сейшелы | — |
-| @seishelu_forum | 🇸🇨 Сейшелы | — |
-| @sentlusiya | Сент-Люсия | Кастри |
-| @seul_chatik | 🇰🇷 Корея, Сеул | — |
-| @severnaia_koreia | 🇰🇵 КНДР | — |
-| @shveciya | 🇸🇪 Швеция | — |
-| @shveicariya_chat | 🇨🇭 Швейцария | — |
-| @shwecia_chat | 🇸🇪 Швеция | — |
-| @singapur_chatik | 🇸🇬 Сингапур | — |
-| @siriya_chat | 🇸🇾 Сирия | — |
-| @slovakiya_chat | 🇸🇰 Словакия | — |
-| @slovakiya_chatik | 🇸🇰 Словакия | — |
-| @srilanka_baraholka | 🇱🇰 Шри-Ланка | — |
-| @surinam_chat | Суринам | Парамарибо |
-| @tadjikistan_chatik | 🇹🇯 Таджикистан | — |
-| @taiwan_forum | 🇹🇼 Тайвань | — |
-| @tallin_estoniya | 🇪🇪 Эстония, Таллин | — |
-| @tbilisi_360 | 🇬🇪 Грузия, Тбилиси | — |
-| @tenerife_chatik | 🇪🇸 Испания, Тенерифе | — |
-| @thailand_rus | 🇹🇭 Таиланд | — |
-| @trabzon_turciya | 🇹🇷 Турция, Трабзон | — |
-| @trinidad_i_tobago | 🇹🇹 Тринидад и Тобаго | — |
-| @tunis_ru | Тунис | Тунис |
-| @turcmenistan_chat | 🇹🇲 Туркменистан | — |
-| @tyrciya_chatik | 🇹🇷 Турция | — |
-| @unawatuna_chatik | 🇺🇿 Узбекистан | — |
-| @urugvai_chat | 🇺🇾 Уругвай | — |
-| @uzbekistan_avito | 🇺🇿 Узбекистан | — |
-| @vancuver_chat | Ванкувер | общий |
-| @vanuatu_ru | Вануату | Порт-Вила |
-| @vengriya_chat | 🇭🇺 Венгрия | — |
-| @vungtau_360 | 🇻🇳 Вьетнам, Вунгтау | — |
-| @warshawa_chat | 🇵🇱 Польша, Варшава | — |
-| @wengria_forum | 🇭🇺 Венгрия | — |
-| @yamaika_chat | 🇯🇲 Ямайка | — |
-| @yaponiya_chatik | 🇯🇵 Япония | — |
-| @zanzibar_360 | 🇹🇿 Танзания, Занзибар | — |
 
 ## 🇹🇷 Турция (71 каналов)
 
@@ -297,7 +127,7 @@
 | @vlars_chat | 24,602 | ВЕРХНИЙ ЛАРС 🇬🇪 ЧАТ / ГРУЗИЯ |
 | @vyezd_v_georgia | 5,847 | Русские в Грузию / Выезд, Релокация, Обустройство |
 
-## 🇹🇭 Таиланд (40 каналов)
+## 🇹🇭 Таиланд (41 каналов)
 
 | Канал | Локация | Название |
 |---|---|---|
@@ -339,6 +169,7 @@
 | @thai_official | 5,713 | 🇹🇭🏝Таиланд - путешествия, релокация, жизнь, быт. |
 | @thailand_IT_nomads | 1,107 | Таиланд Программисты / Пхукет 🇹🇭 |
 | @thailand_help | 6,549 | Помощь в Таиланде |
+| @thailand_rus | 1,664 | ♻️ ТАИЛАНД / барахолка объявления чат Пхукет Паттайя Самуи Бангкок Пан |
 | @to_thai | 2,271 | ЧАТ-болталка 🇹🇭 Дом у моря - Таиланд |
 | @vyezd_v_tailand | 3,855 | Русские в Таиланд / Выезд, Релокация, Обустройство |
 
@@ -385,7 +216,7 @@
 | @visa_family_agency | 2,483 | VISA FAMILY 🇺🇸 / БОТ США |
 | @visadesp | 7,154 | Виза D Испания |
 
-## 🇲🇪 Черногория (36 каналов)
+## 🇲🇪 Черногория (37 каналов)
 
 | Канал | Локация | Название |
 |---|---|---|
@@ -416,6 +247,7 @@
 | @monte_woman | 3,103 | Черногория чат / WomanChat |
 | @montenegro_ads | 4,658 | Черногория 🇲🇪 Объявления |
 | @montenegro_chat | 6,065 | Черногория Чат🇲🇪 Montenegro |
+| @montenegro_market | 6,622 | ♻️ ЧЕРНОГОРИЯ / барахолка объявления чат |
 | @montenegro_remont | 2,216 | Черногория Ремонт / Строительство |
 | @nasnedogonyt | 5,449 | Черногория - Россия - Черногория. |
 | @sale_me_com | 10,291 | Черногория 🇲🇪/ Объявления / Барахолка / Доска объявлений |
@@ -426,7 +258,7 @@
 | @vhercegnovi | 2,729 | Херцег-Нови. Черногория l Главный чат |
 | @vyezd_v_montenegro | 2,991 | 🇲🇪 Русские в Черногорию / Выезд, Релокация, Обустройство |
 
-## 🇨🇾 Кипр (34 каналов)
+## 🇨🇾 Кипр (35 каналов)
 
 | Канал | Локация | Название |
 |---|---|---|
@@ -450,6 +282,7 @@
 | @forum_cyprus | 16,581 | 🇨🇾 Кипр чат |
 | @job_europa | 5,889 | 🇨🇾 КИПР / все чаты острова - релокация |
 | @kipr_arenda | 9,488 | 💤 КИПР / жильё аренда недвижимость |
+| @kipr_chat | 2,199 | Северный КИПР чат / объявления барахолка работа недвижимость |
 | @kipr_popytchiki | — | попутчики |
 | @kipr_relokaciya | — | релокация |
 | @kipr_severnii | 9,001 | Северный КИПР чат |
@@ -464,6 +297,44 @@
 | @severnyy_kipr | 11,252 | Северный Кипр ЧАТ |
 | @sharabaracyprus | 3,903 | 🤝SHARA-БАРА🤜🤛РЕКЛАМНАЯ ДОСКА. Кипр |
 | @surkoncyprus | 6,705 | Северный Кипр. Чат. SurkonEstate |
+
+## 🇮🇩 Индонезия, Бали (33 каналов)
+
+| Канал | Локация | Название |
+|---|---|---|
+| @Baly_Live | 2,811 | Бали Чат - Bali Live |
+| @afisha_na_bali | 4,679 | АФИША. БАЛИ |
+| @bali_360 | 10,186 | 🇮🇩 Бали чат / форум |
+| @bali_ads | 8,404 | Buy&Sell BALI / БАЛИ 🇮🇩 |
+| @bali_baraholka | 4,338 | ♻️ БАЛИ / барахолка объявления чат |
+| @bali_event_N1 | 3,744 | 🔔БАЛИ ИВЕНТЫ |
+| @bali_expat_home | Bali Expat Housing | — |
+| @bali_expats | Bali Expats Community | — |
+| @bali_party | 7,687 | Тусовки на Бали 🏝 / CHATIK |
+| @bali_rent | Bali Rent & Housing | — |
+| @bali_visa | 6,879 | Виза на Бали 🏝 / CHATIK |
+| @baliauto | 2,872 | Авто на Бали 🏝 / CHATIK |
+| @balichat_canggu | 4,676 | БалиЧат Чангу / Балифорум |
+| @balichat_ubud | 7,363 | БалиЧат Убуд / Балифорум |
+| @balichat_woman | 5,910 | БалиЧат Женский / Балифорум only for Woman |
+| @baligames | 1,775 | Игры на Бали 🏝 / CHATIK |
+| @baliktoletit | 6,955 | БалиЧат Кто летит - Посылки и попутчики / Балифорум |
+| @baliontheway | 2,324 | Попутчики на Бали 🏝 / CHATIK |
+| @balipackage | 4,477 | Посылки на Бали 🏝 / CHATIK |
+| @balisale | 10,757 | Куплю/Продам на Бали 🏝 / CHATIK |
+| @balistop | 1,732 | БалиЧат Облавы / Балифорум |
+| @baliwomens | 7,618 | Женский клуб на Бали 🏝 / CHATIK |
+| @billboard_bali | 4,308 | Бали: Чат,объявления / Убуд / Денпасар / Кута / Семиньяк / Чангу / Нед |
+| @cangguchat | 3,778 | Чангу чатик 🏖 / CHATIK |
+| @events_travels_group | 3,069 | БалиЧат Поездки по острову / Балифорум |
+| @eventsbali | 9,929 | Мероприятия на Бали 🏝 / CHATIK |
+| @otdam_bali | 6,504 | ОТДАМ / Бали |
+| @rabota_na_bali | 4,893 | Работа на Бали |
+| @rent_in_bali | 4,716 | Аренда и жилье на Бали |
+| @svoi_bali | 6,492 | Свои на БАЛИ |
+| @toursbali | 1,830 | Туры по Бали и Индонезии |
+| @visa_na_bali | 3,817 | Виза на Бали 🇮🇩 Easy Visa |
+| @visarun | 2,520 | Визы, Билеты, Границы |
 
 ## 🇻🇳 Вьетнам (32 каналов)
 
@@ -502,43 +373,6 @@
 | @vietnamik | — | туристы |
 | @vungtau_chat | Вунгтау | общий |
 
-## 🇮🇩 Индонезия, Бали (32 каналов)
-
-| Канал | Локация | Название |
-|---|---|---|
-| @Baly_Live | 2,811 | Бали Чат - Bali Live |
-| @afisha_na_bali | 4,679 | АФИША. БАЛИ |
-| @bali_360 | 10,186 | 🇮🇩 Бали чат / форум |
-| @bali_ads | 8,404 | Buy&Sell BALI / БАЛИ 🇮🇩 |
-| @bali_event_N1 | 3,744 | 🔔БАЛИ ИВЕНТЫ |
-| @bali_expat_home | Bali Expat Housing | — |
-| @bali_expats | Bali Expats Community | — |
-| @bali_party | 7,687 | Тусовки на Бали 🏝 / CHATIK |
-| @bali_rent | Bali Rent & Housing | — |
-| @bali_visa | 6,879 | Виза на Бали 🏝 / CHATIK |
-| @baliauto | 2,872 | Авто на Бали 🏝 / CHATIK |
-| @balichat_canggu | 4,676 | БалиЧат Чангу / Балифорум |
-| @balichat_ubud | 7,363 | БалиЧат Убуд / Балифорум |
-| @balichat_woman | 5,910 | БалиЧат Женский / Балифорум only for Woman |
-| @baligames | 1,775 | Игры на Бали 🏝 / CHATIK |
-| @baliktoletit | 6,955 | БалиЧат Кто летит - Посылки и попутчики / Балифорум |
-| @baliontheway | 2,324 | Попутчики на Бали 🏝 / CHATIK |
-| @balipackage | 4,477 | Посылки на Бали 🏝 / CHATIK |
-| @balisale | 10,757 | Куплю/Продам на Бали 🏝 / CHATIK |
-| @balistop | 1,732 | БалиЧат Облавы / Балифорум |
-| @baliwomens | 7,618 | Женский клуб на Бали 🏝 / CHATIK |
-| @billboard_bali | 4,308 | Бали: Чат,объявления / Убуд / Денпасар / Кута / Семиньяк / Чангу / Нед |
-| @cangguchat | 3,778 | Чангу чатик 🏖 / CHATIK |
-| @events_travels_group | 3,069 | БалиЧат Поездки по острову / Балифорум |
-| @eventsbali | 9,929 | Мероприятия на Бали 🏝 / CHATIK |
-| @otdam_bali | 6,504 | ОТДАМ / Бали |
-| @rabota_na_bali | 4,893 | Работа на Бали |
-| @rent_in_bali | 4,716 | Аренда и жилье на Бали |
-| @svoi_bali | 6,492 | Свои на БАЛИ |
-| @toursbali | 1,830 | Туры по Бали и Индонезии |
-| @visa_na_bali | 3,817 | Виза на Бали 🇮🇩 Easy Visa |
-| @visarun | 2,520 | Визы, Билеты, Границы |
-
 ## 🇰🇷 Южная Корея (30 каналов)
 
 | Канал | Локация | Название |
@@ -574,7 +408,7 @@
 | @woman_korea | 752 | Южная Корея чат / WomanChat |
 | @zarabotaispolzoi | 1,499 | Зарабатываем с пользой!❤️💰🎉 |
 
-## 🇮🇳 Индия, Гоа (29 каналов)
+## 🇮🇳 Индия, Гоа (30 каналов)
 
 | Канал | Локация | Название |
 |---|---|---|
@@ -598,6 +432,7 @@
 | @goacoach | 173 | Теории и практики в Гоа |
 | @goafree | 2,787 | ОТДАМ / Гоа |
 | @goahouses | 5,073 | Аренда жилья в Гоа |
+| @goamarket | 4,996 | ♻️ ГОА / барахолка объявления чат |
 | @goapartymaker | 3,687 | Goa party maker |
 | @goatick | 3,203 | Телепорт Гоа / Индия: Визы/Билеты/Опыт/Попутчики |
 | @goavisasam | 2,382 | 🇮🇳 ГОА/ Индия /Русский Чат Форум/ Visasam.ru /Визы в Индию 2023 🇮🇳 |
@@ -641,7 +476,7 @@
 | @russian_argentina | 1,142 | 🇦🇷 Русские в Аргентине |
 | @vyezd_v_argentina | 1,250 | 🇦🇷 Русские в Аргентину / Выезд, Релокация, Обустройство |
 
-## 🇵🇹 Португалия (26 каналов)
+## 🇵🇹 Португалия (27 каналов)
 
 | Канал | Локация | Название |
 |---|---|---|
@@ -666,6 +501,7 @@
 | @portugal_migrun | 8,904 | 🇵🇹 MigRun Португалия: гайд по эмиграции, эксперты и коммьюнити |
 | @portugaliada | 4,855 | Португалия: русскоязычное комьюнити |
 | @porty_chat | 8,751 | Порту чат / Португалия |
+| @portygaliya | 4,439 | ПОРТУГАЛИЯ / работа недвижимость обьявления барахолка Лиссабон |
 | @proflistpt | 3,739 | Справочник Профессионалы Португалии |
 | @ru_Portugal_pt | 7,941 | Португалия: от А до Я🇵🇹 Документы, иммиграция, переезд, 90.2, 88.2/89. |
 | @setubal_chat | Сетубал | общий |
@@ -764,33 +600,6 @@
 | @viza_egipet | Виза ВНЖ | — |
 | @zhivotnye_egipet | Животные | — |
 
-## 🇸🇨 Сейшелы (22 каналов)
-
-| Канал | Локация | Название |
-|---|---|---|
-| @alanya_chat | Аланья | 🇹🇷 Турция |
-| @batumi_chat | Батуми | 🇬🇪 Грузия |
-| @dubai_chat | Дубай | 🇦🇪 ОАЭ |
-| @goa_chat | Не группа | — |
-| @hurghada_chat | 1 участник | — |
-| @kemer_chat | Не группа | — |
-| @ostrov_fregat | Фрегат | — |
-| @ostrov_la_dig | Ла Диг | — |
-| @ostrov_praslin | Праслин | — |
-| @ostrov_sent_ann | Сент-Анн | — |
-| @ostrov_siluet | Силуэт | — |
-| @pattaya_chat | 20 участников | — |
-| @phuket_chat | Новостной канал, не чат | — |
-| @seisheli_chat | Виктория | экспаты |
-| @seychelles_ru | Сейшелы чат | — |
-| @seyshely_avto | Аренда машины байка | — |
-| @seyshely_dayving | Дайвинг | — |
-| @seyshely_ekskursii | Экскурсии | — |
-| @seyshely_oteli | Отели | — |
-| @sharm_chat | Шарм-эль-Шейх | 🇪🇬 Египет |
-| @tbilisi_chat | 12 участников | — |
-| @transfer_seyshely | Трансфер такси | — |
-
 ## 🇦🇪 ОАЭ (21 каналов)
 
 | Канал | Локация | Название |
@@ -816,6 +625,31 @@
 | @russiandxb | 11,067 | Русский Чат / Дубай / ОАЭ 🇦🇪 |
 | @shardja_chat | 6,874 | Шарджа чат / ОАЭ |
 | @ummlatifa_ae | 1,953 | UL / Умм Латифа.ОАЭ |
+
+## 🌍 Прочие страны (по 1 каналу) (20 каналов)
+
+| Канал | Локация | Название |
+|---|---|---|
+| @caboverde_chat | Кабо-Верде | Прая |
+| @dominica_chatik | Доминика | Розо |
+| @gabon_ru | Габон | Либревиль |
+| @gaiana_chat | Гайана | Джорджтаун |
+| @gaiti_chat | Гаити | Порт-о-Пренс |
+| @gana_chat | Гана | Аккра |
+| @gonduras_chat | Гондурас | Тегусигальпа |
+| @gvatemala_chat | Гватемала | Гватемала |
+| @kamerun_chat | Камерун | Яунде |
+| @macedoniya_chat | Северная Македония | Скопье |
+| @martinika_chat | Мартиника | Фор-де-Франс |
+| @namibiya_chat | Намибия | Виндхук |
+| @nauru_chat | Науру | Ярен |
+| @pyerto_riko | Пуэрто-Рико | Сан-Хуан |
+| @ruanda_chat | Руанда | Кигали |
+| @salwador_chat | Сальвадор | Сан-Сальвадор |
+| @sentlusiya | Сент-Люсия | Кастри |
+| @surinam_chat | Суринам | Парамарибо |
+| @tunis_ru | Тунис | Тунис |
+| @vanuatu_ru | Вануату | Порт-Вила |
 
 ## 🇹🇷 Турция — вся страна (20 каналов)
 
@@ -912,6 +746,29 @@
 | @shenchjen_chat | Шэньчжэнь | общий |
 | @tibet_chat | Тибет | общий |
 
+## 🇲🇻 Мальдивы (18 каналов)
+
+| Канал | Локация | Название |
+|---|---|---|
+| @bandos_maldivy | Bandos | — |
+| @digura_maldivy | Dhigurah | — |
+| @feridu_maldivy | Feridhoo | — |
+| @forum_maldives | 6,386 | 🇲🇻 МАЛЬДИВЫ / чат - форум |
+| @fuladu_maldivy | Fulidhoo | — |
+| @guraido_maldivy | Guraidhoo | — |
+| @maafushi_maldivy | Maafushi | — |
+| @maldives_oteli | — | отели |
+| @maldivi_ru | Мале | банки, обмен |
+| @maldivy_oteli | Отели | — |
+| @maldivyc | Чат Мальдивы | — |
+| @male_maldivy | Male | — |
+| @rasdu_maldivy | Rasdhoo | — |
+| @san_maldivy | Сан Мальдивы | — |
+| @tinadu_vaavu | Tinadu | — |
+| @toddu_maldivy | Thulusdhoo | — |
+| @ukulhas_maldivy | Ukulhas | — |
+| @vaadhu_maldivy | Vaadhoo | — |
+
 ## 🇱🇰 Шри-Ланка — города (18 каналов)
 
 | Канал | Локация | Название |
@@ -934,28 +791,6 @@
 | @shri_lanka_unawatuna | Unawatuna | — |
 | @shri_lanka_wadduwa | Wadduwa | — |
 | @shri_lanka_weligama | Weligama | — |
-
-## 🇲🇻 Мальдивы (17 каналов)
-
-| Канал | Локация | Название |
-|---|---|---|
-| @bandos_maldivy | Bandos | — |
-| @digura_maldivy | Dhigurah | — |
-| @feridu_maldivy | Feridhoo | — |
-| @fuladu_maldivy | Fulidhoo | — |
-| @guraido_maldivy | Guraidhoo | — |
-| @maafushi_maldivy | Maafushi | — |
-| @maldives_oteli | — | отели |
-| @maldivi_ru | Мале | банки, обмен |
-| @maldivy_oteli | Отели | — |
-| @maldivyc | Чат Мальдивы | — |
-| @male_maldivy | Male | — |
-| @rasdu_maldivy | Rasdhoo | — |
-| @san_maldivy | Сан Мальдивы | — |
-| @tinadu_vaavu | Tinadu | — |
-| @toddu_maldivy | Thulusdhoo | — |
-| @ukulhas_maldivy | Ukulhas | — |
-| @vaadhu_maldivy | Vaadhoo | — |
 
 ## 🇹🇷 Турция — города (16 каналов)
 
@@ -996,6 +831,23 @@
 | @proshedanang | Проще говоря. Дананг | — |
 | @vietnam_danang1 | Дананг Чат Bazaar | — |
 | @vietnam_general | Вьетнам \ | Визы, гиды, обмен |
+
+## 🇸🇨 Сейшелы (12 каналов)
+
+| Канал | Локация | Название |
+|---|---|---|
+| @ostrov_fregat | Фрегат | — |
+| @ostrov_la_dig | Ла Диг | — |
+| @ostrov_praslin | Праслин | — |
+| @ostrov_sent_ann | Сент-Анн | — |
+| @ostrov_siluet | Силуэт | — |
+| @seisheli_chat | Виктория | экспаты |
+| @seychelles_ru | Сейшелы чат | — |
+| @seyshely_avto | Аренда машины байка | — |
+| @seyshely_dayving | Дайвинг | — |
+| @seyshely_ekskursii | Экскурсии | — |
+| @seyshely_oteli | Отели | — |
+| @transfer_seyshely | Трансфер такси | — |
 
 ## 🇻🇳 Вьетнам — Nha Trang (11 каналов)
 
@@ -1176,6 +1028,17 @@
 | @helsinki_deti | Хельсинки | родители |
 | @helsinki_woman | Хельсинки | женский |
 
+## 🇨🇱 Чили (6 каналов)
+
+| Канал | Локация | Название |
+|---|---|---|
+| @chile_pass | 1,771 | Паспорт Чили - гражданство под ключ, безвизовое перемещение по миру 🗺 |
+| @chili_forum | 4,230 | 🇨🇱 Чили чат |
+| @petirjon | 1,936 | ГУРПА ПИТЕР ИШ КВАРТИРА |
+| @piterdaishe | 651 | ПИТЕРДА ИШ ЕЛОН. |
+| @santiago_chili | Сантьяго | объявления |
+| @santiago_forum | Сантьяго | экспаты |
+
 ## 🇻🇳 Вьетнам — вся страна (6 каналов)
 
 | Канал | Локация | Название |
@@ -1217,16 +1080,6 @@
 | @serbiya_nedvijimost | — | недвижимость |
 | @serbiya_poputchiki | — | попутчики |
 | @serbiya_relokaciya | — | релокация |
-
-## 🇨🇱 Чили (5 каналов)
-
-| Канал | Локация | Название |
-|---|---|---|
-| @chile_pass | 1,771 | Паспорт Чили - гражданство под ключ, безвизовое перемещение по миру 🗺 |
-| @petirjon | 1,936 | ГУРПА ПИТЕР ИШ КВАРТИРА |
-| @piterdaishe | 651 | ПИТЕРДА ИШ ЕЛОН. |
-| @santiago_chili | Сантьяго | объявления |
-| @santiago_forum | Сантьяго | экспаты |
 
 ## 🇪🇪 Эстония (5 каналов)
 
@@ -1301,6 +1154,15 @@
 | @canberra_ru | Канберра | общий |
 | @pert_chat | Перт | общий |
 
+## 🇨🇦 Канада (4 каналов)
+
+| Канал | Локация | Название |
+|---|---|---|
+| @calgary_chat | Калгари | общий |
+| @monreal_ru | Монреаль | общий |
+| @ottawa_ru | Оттава | общий |
+| @vancuver_chat | Ванкувер | общий |
+
 ## 🇻🇳 Вьетнам — Ho Chi Minh City (4 каналов)
 
 | Канал | Локация | Название |
@@ -1371,6 +1233,13 @@
 | @kambodja_medicina | — | медицина |
 | @kampot_chat | Кампот | общий |
 
+## 🇨🇷 Коста-Рика (2 каналов)
+
+| Канал | Локация | Название |
+|---|---|---|
+| @kostarika_chat | 2,244 | 🇨🇷 Коста-Рика чат |
+| @kostarika_ru | Сан-Хосе | объявления |
+
 ## 🇨🇺 Куба (2 каналов)
 
 | Канал | Локация | Название |
@@ -1427,12 +1296,6 @@
 |---|---|---|
 | @bolcano_chat | Больцано | общий |
 
-## 🇨🇷 Коста-Рика (1 каналов)
-
-| Канал | Локация | Название |
-|---|---|---|
-| @kostarika_ru | Сан-Хосе | объявления |
-
 ## 🇱🇺 Люксембург (1 каналов)
 
 | Канал | Локация | Название |
@@ -1457,7 +1320,7 @@
 |---|---|---|
 | @monacochat | Монако | общий |
 
-## 🇲🇲 Мьянма (1 каналов)
+## 🇲🇲 Мьянма (Бирма) (1 каналов)
 
 | Канал | Локация | Название |
 |---|---|---|
@@ -1499,13 +1362,13 @@
 |---|---|---|
 | @osaca_chat | Осака | общий |
 
-## 🇻🇳 Вьетнам — Hanoi (1 каналов)
+## 🇻🇳 Вьетнам — Hanoi (1 новый) (1 каналов)
 
 | Канал | Локация | Название |
 |---|---|---|
 | @khanoi_vetnam | Ханой Чат Bazaar | — |
 
-## 🇻🇳 Вьетнам — Mui Ne (1 каналов)
+## 🇻🇳 Вьетнам — Mui Ne (1 новый) (1 каналов)
 
 | Канал | Локация | Название |
 |---|---|---|
