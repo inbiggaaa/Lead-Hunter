@@ -63,7 +63,10 @@ services:
     build: .
     command: python -m app.worker.tasks
     env_file: .env
+    environment:
+      - PYTHONPATH=/app
     volumes:
+      - ./app:/app/app
       - ./sessions:/app/sessions
     depends_on:
       db:
