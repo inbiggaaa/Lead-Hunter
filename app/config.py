@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     # Admin
     admin_password: str
     admin_secret: str = ""
+    admin_public_port: int = 17421
 
     # Payments
     cryptobot_api_token: str = ""
