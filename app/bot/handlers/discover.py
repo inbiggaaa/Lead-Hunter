@@ -1,4 +1,4 @@
-"""Plan, payment, about, settings, language, referral stubs."""
+"""Settings, language, about, referral — misc handlers."""
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
@@ -16,8 +16,6 @@ def _user_lang(text: str) -> str:
     return "en"
 
 
-# ── Language ──
-
 @router.callback_query(F.data == "menu:language")
 async def on_language(callback: CallbackQuery):
     lang = _user_lang(callback.message.text or "")
@@ -25,49 +23,41 @@ async def on_language(callback: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru")],
         [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:settings")],
     ])
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
-
-# ── Settings ──
 
 @router.callback_query(F.data == "menu:settings")
 async def on_settings(callback: CallbackQuery):
     lang = _user_lang(callback.message.text or "")
-    text = (
-        f"⚙️ {get_text(lang, 'btn_settings')}\n\n"
-        f"• Дайджест уведомлений: скоро\n"
-        f"• Игнор-лист: скоро\n"
-        f"• CSV-экспорт: скоро (Business)"
-    )
+    text = "⚙️ Настройки"
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
+        [InlineKeyboardButton(text="📋 Мои подписки", callback_data="menu:subs")],
+        [InlineKeyboardButton(text="🌐 Язык", callback_data="menu:language")],
+        [InlineKeyboardButton(text="ℹ️ О сервисе", callback_data="menu:about")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:main")],
     ])
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
-
-# ── About ──
 
 @router.callback_query(F.data == "menu:about")
 async def on_about(callback: CallbackQuery):
     lang = _user_lang(callback.message.text or "")
     text = (
-        f"ℹ️ {get_text(lang, 'btn_about')}\n\n"
-        f"LeadHunter — система мониторинга заявок в Telegram.\n"
-        f"Версия: 0.2.0\n"
-        f"Фаза: 3"
+        f"ℹ️ LeadHunter\n\n"
+        f"Система мониторинга заявок в Telegram.\n"
+        f"Версия: 0.3.0\n"
+        f"Фаза: 7"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:settings")],
     ])
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
-
-# ── Referral ──
 
 @router.callback_query(F.data == "menu:referral")
 async def on_referral(callback: CallbackQuery):
@@ -77,10 +67,10 @@ async def on_referral(callback: CallbackQuery):
         f"Пригласи друга в LeadHunter и получи +7 дней подписки,\n"
         f"когда он оплатит Pro или Business.\n\n"
         f"Твой друг получит +3 дня к пробному периоду.\n\n"
-        f"Реферальная программа появится в Фазе 7."
+        f"Реферальная программа появится позже."
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:main")],
     ])
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()

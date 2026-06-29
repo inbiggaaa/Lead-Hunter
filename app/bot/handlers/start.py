@@ -193,12 +193,9 @@ async def _show_menu(message: Message, lang: str, plan_name: str = "Free"):
             [InlineKeyboardButton(text=get_text(lang, "btn_search"), callback_data="menu:search")],
             [InlineKeyboardButton(text=get_text(lang, "btn_keywords"), callback_data="menu:keywords")],
             [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
-            [InlineKeyboardButton(text=get_text(lang, "btn_subscriptions"), callback_data="menu:subs")],
             [InlineKeyboardButton(text=get_text(lang, "btn_referral"), callback_data="menu:referral")],
             [InlineKeyboardButton(text=get_text(lang, "btn_plan"), callback_data="menu:plan")],
-            [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
             [InlineKeyboardButton(text=get_text(lang, "btn_settings"), callback_data="menu:settings")],
-            [InlineKeyboardButton(text=get_text(lang, "btn_about"), callback_data="menu:about")],
         ]
     )
     await message.answer(text, reply_markup=kb)
