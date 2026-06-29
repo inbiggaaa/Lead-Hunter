@@ -522,7 +522,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
     if is_first:
         text = (
             "🎉 Готово! Ты получил 5 дней Business-тарифа.\n\n"
-            f"📌 Направления: {', '.join(seg_names)}\n"
+            f"📌 Направления:\n" + "\n".join(seg_names) + "\n"
             f"🌍 Страна: {country_name}\n"
         )
         if city_labels:
@@ -534,7 +534,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         ])
     else:
         text = f"✅ Добавлено подписок: {created}\n\n"
-        text += f"📌 {', '.join(seg_names)}\n"
+        text += "📌\n" + "\n".join(seg_names) + "\n"
         text += f"🌍 {country_name}"
         if city_labels:
             text += f" 🏙 {', '.join(city_labels)}"
