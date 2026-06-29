@@ -75,7 +75,66 @@ class ChannelPoller:
                     "%sMatch in @%s (msg %d): segments=%s",
                     urgency, channel_username, msg.id, result.matched_segments,
                 )
-                # Phase 5: dispatch to interested users
+                await self._dispatch(
+                    chat_username=channel_username,
+                    message_text=msg.message,
+                    message_id=msg.id,
+                    matched_segments=result.matched_segments,
+                    is_urgent=result.is_urgent,
+                    sender=getattr(msg.sender, "username", None) if msg.sender else None,
+                )
+
+    async def _dispatch(
+        self,
+        chat_username: str,
+        message_text: str,
+        message_id: int,
+        matched_segments: list[str],
+        is_urgent: bool,
+        sender: str | None,
+    ):
+        """Find interested users and push notifications to queue."""
+        from app.cache.subscription_cache import (
+            get_interested_users,
+            push_notification,
+            build_message_hash,
+        )
+
+        message_hash = build_message_hash(chat_username, message_id)
+        users = await get_interested_users(chat_username)
+
+        # If cache is empty for this chat, rebuild it
+        if not users:
+            from app.cache.subscription_cache import rebuild_subscription_cache
+            await rebuild_subscription_cache(chat_username)
+            users = await get_interested_users(chat_username)
+
+        for user in users:
+            # Check if user is interested in any matched segment
+            user_segment_ids = set(user.get("segment_ids", []))
+            # Also check personal keywords
+            personal_kws = user.get("keyword_texts", [])
+
+            interested = bool(
+                user_segment_ids  # if user has segment subs, all segments match
+                or any(kw.lower() in message_text.lower() for kw in personal_kws)
+            )
+
+            if not interested:
+                continue
+
+            await push_notification({
+                "user_id": user["user_id"],
+                "telegram_id": user["telegram_id"],
+                "lang": user.get("lang", "ru"),
+                "plan": user.get("plan", "free"),
+                "chat_username": chat_username,
+                "text": message_text,
+                "sender": sender,
+                "message_id": message_id,
+                "message_hash": message_hash,
+                "is_urgent": is_urgent,
+            })
 
     async def _load_keywords(self) -> dict[str, dict[str, list[str]]]:
         """Load all segment keywords from DB into memory."""
