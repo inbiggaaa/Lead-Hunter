@@ -24,7 +24,7 @@ async def cmd_start(message: Message):
         if not user.onboarded:
             await _show_welcome(message, lang)
         else:
-            await _show_menu(message, lang)
+            await _show_menu_from_db(message, message.from_user.id)
 
         await session.commit()
 
@@ -63,22 +63,20 @@ async def on_language_select(callback: CallbackQuery):
     await callback.answer()
 
 
-# ── Onboarding step 1: choose category ──
+# ── Onboarding step 1: choose category (with language in callback) ──
 
 async def _show_onboarding_step1(message: Message, lang: str):
     text = get_text(lang, "onb_step1_title")
-    # Placeholder categories — will be replaced in Phase 3
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🍜 Кейтеринг / Catering", callback_data="onb:cat:catering")],
-            [InlineKeyboardButton(text="💆 Массаж / Massage", callback_data="onb:cat:massage")],
-            [InlineKeyboardButton(text="🏍 Аренда байков / Bike rental", callback_data="onb:cat:bikes")],
+            [InlineKeyboardButton(text="🍜 Кейтеринг / Catering", callback_data=f"onb:cat:catering:{lang}")],
+            [InlineKeyboardButton(text="💆 Массаж / Massage", callback_data=f"onb:cat:massage:{lang}")],
+            [InlineKeyboardButton(text="🏍 Аренда байков / Bike rental", callback_data=f"onb:cat:bikes:{lang}")],
             [
-                InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data="onb:skip"),
+                InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
             ],
         ]
     )
-    # Use answer() for onboarding messages to avoid edit failures
     await message.answer(text, reply_markup=kb)
 
 
@@ -86,17 +84,17 @@ async def _show_onboarding_step1(message: Message, lang: str):
 
 @router.callback_query(F.data.startswith("onb:cat:"))
 async def on_onboard_category(callback: CallbackQuery):
-    lang = _detect_lang_from_message(callback.message)
+    parts = callback.data.split(":")
+    lang = parts[3] if len(parts) > 3 else "ru"
 
-    # Step 2: country
     text = get_text(lang, "onb_step2_title")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🇻🇳 Вьетнам / Vietnam", callback_data="onb:country:vn")],
-            [InlineKeyboardButton(text="🇮🇩 Индонезия / Indonesia", callback_data="onb:country:id")],
-            [InlineKeyboardButton(text="🇹🇭 Таиланд / Thailand", callback_data="onb:country:th")],
+            [InlineKeyboardButton(text="🇻🇳 Вьетнам / Vietnam", callback_data=f"onb:country:vn:{lang}")],
+            [InlineKeyboardButton(text="🇮🇩 Индонезия / Indonesia", callback_data=f"onb:country:id:{lang}")],
+            [InlineKeyboardButton(text="🇹🇭 Таиланд / Thailand", callback_data=f"onb:country:th:{lang}")],
             [
-                InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data="onb:skip"),
+                InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
             ],
         ]
     )
@@ -106,9 +104,10 @@ async def on_onboard_category(callback: CallbackQuery):
 
 # ── Onboarding skip → finish ──
 
-@router.callback_query(F.data == "onb:skip")
+@router.callback_query(F.data.startswith("onb:skip"))
 async def on_onboard_skip(callback: CallbackQuery):
-    lang = _detect_lang_from_message(callback.message)
+    parts = callback.data.split(":")
+    lang = parts[1] if len(parts) > 1 else "ru"
     await _finish_onboarding(callback, lang)
 
 
@@ -116,7 +115,8 @@ async def on_onboard_skip(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("onb:country:"))
 async def on_onboard_country(callback: CallbackQuery):
-    lang = _detect_lang_from_message(callback.message)
+    parts = callback.data.split(":")
+    lang = parts[3] if len(parts) > 3 else "ru"
     await _finish_onboarding(callback, lang)
 
 
@@ -131,11 +131,20 @@ async def _finish_onboarding(callback: CallbackQuery, lang: str):
     await callback.message.edit_text(text)
 
     # Show main menu after a short delay (new message)
-    await _show_menu(callback.message, lang)
+    await _show_menu_from_db(callback.message, callback.from_user.id)
     await callback.answer()
 
 
 # ── Main menu ──
+
+async def _show_menu_from_db(message: Message, telegram_id: int):
+    """Show main menu using language from DB."""
+    async for session in get_session():
+        from app.db.crud import get_user
+        user = await get_user(session, telegram_id)
+        lang = user.language if user else "ru"
+    await _show_menu(message, lang)
+
 
 async def _show_menu(message: Message, lang: str):
     text = (
@@ -163,8 +172,7 @@ async def _show_menu(message: Message, lang: str):
 
 @router.callback_query(F.data == "menu:main")
 async def on_menu_main(callback: CallbackQuery):
-    lang = _detect_lang_from_message(callback.message)
-    await _show_menu(callback.message, lang)
+    await _show_menu_from_db(callback.message, callback.from_user.id)
     await callback.answer()
 
 
