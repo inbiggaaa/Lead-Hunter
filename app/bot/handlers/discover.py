@@ -190,7 +190,7 @@ async def on_referral(callback: CallbackQuery):
         share_msg = (
             "Lead Hunter AI — бот, который мониторит сотни Telegram-каналов "
             "и ловит запросы клиентов по твоей нише. Заявки приходят моментально. "
-            f"🎁 По моей ссылке — 8 дней Business бесплатно: {link}"
+            "🎁 По моей ссылке — 8 дней Business бесплатно"
         )
         text = (
             f"🎁 Пригласи друга\n\n"
@@ -204,7 +204,7 @@ async def on_referral(callback: CallbackQuery):
         share_msg = (
             "Lead Hunter AI — a bot that monitors hundreds of Telegram channels "
             "and catches client requests in your niche. Leads arrive instantly. "
-            f"🎁 8 days of Business free with my link: {link}"
+            "🎁 8 days of Business free with my link"
         )
         text = (
             f"🎁 Invite a friend\n\n"
@@ -215,7 +215,7 @@ async def on_referral(callback: CallbackQuery):
             f"📊 Invited: {invited} | Activated: {activated} | +{bonus_days}d"
         )
 
-    share_url = f"https://t.me/share/url?url={urllib.parse.quote(link)}&text={urllib.parse.quote(share_msg)}"
+    share_url = f"https://t.me/share/url?text={urllib.parse.quote(share_msg)}&url={urllib.parse.quote(link)}"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
