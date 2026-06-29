@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+import sentry_sdk
+
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -28,6 +30,15 @@ async def init_db():
 
 
 async def main():
+    # Sentry
+    if settings.sentry_dsn:
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            traces_sample_rate=0.1,
+            environment="production",
+        )
+        logger.info("Sentry initialized")
+
     # Init DB
     await init_db()
 
