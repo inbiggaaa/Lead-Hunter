@@ -1,42 +1,21 @@
-"""FastAPI admin panel — REST API + SPA static + SQLAdmin (legacy).
+"""FastAPI admin panel — REST API + SPA static.
 
 Runs on 0.0.0.0:8001.
 SPA routes:    /                    → static index.html (catch-all)
 API routes:    /api/*               → REST endpoints (session auth)
-SQLAdmin:      /admin/*             → SQLAdmin (legacy, self-auth)
 Chat WS:       /api/chat/ws         → WebSocket
 """
 
 import os
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
-from sqladmin import Admin
-from sqlalchemy import create_engine
 
 from app.config import settings
-from app.db.models import Base
-from app.admin.auth import AdminAuth
-from app.admin.views import (
-    UserAdmin, SubscriptionAdmin, KeywordAdmin, WatchedChatAdmin, SentLogAdmin,
-    CountryAdmin, CityAdmin, SegmentAdmin, SegmentKeywordAdmin, CatalogChannelAdmin,
-    ChannelSegmentAdmin, ChannelCityAdmin, UserSubscriptionAdmin, SubscriptionCityAdmin,
-    DiscoveredChatAdmin, ReferralAdmin, SupportMessageAdmin, UserIgnoreAdmin,
-    ReminderAdmin, PeriodicPrefAdmin,
-)
-from app.admin.nav import NavView, NavChatView
 from app.admin.api import api_router
-
-VIEWS = [
-    NavView, NavChatView,
-    CountryAdmin, CityAdmin, SegmentAdmin, SegmentKeywordAdmin, CatalogChannelAdmin,
-    ChannelSegmentAdmin, ChannelCityAdmin, UserSubscriptionAdmin, SubscriptionCityAdmin,
-    DiscoveredChatAdmin, ReferralAdmin, SupportMessageAdmin, UserIgnoreAdmin,
-    ReminderAdmin, PeriodicPrefAdmin,
-]
 
 # Path to the built SPA
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -50,17 +29,6 @@ def create_app() -> FastAPI:
         SessionMiddleware,
         secret_key=settings.admin_secret or "dev-secret",
     )
-
-    # ── Sync engine for SQLAdmin ──
-    sync_url = settings.database_url.replace("+asyncpg", "")
-    engine = create_engine(sync_url)
-    Base.metadata.create_all(engine)
-
-    # ── SQLAdmin (legacy) ──
-    auth_backend = AdminAuth(secret_key=settings.admin_secret or "dev-secret")
-    admin = Admin(app, engine, authentication_backend=auth_backend, title="LeadHunter Admin")
-    for view in VIEWS:
-        admin.add_view(view)
 
     # ── REST API ──
     app.include_router(api_router)
