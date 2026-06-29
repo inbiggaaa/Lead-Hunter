@@ -33,7 +33,7 @@ PERIODS = {
     "1y": {"label": "1 год (-20%)", "months": 12, "discount": 0.20},
 }
 
-STARS_PER_USD = 100  # 1 USD = 100 Telegram Stars
+STARS_PER_USD = settings.stars_per_usd  # from .env, default 100
 
 
 def _calc(plan_key: str, period_key: str) -> dict:

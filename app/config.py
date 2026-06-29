@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     business_hidden_cap_channels: int = 60
     business_hidden_cap_keywords: int = 60
     business_hidden_cap_segments: int = 60
+    stars_per_usd: int = 100
 
     # Prices
     price_pro_monthly_usd: int = 5
