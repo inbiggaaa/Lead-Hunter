@@ -49,16 +49,19 @@ class ChannelPoller:
 
     async def _poll_account_channels(self, account, channels: list[str]):
         """Poll channels assigned to a specific account."""
-        for channel in channels:
+        # Limit per cycle to avoid flood
+        max_per_cycle = 50
+        channels_to_poll = channels[:max_per_cycle]
+
+        for channel in channels_to_poll:
             try:
                 await self._poll_channel(account, channel.strip().lstrip("@"))
+                await asyncio.sleep(0.5)  # Delay between channels
             except FloodWaitError as e:
                 logger.warning("FloodWait for account %d: %ds", account.account_id, e.seconds)
-                await asyncio.sleep(e.seconds)
+                await asyncio.sleep(min(e.seconds, 60))
             except Exception:
                 logger.exception("Error polling channel %s on account %d", channel, account.account_id)
-                # Mark account for health recheck
-                await self.pool.handle_account_failure(account)
 
     async def _poll_channel(self, account, channel_username: str):
         """Poll a single channel using a specific account."""
@@ -68,7 +71,7 @@ class ChannelPoller:
             logger.warning("Account %d cannot access @%s: %s", account.account_id, channel_username, e)
             return
 
-        messages = await account.get_messages(entity, limit=10)
+        messages = await account.get_messages(entity, limit=3)
         if not messages:
             return
 
@@ -220,4 +223,4 @@ class ChannelPoller:
             if channels:
                 await self.poll_channels(channels)
 
-            await asyncio.sleep(60)
+            await asyncio.sleep(600)  # Poll every 10 minutes

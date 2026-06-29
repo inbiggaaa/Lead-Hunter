@@ -45,8 +45,11 @@ async def search_channels(client: TelegramClient, queries: list[str], limit: int
 
     for query in queries:
         try:
-            results = await client.search_public_chats(query)
-            for chat in results:
+            from telethon.tl.functions.contacts import SearchRequest
+            result = await client(SearchRequest(q=query, limit=limit))
+            chats = result.chats
+
+            for chat in chats:
                 username = getattr(chat, "username", None)
                 if not username:
                     continue
@@ -91,10 +94,37 @@ async def search_channels(client: TelegramClient, queries: list[str], limit: int
     return found
 
 
+async def report_discovery_stats(new_found: int):
+    """Send discovery stats to admin."""
+    from aiogram import Bot
+    from app.db.session import async_session_factory
+    from app.db.models import CatalogChannel, DiscoveredChat
+    from sqlalchemy import func, select as sa_sel
+
+    async with async_session_factory() as s:
+        total = (await s.execute(sa_sel(func.count(CatalogChannel.id)))).scalar() or 0
+        discovered = (await s.execute(sa_sel(func.count(DiscoveredChat.id)))).scalar() or 0
+
+    text = (
+        f"📊 Отчёт поиска каналов\n\n"
+        f"Найдено новых: {new_found}\n"
+        f"Всего в каталоге: {total}\n"
+        f"Ожидают проверки: {discovered}"
+    )
+
+    bot = Bot(token=settings.bot_token)
+    try:
+        await bot.send_message(settings.owner_telegram_id, text)
+    except Exception:
+        pass
+    finally:
+        await bot.session.close()
+
+
 async def discovery_loop():
-    """Background loop: search for new channels periodically."""
-    # Wait 5 minutes on startup before first run
-    await asyncio.sleep(300)
+    """Background loop: search for new channels twice per day."""
+    # Wait 2 minutes on startup
+    await asyncio.sleep(120)
 
     queries = await parse_search_queries()
     if not queries:
@@ -109,10 +139,14 @@ async def discovery_loop():
 
     while True:
         logger.info("Starting channel discovery...")
+        found = 0
         try:
-            await search_channels(client, queries)
+            found = await search_channels(client, queries)
         except Exception:
             logger.exception("Discovery failed")
 
-        # Run once per day
-        await asyncio.sleep(86400)
+        # Report to admin
+        await report_discovery_stats(found)
+
+        # Run every 12 hours
+        await asyncio.sleep(43200)
