@@ -47,6 +47,21 @@ async def main():
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+
+    # Set persistent commands menu
+    from aiogram.types import BotCommand, BotCommandScopeDefault
+    commands = [
+        BotCommand(command="start", description="🏠 Главное меню"),
+        BotCommand(command="search", description="🔍 Поиск клиентов"),
+        BotCommand(command="keywords", description="⚙️ Мои ключевые слова"),
+        BotCommand(command="channels", description="📢 Мои каналы"),
+        BotCommand(command="subscriptions", description="📋 Мои подписки"),
+        BotCommand(command="plan", description="💰 Тариф и оплата"),
+        BotCommand(command="settings", description="⚙️ Настройки"),
+        BotCommand(command="cancel", description="❌ Отмена"),
+    ]
+    await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+    logger.info("Commands menu set")
     dp = Dispatcher()
     dp.include_router(catalog_router)
     dp.include_router(keywords_router)

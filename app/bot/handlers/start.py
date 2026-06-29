@@ -1,5 +1,5 @@
 from aiogram import F, Router
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 
 from app.db.crud import get_or_create_user, set_language, set_onboarded
@@ -207,6 +207,54 @@ async def _show_menu(message: Message, lang: str, plan_name: str = "Free"):
 async def on_menu_main(callback: CallbackQuery):
     await _show_menu_from_db(callback.message, callback.from_user.id)
     await callback.answer()
+
+
+# ── /cancel ──
+
+@router.message(Command("cancel"))
+async def cmd_cancel(message: Message, state: FSMContext = None):
+    if state:
+        await state.clear()
+    await _show_menu_from_db(message, message.from_user.id)
+
+
+# ── Command shortcuts → menu callbacks ──
+
+@router.message(Command("search"))
+async def cmd_search(message: Message):
+    await message.answer("🔍", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Перейти к поиску", callback_data="menu:search")]
+    ]))
+
+@router.message(Command("keywords"))
+async def cmd_keywords(message: Message):
+    await message.answer("⚙️", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Мои ключевые слова", callback_data="menu:keywords")]
+    ]))
+
+@router.message(Command("channels"))
+async def cmd_channels(message: Message):
+    await message.answer("📢", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Мои каналы", callback_data="menu:channels")]
+    ]))
+
+@router.message(Command("subscriptions"))
+async def cmd_subscriptions(message: Message):
+    await message.answer("📋", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Мои подписки", callback_data="menu:subs")]
+    ]))
+
+@router.message(Command("plan"))
+async def cmd_plan(message: Message):
+    await message.answer("💰", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Тариф и оплата", callback_data="menu:plan")]
+    ]))
+
+@router.message(Command("settings"))
+async def cmd_settings(message: Message):
+    await message.answer("⚙️", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Настройки", callback_data="menu:settings")]
+    ]))
 
 
 # ── Helpers ──
