@@ -192,14 +192,18 @@ def get_max_keywords(plan: str) -> int:
     from app.config import settings
     if plan == "free":
         return settings.max_keywords_free
-    return settings.max_keywords_pro
+    if plan == "pro":
+        return settings.max_keywords_pro
+    return settings.business_hidden_cap_keywords  # trial, business
 
 
 def get_max_channels(plan: str) -> int:
     from app.config import settings
     if plan == "free":
         return settings.max_channels_free
-    return settings.max_channels_pro
+    if plan == "pro":
+        return settings.max_channels_pro
+    return settings.business_hidden_cap_channels  # trial, business
 
 
 def get_max_segments(plan: str) -> int:
@@ -208,4 +212,4 @@ def get_max_segments(plan: str) -> int:
         return settings.max_segments_free
     if plan == "pro":
         return settings.max_segments_pro
-    return 60  # business
+    return settings.business_hidden_cap_segments  # trial, business
