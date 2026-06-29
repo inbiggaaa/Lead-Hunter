@@ -245,14 +245,5 @@ async def on_referral(callback: CallbackQuery):
 
 @router.callback_query(F.data == "ref_copy")
 async def on_ref_copy(callback: CallbackQuery):
-    async for session in get_session():
-        from app.db.models import Referral
-        from sqlalchemy import select
-        ref = (await session.execute(
-            select(Referral).where(Referral.referrer_id == callback.from_user.id)
-        )).scalars().first()
-        if ref:
-            link = f"t.me/LeadHunterAiApp_bot?start=ref_{ref.ref_code}"
-            await callback.answer(link[:200], show_alert=True)
-        else:
-            await callback.answer("Сначала откройте раздел Пригласить друга" if "рус" in (callback.message.text or "").lower() else "Open Invite a friend first", show_alert=True)
+    lang = _user_lang(callback.message.text or "")
+    await callback.answer("✅ Ссылка скопирована" if lang == "ru" else "✅ Link copied", show_alert=True)
