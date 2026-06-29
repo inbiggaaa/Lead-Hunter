@@ -16,29 +16,6 @@ def _user_lang(text: str) -> str:
     return "en"
 
 
-# ── Plan & payment ──
-
-@router.callback_query(F.data == "menu:plan")
-async def on_plan(callback: CallbackQuery):
-    lang = _user_lang(callback.message.text or "")
-
-    async for session in get_session():
-        user = await get_user(session, callback.from_user.id)
-        plan = user.plan if user else "free"
-
-    text = f"💰 {get_text(lang, 'btn_plan')}\n\n"
-    text += f"Твой тариф: {plan.capitalize()}\n\n"
-    text += "🚀 Pro — $5/мес\n"
-    text += "💎 Business — $15/мес\n\n"
-    text += "Оплата появится в Фазе 7."
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
-    ])
-    await callback.message.edit_text(text, reply_markup=kb)
-    await callback.answer()
-
-
 # ── Language ──
 
 @router.callback_query(F.data == "menu:language")
