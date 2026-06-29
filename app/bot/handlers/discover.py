@@ -59,22 +59,22 @@ async def on_about(callback: CallbackQuery):
     if lang == "ru":
         text = (
             f"ℹ️ LeadHunter\n\n"
-            f"Система мониторинга заявок в Telegram.\n\n"
+            f"Пока конкуренты листают чаты вручную,\n"
+            f"ты уже отвечаешь клиенту.\n\n"
             f"📊 {ch} каналов в {co} странах\n"
-            f"⚡ Уведомления за 2 секунды\n"
-            f"🤖 AI-фильтр спама и рекламы\n\n"
-            f"Находите клиентов первыми — "
-            f"пока конкуренты ещё не ответили."
+            f"⚡ Заявки за 2 секунды\n"
+            f"🤖 AI-фильтр спама\n\n"
+            f"Ты всегда первый."
         )
     else:
         text = (
             f"ℹ️ LeadHunter\n\n"
-            f"Client request monitoring for Telegram.\n\n"
+            f"While competitors scroll chats manually,\n"
+            f"you're already replying to the client.\n\n"
             f"📊 {ch} channels in {co} countries\n"
-            f"⚡ 2-second notifications\n"
+            f"⚡ Leads in 2 seconds\n"
             f"🤖 AI spam filter\n\n"
-            f"Find clients first — "
-            f"before your competitors respond."
+            f"You're always first."
         )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:settings")],
