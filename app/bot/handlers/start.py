@@ -78,11 +78,8 @@ async def _show_onboarding_step1(message: Message, lang: str):
             ],
         ]
     )
-    # If this is an edit of existing message
-    try:
-        await message.edit_text(text, reply_markup=kb)
-    except Exception:
-        await message.answer(text, reply_markup=kb)
+    # Use answer() for onboarding messages to avoid edit failures
+    await message.answer(text, reply_markup=kb)
 
 
 # ── Onboarding category select → step 2 ──
