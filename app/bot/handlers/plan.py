@@ -125,15 +125,25 @@ async def _apply_referral_bonus(user_id: int):
             from aiogram import Bot
             bot = Bot(token=settings.bot_token)
             try:
+                new_expiry = referrer.plan_expires_at.strftime("%d.%m.%Y") if referrer.plan_expires_at else "—"
                 await bot.send_message(
                     referrer.telegram_id,
                     f"🎁 Ваш реферал оплатил подписку!\n\n"
-                    f"+{settings.referral_bonus_days} дней к вашему тарифу."
+                    f"➕ {settings.referral_bonus_days} дней добавлено к вашему тарифу.\n"
+                    f"📅 Подписка действует до: {new_expiry}"
                 )
             except Exception:
                 pass
             finally:
                 await bot.session.close()
+
+        # Notify admin
+        if referrer:
+            from app.userbot.discovery import _notify_admin
+            ref_name = f"@{referrer.username}" if referrer.username else f"ID:{referrer.telegram_id}"
+            await _notify_admin(
+                f"🎁 Реферал оплатил!\n\n👤 Реферер: {ref_name}\n➕ +{settings.referral_bonus_days} дней"
+            )
 
 async def _activate_by_msg(message, plan, period_key, method, invoice_id):
     info = _calc(plan, period_key)
