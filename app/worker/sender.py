@@ -4,6 +4,8 @@ import asyncio
 import logging
 
 from aiogram import Bot
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import settings
@@ -22,7 +24,7 @@ class NotificationSender:
     """Consumes notification queue and sends via Bot API."""
 
     def __init__(self):
-        self.bot = Bot(token=settings.bot_token)
+        self.bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         self.throttle_interval = 1 / settings.sender_throttle_per_second  # 0.04s per msg
 
     async def run(self):
@@ -88,61 +90,44 @@ class NotificationSender:
             logger.exception("Failed to send notification to user %d", user_id)
 
     def _format_notification(self, payload: dict) -> str:
-        """Format notification text based on user plan."""
-        is_free = payload.get("plan", "free") == "free"
+        """Format notification text."""
         urgency = "🔥 " if payload.get("is_urgent") else ""
         chat = payload.get("chat_username", "unknown")
-        text_preview = (payload.get("text", "") or "")[:200]
+        msg_id = payload.get("message_id", 0)
+        sender = payload.get("sender", None)
+        text_preview = (payload.get("text", "") or "")[:500]
+        is_free = payload.get("plan", "free") == "free"
+
+        msg = f"{urgency}<b>Я нашел нового клиента! | Lead Hunter AI</b>\n\n"
+        msg += f"{text_preview}\n\n"
+        msg += f"💬 <a href='https://t.me/{chat}/{msg_id}'>@{chat}</a>"
+        if sender:
+            msg += f" от <a href='https://t.me/{sender}'>@{sender}</a>"
 
         if is_free:
-            # Free: contacts hidden
-            return (
-                f"{urgency}🔍 Новый клиент в @{chat}\n\n"
-                f"{text_preview}\n\n"
-                f"🔒 Контакты скрыты на Free-тарифе.\n"
-                f"💰 Активируй подписку чтобы видеть отправителя."
-            )
-        else:
-            # Paid: full format
-            sender = payload.get("sender", "неизвестный")
-            return (
-                f"{urgency}🔍 Заявка от @{sender} в @{chat}\n\n"
-                f"{text_preview}"
-            )
+            msg += "\n\n🔒 Контакты скрыты на Free-тарифе.\n💰 Активируй подписку чтобы видеть отправителя."
+
+        return msg
 
     def _build_keyboard(self, payload: dict) -> InlineKeyboardMarkup:
         """Build notification keyboard."""
         is_free = payload.get("plan", "free") == "free"
         chat = payload.get("chat_username", "")
         msg_id = payload.get("message_id", 0)
+        sender = payload.get("sender", None)
 
         if is_free:
             return InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text="💰 Активировать подписку",
-                    callback_data="menu:plan",
-                )],
+                [InlineKeyboardButton(text="💰 Активировать подписку", callback_data="menu:plan")],
+                [InlineKeyboardButton(text="💬 Чат", url=f"https://t.me/{chat}/{msg_id}")] if chat else None,
             ])
 
-        # Paid: reply buttons
-        sender = payload.get("sender", "")
         buttons = []
-        if sender:
-            buttons.append(
-                InlineKeyboardButton(
-                    text="💬 Ответить в личные",
-                    url=f"https://t.me/{sender}",
-                )
-            )
         if chat:
-            buttons.append(
-                InlineKeyboardButton(
-                    text="💬 Ответить в чат",
-                    url=f"https://t.me/{chat}/{msg_id}",
-                )
-            )
-
-        kb_rows = [buttons] if buttons else []
+            buttons.append(InlineKeyboardButton(text="💬 Чат", url=f"https://t.me/{chat}/{msg_id}"))
+        if sender:
+            buttons.append(InlineKeyboardButton(text="💬 Написать", url=f"https://t.me/{sender}"))
+        kb_rows = [b for b in [buttons] if b]
         return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
     async def _send_limit_warning(self, telegram_id: int, lang: str):
