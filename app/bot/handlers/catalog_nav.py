@@ -91,6 +91,9 @@ async def on_search_start(callback: CallbackQuery, state: FSMContext):
         max_seg = get_max_segments(user.plan)
         segments = await get_segments(session)
 
+    # Filter out "other-services" — replaced by support button
+    segments = [s for s in segments if s.slug != "other-services"]
+
     selected: list[int] = []
     await state.update_data(lang=lang, plan=user.plan, max_seg=max_seg, current_subs=current)
 
@@ -131,6 +134,11 @@ async def _render_segments(
         )])
 
     kb_rows.append([InlineKeyboardButton(
+        text="💬 Нет вашего вида деятельности? Связаться с поддержкой" if lang == "ru" else "💬 Don't see your category? Contact support",
+        callback_data="support:missing_category",
+    )])
+
+    kb_rows.append([InlineKeyboardButton(
         text=get_text(lang, "btn_back"), callback_data="menu:main",
     )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -163,6 +171,7 @@ async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
 
     async for session in get_session():
         segments = await get_segments(session)
+        segments = [s for s in segments if s.slug != "other-services"]
 
     await _render_segments(callback, state, segments, selected, lang, current, max_seg)
     await callback.answer()
@@ -564,6 +573,43 @@ async def on_delete_subscription(callback: CallbackQuery):
 
     await callback.answer("Отписано")
     await on_show_subscriptions(callback)
+
+
+# ═══════════════ BACK NAVIGATION ═══════════════
+
+@router.callback_query(F.data == "support:missing_category")
+async def on_support_missing_category(callback: CallbackQuery):
+    """User requests a category not in the list — starts support chat."""
+    lang = await _get_lang_nostate(callback)
+    from app.db.models import SupportMessage
+    from app.db.crud import get_user
+
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        if user:
+            msg = SupportMessage(
+                user_id=user.id,
+                direction="incoming",
+                text=f"[Запрос категории] Пользователь @{user.username or user.telegram_id} запрашивает новый вид деятельности.",
+            )
+            session.add(msg)
+            await session.commit()
+
+    text = (
+        "📩 Напишите, какой вид деятельности вас интересует, "
+        "и мы добавим его в ближайшее время!\n\n"
+        "Просто отправьте сообщение в этот чат."
+        if lang == "ru"
+        else
+        "📩 Tell us what category you're looking for, "
+        "and we'll add it soon!\n\n"
+        "Just send a message in this chat."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
+    ])
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
 
 
 # ═══════════════ BACK NAVIGATION ═══════════════
