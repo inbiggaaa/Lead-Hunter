@@ -1,4 +1,4 @@
-"""FSM catalog navigation: segment → country → geo → cities → confirm → trial/payment."""
+"""FSM catalog navigation: segments (multi) → country → geo → cities (multi) → confirm."""
 
 import datetime
 
@@ -6,7 +6,6 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import select, func
 
 from app.db.crud import (
     count_user_subscriptions,
@@ -26,42 +25,44 @@ router = Router()
 
 
 class CatStates(StatesGroup):
-    choosing_segment = State()
+    choosing_segments = State()
     choosing_country = State()
     choosing_geo = State()
     choosing_cities = State()
     confirm_subscription = State()
 
 
-def _user_lang(message: Message) -> str:
-    text = message.text or message.caption or ""
-    if any(w in text.lower() for w in ("русский", "выбери", "направлен", "стран", "город", "подписк")):
-        return "ru"
-    return "en"
-
+# ── Language helpers ──
 
 async def _get_lang(callback: CallbackQuery, state: FSMContext) -> str:
-    """Get user language: FSM state first, then DB."""
     data = await state.get_data()
     lang = data.get("lang")
     if lang:
         return lang
-    return await _get_lang_nostate(callback)
-
-
-async def _get_lang_nostate(callback: CallbackQuery) -> str:
-    """Get user language from DB."""
     async for session in get_session():
-        from app.db.crud import get_user
         user = await get_user(session, callback.from_user.id)
         return user.language if user else "ru"
 
 
-# ── Step 1: Choose segment ──
+async def _get_lang_nostate(callback: CallbackQuery) -> str:
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        return user.language if user else "ru"
+
+
+def _country_flag(slug: str) -> str:
+    flags = {"vn": "🇻🇳", "id": "🇮🇩", "th": "🇹🇭", "ru": "🇷🇺", "other": "🌍",
+             "tr": "🇹🇷", "ae": "🇦🇪", "ge": "🇬🇪", "kz": "🇰🇿", "de": "🇩🇪",
+             "es": "🇪🇸", "fr": "🇫🇷", "us": "🇺🇸", "gb": "🇬🇧", "in": "🇮🇳",
+             "cn": "🇨🇳", "jp": "🇯🇵", "br": "🇧🇷", "eg": "🇪🇬", "za": "🇿🇦"}
+    return flags.get(slug, "🌍")
+
+
+# ═══════════════ STEP 1: Choose segments (multi-select) ═══════════════
 
 @router.callback_query(F.data == "menu:search")
 async def on_search_start(callback: CallbackQuery, state: FSMContext):
-    lang = await _get_lang(callback, state)
+    lang = await _get_lang_nostate(callback)
     await state.clear()
 
     async for session in get_session():
@@ -73,49 +74,104 @@ async def on_search_start(callback: CallbackQuery, state: FSMContext):
         max_seg = get_max_segments(user.plan)
         segments = await get_segments(session)
 
-    text = f"Чем ты занимаешься? Выбери направление:\n\nПодписки: {current}/{max_seg}"
+    selected: list[int] = []
+    await state.update_data(lang=lang, plan=user.plan, max_seg=max_seg, current_subs=current)
 
+    text = f"Выбери направления ({current}/{max_seg}):\n\n"
+    text += "Можно выбрать несколько. Нажми «Готово» когда закончишь."
+
+    await _render_segments(callback, state, segments, selected, lang, current, max_seg)
+    await state.set_state(CatStates.choosing_segments)
+    await callback.answer()
+
+
+async def _render_segments(
+    callback: CallbackQuery, state: FSMContext,
+    segments, selected: list[int], lang: str,
+    current: int, max_seg: int,
+):
     kb_rows = []
     for seg in segments:
         emoji = seg.emoji or ""
         title = seg.title_ru if lang == "ru" else (seg.title_en or seg.title_ru)
-        kb_rows.append([
-            InlineKeyboardButton(
-                text=f"{emoji} {title}",
-                callback_data=f"cat:seg:{seg.id}",
-            )
-        ])
-    kb_rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")])
+        prefix = "☑️ " if seg.id in selected else "⬜ "
+        kb_rows.append([InlineKeyboardButton(
+            text=f"{prefix}{emoji} {title}",
+            callback_data=f"cat:seg:{seg.id}",
+        )])
+
+    # "Done" button — enabled only if at least 1 selected
+    if selected and (current + len(selected) <= max_seg):
+        kb_rows.append([InlineKeyboardButton(
+            text=f"✅ Готово ({len(selected)} выбрано)",
+            callback_data="cat:segs_done",
+        )])
+
+    kb_rows.append([InlineKeyboardButton(
+        text=get_text(lang, "btn_back"), callback_data="menu:main",
+    )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
-    await state.set_state(CatStates.choosing_segment)
-    await state.update_data(lang=lang)
-    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.message.edit_text(
+        f"Выбери направления ({current + len(selected)}/{max_seg}):\n\n"
+        f"Можно выбрать несколько. Нажми «Готово» когда закончишь.",
+        reply_markup=kb,
+    )
+
+
+@router.callback_query(CatStates.choosing_segments, F.data.startswith("cat:seg:"))
+async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
+    seg_id = int(callback.data.split(":")[2])
+    data = await state.get_data()
+    selected: list[int] = data.get("selected_segments", [])
+    max_seg = data.get("max_seg", 1)
+    current = data.get("current_subs", 0)
+    lang = data.get("lang", "ru")
+
+    if seg_id in selected:
+        selected.remove(seg_id)
+    else:
+        if current + len(selected) >= max_seg:
+            await callback.answer(f"Лимит: {max_seg} направлений", show_alert=True)
+            return
+        selected.append(seg_id)
+
+    await state.update_data(selected_segments=selected)
+
+    async for session in get_session():
+        segments = await get_segments(session)
+
+    await _render_segments(callback, state, segments, selected, lang, current, max_seg)
     await callback.answer()
 
 
-# ── Step 2: Choose country ──
+@router.callback_query(CatStates.choosing_segments, F.data == "cat:segs_done")
+async def on_segments_done(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected: list[int] = data.get("selected_segments", [])
+    lang = data.get("lang", "ru")
 
-@router.callback_query(CatStates.choosing_segment, F.data.startswith("cat:seg:"))
-async def on_segment_chosen(callback: CallbackQuery, state: FSMContext):
-    segment_id = int(callback.data.split(":")[2])
-    lang = await _get_lang(callback, state)
+    if not selected:
+        await callback.answer("Выбери хотя бы одно направление", show_alert=True)
+        return
 
-    await state.update_data(segment_id=segment_id)
+    await state.update_data(selected_segments=selected)
 
+    # Step 2: choose country
     async for session in get_session():
         countries = await get_countries(session)
 
     text = "В какой стране ищешь клиентов?"
-
     kb_rows = []
     for c in countries:
         name = c.name_ru if lang == "ru" else (c.name_en or c.name_ru)
         flag = _country_flag(c.slug)
-        kb_rows.append([
-            InlineKeyboardButton(text=f"{flag} {name}", callback_data=f"cat:country:{c.id}")
-        ])
-    kb_rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:search")])
+        kb_rows.append([InlineKeyboardButton(
+            text=f"{flag} {name}", callback_data=f"cat:country:{c.id}",
+        )])
+    kb_rows.append([InlineKeyboardButton(
+        text=get_text(lang, "btn_back"), callback_data="menu:search",
+    )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
     await state.set_state(CatStates.choosing_country)
@@ -123,12 +179,13 @@ async def on_segment_chosen(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ── Step 3: Choose geo mode ──
+# ═══════════════ STEP 2: Choose country ═══════════════
 
 @router.callback_query(CatStates.choosing_country, F.data.startswith("cat:country:"))
 async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
     country_id = int(callback.data.split(":")[2])
-    lang = await _get_lang(callback, state)
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
 
     await state.update_data(country_id=country_id)
 
@@ -136,7 +193,7 @@ async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🌍 По всей стране", callback_data="cat:geo:all")],
         [InlineKeyboardButton(text="🏙 В городах", callback_data="cat:geo:cities")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:search")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:to_segments")],
     ])
 
     await state.set_state(CatStates.choosing_geo)
@@ -144,32 +201,45 @@ async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ── Step 4a: Cities selection ──
+@router.callback_query(CatStates.choosing_country, F.data == "cat:back:to_segments")
+async def on_back_to_segments(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(CatStates.choosing_segments)
+    await on_search_start(callback, state)
+
+
+# ═══════════════ STEP 3: Choose geo ═══════════════
 
 @router.callback_query(CatStates.choosing_geo, F.data == "cat:geo:cities")
 async def on_geo_cities(callback: CallbackQuery, state: FSMContext):
-    lang = await _get_lang(callback, state)
     data = await state.get_data()
+    lang = data.get("lang", "ru")
     country_id = data["country_id"]
 
     async for session in get_session():
         cities = await get_cities(session, country_id)
 
-    text = "Выбери города:"
-    kb_rows = []
     selected_cities: list[int] = data.get("selected_cities", [])
 
+    text = f"Выбери города (выбрано: {len(selected_cities)}):"
+    kb_rows = []
     for city in cities:
         name = city.name_ru if lang == "ru" else (city.name_en or city.name_ru)
-        prefix = "✅ " if city.id in selected_cities else ""
-        kb_rows.append([
-            InlineKeyboardButton(
-                text=f"{prefix}{name}",
-                callback_data=f"cat:city:{city.id}",
-            )
-        ])
-    kb_rows.append([InlineKeyboardButton(text="✅ Готово", callback_data="cat:confirm")])
-    kb_rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:country")])
+        prefix = "☑️ " if city.id in selected_cities else "⬜ "
+        kb_rows.append([InlineKeyboardButton(
+            text=f"{prefix}{name}",
+            callback_data=f"cat:city:{city.id}",
+        )])
+
+    footer = []
+    if selected_cities:
+        footer.append(InlineKeyboardButton(
+            text=f"✅ Готово ({len(selected_cities)})",
+            callback_data="cat:cities_done",
+        ))
+    footer.append(InlineKeyboardButton(
+        text=get_text(lang, "btn_back"), callback_data="cat:back:to_country",
+    ))
+    kb_rows.append(footer)
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
     await state.set_state(CatStates.choosing_cities)
@@ -177,8 +247,6 @@ async def on_geo_cities(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
-
-# ── Toggle city selection ──
 
 @router.callback_query(CatStates.choosing_cities, F.data.startswith("cat:city:"))
 async def on_toggle_city(callback: CallbackQuery, state: FSMContext):
@@ -195,12 +263,10 @@ async def on_toggle_city(callback: CallbackQuery, state: FSMContext):
     await on_geo_cities(callback, state)
 
 
-# ── Back to country from cities ──
-
-@router.callback_query(CatStates.choosing_cities, F.data == "cat:back:country")
-async def on_back_to_country(callback: CallbackQuery, state: FSMContext):
-    lang = await _get_lang(callback, state)
+@router.callback_query(CatStates.choosing_cities, F.data == "cat:back:to_country")
+async def on_back_to_country_from_cities(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    lang = data.get("lang", "ru")
 
     async for session in get_session():
         countries = await get_countries(session)
@@ -210,10 +276,12 @@ async def on_back_to_country(callback: CallbackQuery, state: FSMContext):
     for c in countries:
         name = c.name_ru if lang == "ru" else (c.name_en or c.name_ru)
         flag = _country_flag(c.slug)
-        kb_rows.append([
-            InlineKeyboardButton(text=f"{flag} {name}", callback_data=f"cat:country:{c.id}")
-        ])
-    kb_rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:search")])
+        kb_rows.append([InlineKeyboardButton(
+            text=f"{flag} {name}", callback_data=f"cat:country:{c.id}",
+        )])
+    kb_rows.append([InlineKeyboardButton(
+        text=get_text(lang, "btn_back"), callback_data="cat:back:to_segments",
+    )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
     await state.set_state(CatStates.choosing_country)
@@ -221,31 +289,34 @@ async def on_back_to_country(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ── Step 4b/5: Confirm subscription ──
-
-@router.callback_query(CatStates.choosing_geo, F.data == "cat:geo:all")
-async def on_geo_all(callback: CallbackQuery, state: FSMContext):
-    lang = await _get_lang(callback, state)
-    data = await state.get_data()
-    await state.update_data(mode="all", selected_cities=[])
-    await _show_confirmation(callback, state)
-
-
-@router.callback_query(CatStates.choosing_cities, F.data == "cat:confirm")
-async def on_confirm_from_cities(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(CatStates.choosing_cities, F.data == "cat:cities_done")
+async def on_cities_done(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     selected: list[int] = data.get("selected_cities", [])
     if not selected:
         await callback.answer("Выбери хотя бы один город", show_alert=True)
         return
     await state.update_data(mode="cities")
-
     await _show_confirmation(callback, state)
 
 
+# ═══════════════ STEP 4: All country ═══════════════
+
+@router.callback_query(CatStates.choosing_geo, F.data == "cat:geo:all")
+async def on_geo_all(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(mode="all", selected_cities=[])
+    await _show_confirmation(callback, state)
+
+
+# ═══════════════ CONFIRM & SUBSCRIBE ═══════════════
+
 async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
-    lang = await _get_lang(callback, state)
     data = await state.get_data()
+    lang = data.get("lang", "ru")
+    selected_segments: list[int] = data.get("selected_segments", [])
+    country_id = data.get("country_id")
+    mode = data.get("mode", "all")
+    selected_cities: list[int] = data.get("selected_cities", [])
 
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
@@ -254,32 +325,33 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
             return
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
-
-    if current >= max_seg:
-        await callback.answer(f"Лимит подписок исчерпан: {current}/{max_seg}", show_alert=True)
-        return
-
-    # Check for duplicate subscription
-    async for session in get_session():
         existing = await get_user_subscriptions(session, user.id)
-    duplicate = any(
-        sub.segment_id == data["segment_id"] and sub.country_id == data["country_id"]
-        for sub in existing
-    )
 
-    if duplicate:
-        await callback.answer("Уже подписан на это направление в этой стране", show_alert=True)
+    if current + len(selected_segments) > max_seg:
+        await callback.answer(f"Лимит: {max_seg}", show_alert=True)
         return
 
-    text = "Подтверди подписку:\n\n"
-    text += f"📌 Направление: #{data['segment_id']}\n"
-    text += f"🌍 Страна: #{data['country_id']}\n"
-    if data.get("mode") == "cities":
-        text += f"🏙 Города: {len(data.get('selected_cities', []))}\n"
+    # Check duplicates
+    existing_pairs = {(s.segment_id, s.country_id) for s in existing}
+    duplicates = [
+        sid for sid in selected_segments
+        if (sid, country_id) in existing_pairs
+    ]
+    if duplicates:
+        await callback.answer(f"Уже подписан на {len(duplicates)} из выбранных", show_alert=True)
+        return
+
+    text = f"Подтверди подписку:\n\n"
+    text += f"📌 Направлений: {len(selected_segments)}\n"
+    text += f"🌍 Страна: {country_id}\n"
+    if mode == "cities":
+        text += f"🏙 Городов: {len(selected_cities)}\n"
+
+    text += "\nНажми «Подписаться» для активации."
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Подписаться", callback_data="cat:subscribe")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="cat:back:from_confirm")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:to_segments")],
     ])
 
     await state.set_state(CatStates.confirm_subscription)
@@ -287,12 +359,14 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ── Execute subscription ──
-
 @router.callback_query(CatStates.confirm_subscription, F.data == "cat:subscribe")
 async def on_subscribe(callback: CallbackQuery, state: FSMContext):
-    lang = await _get_lang(callback, state)
     data = await state.get_data()
+    lang = data.get("lang", "ru")
+    selected_segments: list[int] = data.get("selected_segments", [])
+    country_id = data["country_id"]
+    mode = data.get("mode", "all")
+    selected_cities: list[int] = data.get("selected_cities", [])
 
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
@@ -302,20 +376,19 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
 
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
-        if current >= max_seg:
-            await callback.answer(f"Лимит: {current}/{max_seg}", show_alert=True)
+        if current + len(selected_segments) > max_seg:
+            await callback.answer(f"Лимит: {max_seg}", show_alert=True)
             return
 
-        await create_subscription(
-            session,
-            user_id=user.id,
-            segment_id=data["segment_id"],
-            country_id=data["country_id"],
-            mode=data.get("mode", "all"),
-            city_ids=data.get("selected_cities"),
-        )
+        # Create subscriptions for all selected segments
+        for seg_id in selected_segments:
+            await create_subscription(
+                session, user_id=user.id,
+                segment_id=seg_id, country_id=country_id,
+                mode=mode, city_ids=selected_cities if mode == "cities" else None,
+            )
 
-        # Activate trial if this is the user's first subscription
+        # Activate trial if first subscription
         is_first = current == 0
         if is_first and user.plan == "free":
             from app.config import settings
@@ -329,12 +402,12 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
 
     if is_first:
         text = (
-            f"🎉 Готово! Ты получил 5 дней Business-тарифа.\n"
-            f"Вот твои первые заявки:\n\n"
-            f"(Заявки появятся в Фазе 5)"
+            "🎉 Готово! Ты получил 5 дней Business-тарифа.\n"
+            f"Подписок создано: {len(selected_segments)}\n\n"
+            "Заявки начнут приходить в ближайшее время."
         )
     else:
-        text = "✅ Подписка добавлена!"
+        text = f"✅ Добавлено подписок: {len(selected_segments)}"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
@@ -343,7 +416,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ── Subscriptions list (from menu) ──
+# ═══════════════ SUBSCRIPTIONS LIST ═══════════════
 
 @router.callback_query(F.data == "menu:subs")
 async def on_show_subscriptions(callback: CallbackQuery):
@@ -364,14 +437,18 @@ async def on_show_subscriptions(callback: CallbackQuery):
 
     kb_rows = []
     for sub in subs:
-        kb_rows.append([
-            InlineKeyboardButton(
-                text=f"🗑️ Сегмент #{sub.segment_id} / Страна #{sub.country_id}",
-                callback_data=f"sub:del:{sub.id}",
-            )
-        ])
-    kb_rows.append([InlineKeyboardButton(text="🔍 Поиск клиентов", callback_data="menu:search")])
-    kb_rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")])
+        kb_rows.append([InlineKeyboardButton(
+            text=f"🗑️ Сегмент #{sub.segment_id} / Страна #{sub.country_id}",
+            callback_data=f"sub:del:{sub.id}",
+        )])
+
+    if current < max_seg:
+        kb_rows.append([InlineKeyboardButton(
+            text="➕ Подписаться на направление", callback_data="menu:search",
+        )])
+    kb_rows.append([InlineKeyboardButton(
+        text=get_text(lang, "btn_back"), callback_data="menu:main",
+    )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
     await callback.message.edit_text(text, reply_markup=kb)
@@ -394,24 +471,15 @@ async def on_delete_subscription(callback: CallbackQuery):
     await on_show_subscriptions(callback)
 
 
-# ── Back handlers ──
+# ═══════════════ BACK NAVIGATION ═══════════════
 
 @router.callback_query(CatStates.choosing_country, F.data == "menu:search")
-async def on_back_to_segments(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
+async def on_back_to_segments_from_country(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(CatStates.choosing_segments)
     await on_search_start(callback, state)
 
 
-@router.callback_query(CatStates.confirm_subscription, F.data == "cat:back:from_confirm")
+@router.callback_query(CatStates.confirm_subscription, F.data == "cat:back:to_segments")
 async def on_back_from_confirm(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
+    await state.set_state(CatStates.choosing_segments)
     await on_search_start(callback, state)
-
-
-# ── Helpers ──
-
-def _country_flag(slug: str) -> str:
-    flags = {
-        "vn": "🇻🇳", "id": "🇮🇩", "th": "🇹🇭", "ru": "🇷🇺", "other": "🌍",
-    }
-    return flags.get(slug, "🌍")
