@@ -252,7 +252,7 @@ async def on_ref_copy(callback: CallbackQuery):
             select(Referral).where(Referral.referrer_id == callback.from_user.id)
         )).scalars().first()
         if ref:
-            link = f"https://t.me/LeadHunterAiApp_bot?start=ref_{ref.ref_code}"
-            await callback.answer(f"Ссылка скопирована:\n{link}", show_alert=True)
+            link = f"t.me/LeadHunterAiApp_bot?start=ref_{ref.ref_code}"
+            await callback.answer(link[:200], show_alert=True)
         else:
-            await callback.answer("Ошибка", show_alert=True)
+            await callback.answer("Сначала откройте раздел Пригласить друга" if "рус" in (callback.message.text or "").lower() else "Open Invite a friend first", show_alert=True)
