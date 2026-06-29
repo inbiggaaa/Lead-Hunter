@@ -139,8 +139,18 @@ async def on_onboard_country(callback: CallbackQuery):
 # ── Onboarding finish → main menu ──
 
 async def _finish_onboarding(callback: CallbackQuery, lang: str):
+    import datetime
     async for session in get_session():
         await set_onboarded(session, callback.from_user.id)
+        # Activate trial for first-time users
+        from app.db.crud import get_user
+        from app.config import settings
+        user = await get_user(session, callback.from_user.id)
+        if user and user.plan == "free":
+            now = datetime.datetime.now(datetime.timezone.utc)
+            user.plan = "trial"
+            user.plan_activated_at = now
+            user.plan_expires_at = now + datetime.timedelta(days=settings.trial_days)
         await session.commit()
 
     text = get_text(lang, "onb_step3_title") + "\n\n" + get_text(lang, "onb_step3_placeholder")

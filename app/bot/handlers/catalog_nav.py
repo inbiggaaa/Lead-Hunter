@@ -483,3 +483,12 @@ async def on_back_to_segments_from_country(callback: CallbackQuery, state: FSMCo
 async def on_back_from_confirm(callback: CallbackQuery, state: FSMContext):
     await state.set_state(CatStates.choosing_segments)
     await on_search_start(callback, state)
+
+# ── DEBUG: log any unhandled cat: callbacks ──
+
+@router.callback_query(F.data.startswith("cat:"))
+async def debug_unhandled(callback: CallbackQuery, state: FSMContext):
+    current = await state.get_state()
+    print(f"DEBUG UNHANDLED: data={callback.data}, state={current}")
+    await callback.answer(f"State: {current}", show_alert=True)
+
