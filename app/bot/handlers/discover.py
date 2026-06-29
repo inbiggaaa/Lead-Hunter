@@ -188,10 +188,9 @@ async def on_referral(callback: CallbackQuery):
 
     if lang == "ru":
         share_msg = (
-            f"🔥 Нашёл сервис — Lead Hunter AI!\n\n"
-            f"Находит клиентов в Telegram: 1747+ каналов в 70 странах, "
-            f"AI-фильтр спама, заявки за 2 секунды.\n\n"
-            f"🎁 По ссылке — 8 дней Business бесплатно (вместо 5): {link}"
+            "Lead Hunter AI — бот, который мониторит сотни Telegram-каналов "
+            "и ловит запросы клиентов по твоей нише. Заявки приходят моментально. "
+            f"🎁 По моей ссылке — 8 дней Business бесплатно: {link}"
         )
         text = (
             f"🎁 Пригласи друга\n\n"
@@ -203,10 +202,9 @@ async def on_referral(callback: CallbackQuery):
         )
     else:
         share_msg = (
-            f"🔥 Found a tool — Lead Hunter AI!\n\n"
-            f"Finds clients on Telegram: 1747+ channels in 70 countries, "
-            f"AI spam filter, 2-second leads.\n\n"
-            f"🎁 8 days Business free (instead of 5): {link}"
+            "Lead Hunter AI — a bot that monitors hundreds of Telegram channels "
+            "and catches client requests in your niche. Leads arrive instantly. "
+            f"🎁 8 days of Business free with my link: {link}"
         )
         text = (
             f"🎁 Invite a friend\n\n"
