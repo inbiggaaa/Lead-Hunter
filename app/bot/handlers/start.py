@@ -74,21 +74,37 @@ async def on_language_select(callback: CallbackQuery):
 
 async def _show_onboarding_step1(message: Message, lang: str):
     text = get_text(lang, "onb_step1_title")
-    cat_labels = {
-        "catering": {"ru": "🍜 Кейтеринг / Повара", "en": "🍜 Catering / Chefs"},
-        "massage": {"ru": "💆 Массаж", "en": "💆 Massage"},
-        "bikes": {"ru": "🏍 Аренда байков", "en": "🏍 Bike rental"},
-    }
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=cat_labels["catering"][lang], callback_data=f"onb:cat:catering:{lang}")],
-            [InlineKeyboardButton(text=cat_labels["massage"][lang], callback_data=f"onb:cat:massage:{lang}")],
-            [InlineKeyboardButton(text=cat_labels["bikes"][lang], callback_data=f"onb:cat:bikes:{lang}")],
-            [
-                InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
-            ],
-        ]
-    )
+
+    # Load all segments from DB
+    from app.db.session import async_session_factory
+    from app.db.models import Segment
+    from sqlalchemy import select
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Segment).where(Segment.is_active == True).order_by(Segment.sort_order)
+        )
+        segments = result.scalars().all()
+
+    kb_rows = []
+    row = []
+    for seg in segments:
+        emoji = seg.emoji or ""
+        title = seg.title_ru if lang == "ru" else (seg.title_en or seg.title_ru)
+        row.append(InlineKeyboardButton(
+            text=f"{emoji} {title}",
+            callback_data=f"onb:cat:{seg.slug}:{lang}",
+        ))
+        if len(row) == 2:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
+
+    kb_rows.append([
+        InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
+    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await message.answer(text, reply_markup=kb)
 
 
@@ -99,22 +115,38 @@ async def on_onboard_category(callback: CallbackQuery):
     parts = callback.data.split(":")
     lang = parts[3] if len(parts) > 3 else "ru"
 
+    # Load all countries from DB
+    from app.db.session import async_session_factory
+    from app.db.models import Country
+    from sqlalchemy import select
+    from app.bot.handlers.catalog_nav import _country_flag
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Country).where(Country.is_active == True).order_by(Country.name_ru)
+        )
+        countries = result.scalars().all()
+
     text = get_text(lang, "onb_step2_title")
-    country_labels = {
-        "vn": {"ru": "🇻🇳 Вьетнам", "en": "🇻🇳 Vietnam"},
-        "id": {"ru": "🇮🇩 Индонезия", "en": "🇮🇩 Indonesia"},
-        "th": {"ru": "🇹🇭 Таиланд", "en": "🇹🇭 Thailand"},
-    }
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=country_labels["vn"][lang], callback_data=f"onb:country:vn:{lang}")],
-            [InlineKeyboardButton(text=country_labels["id"][lang], callback_data=f"onb:country:id:{lang}")],
-            [InlineKeyboardButton(text=country_labels["th"][lang], callback_data=f"onb:country:th:{lang}")],
-            [
-                InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
-            ],
-        ]
-    )
+    kb_rows = []
+    row = []
+    for c in countries:
+        name = c.name_ru if lang == "ru" else (c.name_en or c.name_ru)
+        flag = _country_flag(c.slug)
+        row.append(InlineKeyboardButton(
+            text=f"{flag} {name}",
+            callback_data=f"onb:country:{c.slug}:{lang}",
+        ))
+        if len(row) == 2:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
+
+    kb_rows.append([
+        InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
+    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
