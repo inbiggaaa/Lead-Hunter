@@ -1,66 +1,74 @@
-"""Telethon-based channel poller. Reads messages from watched channels without joining."""
+"""Telethon-based channel poller using userbot pool."""
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 
-from telethon import TelegramClient
 from telethon.errors import FloodWaitError
 from telethon.tl.types import Message
 
-from app.config import settings
 from app.userbot.classifier import classify_message
+from app.userbot.pool import UserbotPool
 from app.db.session import async_session_factory
-from app.db.models import SegmentKeyword
+from app.db.models import SegmentKeyword, Segment
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
 
 class ChannelPoller:
-    """Polls Telegram channels for new messages using Telethon userbot."""
+    """Polls Telegram channels using a pool of userbot accounts."""
 
     def __init__(self):
-        self.client = TelegramClient(
-            "/app/sessions/userbot",
-            settings.userbot_api_id,
-            settings.userbot_api_hash,
-        )
+        self.pool = UserbotPool()
+        self._keyword_map: dict[str, dict[str, list[str]]] = {}
 
     async def start(self):
-        """Connect and authorize the userbot."""
-        await self.client.start(phone=settings.userbot_phone or None)
-        logger.info("Userbot authorized as %s", await self.client.get_me())
+        """Initialize pool and load keywords."""
+        await self.pool.initialize()
+        self._keyword_map = await self._load_keywords()
 
     async def poll_channels(self, channels: list[str]):
-        """
-        Poll a list of channel usernames for recent messages.
+        """Distribute and poll channels across pool accounts."""
+        # Redistribute channels across pool
+        await self.pool.redistribute_channels(channels)
 
-        Args:
-            channels: List of channel usernames (with or without @).
-        """
-        # Load segment keywords from DB into memory
-        keyword_map = await self._load_keywords()
+        # Poll each account's channels concurrently
+        tasks = []
+        for account in self.pool.accounts:
+            if not account.is_healthy:
+                continue
+            acc_channels = [
+                ch for ch, aid in self.pool._channel_assignments.items()
+                if aid == account.account_id
+            ]
+            if acc_channels:
+                tasks.append(self._poll_account_channels(account, acc_channels))
 
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    async def _poll_account_channels(self, account, channels: list[str]):
+        """Poll channels assigned to a specific account."""
         for channel in channels:
             try:
-                await self._poll_channel(channel.strip().lstrip("@"), keyword_map)
+                await self._poll_channel(account, channel.strip().lstrip("@"))
             except FloodWaitError as e:
-                logger.warning("FloodWait for %s: %ds", channel, e.seconds)
+                logger.warning("FloodWait for account %d: %ds", account.account_id, e.seconds)
                 await asyncio.sleep(e.seconds)
             except Exception:
-                logger.exception("Error polling channel %s", channel)
+                logger.exception("Error polling channel %s on account %d", channel, account.account_id)
+                # Mark account for health recheck
+                await self.pool.handle_account_failure(account)
 
-    async def _poll_channel(self, channel_username: str, keyword_map: dict[str, dict[str, list[str]]]):
-        """Poll a single channel for recent messages."""
+    async def _poll_channel(self, account, channel_username: str):
+        """Poll a single channel using a specific account."""
         try:
-            entity = await self.client.get_entity(channel_username)
+            entity = await account.get_entity(channel_username)
         except Exception:
-            logger.warning("Cannot access channel: %s", channel_username)
+            logger.warning("Account %d cannot access channel: %s", account.account_id, channel_username)
             return
 
-        # Get last 10 messages (in production: tier-based polling, see ROADMAP.md)
-        messages = await self.client.get_messages(entity, limit=10)
+        messages = await account.get_messages(entity, limit=10)
         if not messages:
             return
 
@@ -68,12 +76,12 @@ class ChannelPoller:
             if not isinstance(msg, Message) or not msg.message:
                 continue
 
-            result = classify_message(msg.message, keyword_map)
+            result = classify_message(msg.message, self._keyword_map)
             if result.matched_segments:
                 urgency = "🔥 " if result.is_urgent else ""
                 logger.info(
-                    "%sMatch in @%s (msg %d): segments=%s",
-                    urgency, channel_username, msg.id, result.matched_segments,
+                    "%s[Acc %d] Match in @%s (msg %d): segments=%s",
+                    urgency, account.account_id, channel_username, msg.id, result.matched_segments,
                 )
                 await self._dispatch(
                     chat_username=channel_username,
@@ -84,42 +92,27 @@ class ChannelPoller:
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
                 )
 
-    async def _dispatch(
-        self,
-        chat_username: str,
-        message_text: str,
-        message_id: int,
-        matched_segments: list[str],
-        is_urgent: bool,
-        sender: str | None,
-    ):
+    async def _dispatch(self, chat_username, message_text, message_id, matched_segments, is_urgent, sender):
         """Find interested users and push notifications to queue."""
         from app.cache.subscription_cache import (
-            get_interested_users,
-            push_notification,
-            build_message_hash,
+            get_interested_users, push_notification, build_message_hash, rebuild_subscription_cache,
         )
 
         message_hash = build_message_hash(chat_username, message_id)
         users = await get_interested_users(chat_username)
 
-        # If cache is empty for this chat, rebuild it
         if not users:
-            from app.cache.subscription_cache import rebuild_subscription_cache
             await rebuild_subscription_cache(chat_username)
             users = await get_interested_users(chat_username)
 
         for user in users:
-            # Check if user is interested in any matched segment
             user_segment_ids = set(user.get("segment_ids", []))
-            # Also check personal keywords
             personal_kws = user.get("keyword_texts", [])
 
             interested = bool(
-                user_segment_ids  # if user has segment subs, all segments match
+                user_segment_ids
                 or any(kw.lower() in message_text.lower() for kw in personal_kws)
             )
-
             if not interested:
                 continue
 
@@ -144,8 +137,6 @@ class ChannelPoller:
             )
             keywords = result.scalars().all()
 
-        # Also fetch segment slugs
-        from app.db.models import Segment
         async with async_session_factory() as session:
             seg_result = await session.execute(select(Segment))
             segments = {s.id: s.slug for s in seg_result.scalars().all()}
@@ -165,8 +156,11 @@ class ChannelPoller:
         return keyword_map
 
     async def run_forever(self):
-        """Main loop: periodically poll all watched channels."""
+        """Main loop: periodically poll all watched channels via pool."""
         await self.start()
+
+        # Start health check in background
+        asyncio.create_task(self.pool.health_check_loop())
 
         while True:
             async with async_session_factory() as session:
@@ -181,5 +175,4 @@ class ChannelPoller:
             if channels:
                 await self.poll_channels(channels)
 
-            # Sleep between polling rounds (smart polling in Phase 9)
             await asyncio.sleep(60)
