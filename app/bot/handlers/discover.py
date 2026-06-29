@@ -1,4 +1,4 @@
-"""Settings, language, about, referral — misc handlers."""
+"""Settings, language, about, referral, instructions — misc handlers."""
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
@@ -11,7 +11,7 @@ router = Router()
 
 
 def _user_lang(text: str) -> str:
-    if any(w in text.lower() for w in ("русский", "тариф", "настройк", "сервис", "язык", "приглас")):
+    if any(w in text.lower() for w in ("русский", "настройк", "язык", "приглас")):
         return "ru"
     return "en"
 
@@ -52,59 +52,43 @@ async def on_instructions(callback: CallbackQuery):
         text = (
             "📖 <b>Инструкции</b>\n\n"
             "<b>1. Как добавить канал</b>\n"
-            "• Откройте ⚙️ Настройки → 📢 Мои каналы\n"
-            "• Нажмите «➕ Добавить канал»\n"
-            "• Отправьте @username интересующего канала\n"
-            "• Канал появится в вашем списке\n\n"
+            "• ⚙️ Настройки → 📢 Мои каналы\n"
+            "• «➕ Добавить канал»\n"
+            "• Отправьте @username канала\n\n"
             "<b>2. Как добавить ключевые слова</b>\n"
-            "• Откройте ⚙️ Настройки → ⚙️ Мои ключевые слова\n"
-            "• Нажмите «➕ Добавить слово»\n"
-            "• Отправьте фразу, например: «ищу повара»\n"
-            "• Бот будет присылать уведомления при совпадении\n\n"
-            "<b>3. Как оплатить подписку через CryptoBot</b>\n"
-            "• Откройте 💰 Тариф и оплата\n"
-            "• Выберите тариф и срок\n"
-            "• Нажмите «₮ CryptoBot» → «💳 Оплатить»\n"
-            "• Пополните баланс USDT через:\n"
-            "  – Binance, Bybit, OKX (P2P-покупка с карты)\n"
-            "  – @wallet (Telegram-кошелёк)\n"
-            "  – Любой криптообменник\n"
-            "• Переведите USDT по счёту в @CryptoBot\n"
-            "• Тариф активируется <b>автоматически</b>\n\n"
-            "<b>4. Как пополнить USDT с карты</b>\n"
-            "• Binance P2P: binance.com → Купить крипту → P2P\n"
-            "• Bybit P2P: bybit.com → Купить → P2P торговля\n"
-            "• Telegram @wallet: /start → Пополнить → Карта\n"
-            "• Комиссия: 0-2% в зависимости от продавца"
+            "• ⚙️ Настройки → ⚙️ Мои ключевые слова\n"
+            "• «➕ Добавить слово»\n"
+            "• Отправьте фразу: «ищу повара»\n\n"
+            "<b>3. Как оплатить через CryptoBot</b>\n"
+            "• 💰 Тариф и оплата → выбрать → ₮ CryptoBot\n"
+            "• Пополнить USDT: Binance P2P, Bybit, @wallet\n"
+            "• Перевести USDT по счёту в @CryptoBot\n"
+            "• Тариф активируется автоматически\n\n"
+            "<b>4. Как купить USDT с карты</b>\n"
+            "• Binance P2P: binance.com → Купить → P2P\n"
+            "• Bybit P2P: bybit.com → Купить → P2P\n"
+            "• Telegram @wallet: /start → Пополнить → Карта"
         )
     else:
         text = (
             "📖 <b>Instructions</b>\n\n"
-            "<b>1. How to add a channel</b>\n"
-            "• Go to ⚙️ Settings → 📢 My channels\n"
-            "• Tap «➕ Add channel»\n"
-            "• Send the @username of the channel\n"
-            "• The channel will appear in your list\n\n"
-            "<b>2. How to add keywords</b>\n"
-            "• Go to ⚙️ Settings → ⚙️ My keywords\n"
-            "• Tap «➕ Add keyword»\n"
-            "• Send a phrase, e.g. «looking for a chef»\n"
-            "• The bot will notify you on matches\n\n"
-            "<b>3. How to pay via CryptoBot</b>\n"
-            "• Go to 💰 Plan & payment\n"
-            "• Choose a plan and duration\n"
-            "• Tap «₮ CryptoBot» → «💳 Pay»\n"
-            "• Top up USDT via:\n"
-            "  – Binance, Bybit, OKX (P2P with card)\n"
-            "  – @wallet (Telegram wallet)\n"
-            "  – Any crypto exchange\n"
-            "• Send USDT to the invoice in @CryptoBot\n"
-            "• Subscription activates <b>automatically</b>\n\n"
-            "<b>4. How to buy USDT with a card</b>\n"
-            "• Binance P2P: binance.com → Buy crypto → P2P\n"
-            "• Bybit P2P: bybit.com → Buy → P2P trading\n"
-            "• Telegram @wallet: /start → Top up → Card\n"
-            "• Fee: 0-2% depending on seller"
+            "<b>1. Add a channel</b>\n"
+            "• ⚙️ Settings → 📢 My channels\n"
+            "• «➕ Add channel»\n"
+            "• Send the @username\n\n"
+            "<b>2. Add keywords</b>\n"
+            "• ⚙️ Settings → ⚙️ My keywords\n"
+            "• «➕ Add keyword»\n"
+            "• Send a phrase: «looking for a chef»\n\n"
+            "<b>3. Pay via CryptoBot</b>\n"
+            "• 💰 Plan → choose → ₮ CryptoBot\n"
+            "• Top up USDT: Binance P2P, Bybit, @wallet\n"
+            "• Send USDT to @CryptoBot invoice\n"
+            "• Activates automatically\n\n"
+            "<b>4. Buy USDT with card</b>\n"
+            "• Binance P2P: binance.com → Buy → P2P\n"
+            "• Bybit P2P: bybit.com → Buy → P2P\n"
+            "• Telegram @wallet: /start → Top up → Card"
         )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:settings")],
@@ -116,8 +100,6 @@ async def on_instructions(callback: CallbackQuery):
 @router.callback_query(F.data == "menu:about")
 async def on_about(callback: CallbackQuery):
     lang = _user_lang(callback.message.text or "")
-
-    # Live stats
     from app.db.models import CatalogChannel, Country
     from sqlalchemy import func, select as sa_sel
     from app.db.session import async_session_factory
@@ -134,9 +116,9 @@ async def on_about(callback: CallbackQuery):
             f"🎯 29 направлений бизнеса\n"
             f"⚡ Заявки за 2 секунды\n"
             f"🤖 AI-фильтр спама\n"
-            f"🔒 Контакты клиентов (на платных тарифах)\n"
-            f"💬 Ответ клиенту в 1 клик\n"
-            f"🆓 5 дней Business-тарифа бесплатно\n\n"
+            f"🔒 Контакты клиентов (Pro/Business)\n"
+            f"💬 Ответ в 1 клик\n"
+            f"🆓 5 дней Business бесплатно\n\n"
             f"Не жди, пока клиент найдёт конкурента.\n"
             f"Начни получать заявки прямо сейчас.\n"
             f"👇 Жми «Поиск клиентов» в главном меню."
@@ -150,7 +132,7 @@ async def on_about(callback: CallbackQuery):
             f"🎯 29 business categories\n"
             f"⚡ Leads in 2 seconds\n"
             f"🤖 AI spam filter\n"
-            f"🔒 Client contacts (paid plans)\n"
+            f"🔒 Client contacts (Pro/Business)\n"
             f"💬 Reply in 1 click\n"
             f"🆓 5-day Business trial free\n\n"
             f"Don't wait for the client to find a competitor.\n"
@@ -166,7 +148,7 @@ async def on_about(callback: CallbackQuery):
 
 @router.callback_query(F.data == "menu:referral")
 async def on_referral(callback: CallbackQuery):
-    import urllib.parse
+    import urllib.parse, uuid
     lang = _user_lang(callback.message.text or "")
 
     async for session in get_session():
@@ -182,7 +164,6 @@ async def on_referral(callback: CallbackQuery):
         )).scalars().first()
 
         if not ref:
-            import uuid
             ref = Referral(
                 referrer_id=user.id, referral_id=user.id,
                 ref_code=uuid.uuid4().hex[:8].upper(), status="active",
@@ -214,9 +195,9 @@ async def on_referral(callback: CallbackQuery):
         text = (
             f"🎁 Пригласи друга\n\n"
             f"+{settings.referral_bonus_days} дней подписки когда друг оплатит.\n"
-            f"Друг получит +{settings.referral_trial_bonus} дня к триалу (итого {settings.trial_days + settings.referral_trial_bonus}).\n\n"
-            f"🔗 {link}\n
-"
+            f"Друг получит +{settings.referral_trial_bonus} дня к триалу "
+            f"(итого {settings.trial_days + settings.referral_trial_bonus}).\n\n"
+            f"🔗 {link}\n\n"
             f"📊 Приглашено: {invited} | Активировано: {activated} | +{bonus_days} дн"
         )
     else:
@@ -229,9 +210,9 @@ async def on_referral(callback: CallbackQuery):
         text = (
             f"🎁 Invite a friend\n\n"
             f"+{settings.referral_bonus_days} days when they pay.\n"
-            f"They get +{settings.referral_trial_bonus} trial days ({settings.trial_days + settings.referral_trial_bonus} total).\n\n"
-            f"🔗 {link}\n
-"
+            f"They get +{settings.referral_trial_bonus} trial days "
+            f"({settings.trial_days + settings.referral_trial_bonus} total).\n\n"
+            f"🔗 {link}\n\n"
             f"📊 Invited: {invited} | Activated: {activated} | +{bonus_days}d"
         )
 
@@ -246,7 +227,3 @@ async def on_referral(callback: CallbackQuery):
     ])
     await callback.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
     await callback.answer()
-@router.callback_query(F.data == "ref_copy")
-async def on_ref_copy(callback: CallbackQuery):
-    lang = _user_lang(callback.message.text or "")
-    await callback.answer("✅ Ссылка скопирована" if lang == "ru" else "✅ Link copied", show_alert=True)
