@@ -83,6 +83,10 @@ services:
     build: .
     command: python -m app.admin.app
     env_file: .env
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - ./app:/app/app
     ports:
       - "127.0.0.1:8001:8001"
     depends_on:
