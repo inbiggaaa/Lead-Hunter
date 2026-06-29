@@ -402,7 +402,17 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
         text += f"📎 Уже подписано: {skipped} (пропущено)\n"
     text += f"🌍 Страна: {country_name}\n"
     if mode == "cities":
-        text += f"🏙 Городов: {len(selected_cities)}\n"
+        # Load city names
+        city_labels = []
+        async for session3 in get_session():
+            from app.db.models import City as CityModel
+            from sqlalchemy import select as sa_sel2
+            for cid in selected_cities:
+                c_res = (await session3.execute(sa_sel2(CityModel).where(CityModel.id == cid))).scalar_one_or_none()
+                if c_res:
+                    city_labels.append(c_res.name_ru if lang == "ru" else (c_res.name_en or c_res.name_ru))
+            break
+        text += f"🏙 Города: {', '.join(city_labels[:5])}\n"
 
     text += "\nНажми «Подписаться» для активации."
 
@@ -494,12 +504,22 @@ async def on_show_subscriptions(callback: CallbackQuery):
         max_seg = get_max_segments(user.plan)
 
         # Load names for segments and countries
-        from app.db.models import Segment, Country
+        from app.db.models import Segment, Country, SubscriptionCity, City
         from sqlalchemy import select as sa_select
         segs = (await session.execute(sa_select(Segment))).scalars().all()
         seg_names = {s.id: (s.emoji or "") + " " + (s.title_ru if lang == "ru" else (s.title_en or s.title_ru)) for s in segs}
         countries = (await session.execute(sa_select(Country))).scalars().all()
         country_names = {c.id: c.name_ru if lang == "ru" else (c.name_en or c.name_ru) for c in countries}
+        cities_all = (await session.execute(sa_select(City))).scalars().all()
+        city_names = {c.id: c.name_ru if lang == "ru" else (c.name_en or c.name_ru) for c in cities_all}
+        # Load subscription cities
+        sub_cities_map: dict[int, list[str]] = {}
+        for sub in subs:
+            if sub.mode == "cities":
+                sc = (await session.execute(
+                    sa_select(SubscriptionCity.city_id).where(SubscriptionCity.subscription_id == sub.id)
+                )).scalars().all()
+                sub_cities_map[sub.id] = [city_names.get(cid, f"#{cid}") for cid in sc]
 
     text = f"📋 Мои подписки ({current}/{max_seg})\n\n"
     if not subs:
@@ -510,8 +530,11 @@ async def on_show_subscriptions(callback: CallbackQuery):
         seg_name = seg_names.get(sub.segment_id, f"Сегмент #{sub.segment_id}")
         country_name = country_names.get(sub.country_id, f"Страна #{sub.country_id}")
         label = f"🗑️ {seg_name} | {country_name}"
-        if sub.mode == "cities":
-            label += " 🏙"
+        if sub.mode == "cities" and sub.id in sub_cities_map:
+            cities_list = ", ".join(sub_cities_map[sub.id][:3])
+            if len(sub_cities_map[sub.id]) > 3:
+                cities_list += f" +{len(sub_cities_map[sub.id]) - 3}"
+            label += f" | {cities_list}"
         kb_rows.append([InlineKeyboardButton(text=label[:60], callback_data=f"sub:del:{sub.id}")])
 
     if current < max_seg:
