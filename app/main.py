@@ -48,9 +48,9 @@ async def main():
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
 
-    # Set persistent commands menu
-    from aiogram.types import BotCommand, BotCommandScopeDefault
-    commands = [
+    # Set persistent commands menu (RU + EN)
+    from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
+    ru_cmds = [
         BotCommand(command="start", description="🏠 Главное меню"),
         BotCommand(command="search", description="🔍 Поиск клиентов"),
         BotCommand(command="keywords", description="⚙️ Мои ключевые слова"),
@@ -60,8 +60,21 @@ async def main():
         BotCommand(command="settings", description="⚙️ Настройки"),
         BotCommand(command="cancel", description="❌ Отмена"),
     ]
-    await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
-    logger.info("Commands menu set")
+    en_cmds = [
+        BotCommand(command="start", description="🏠 Main menu"),
+        BotCommand(command="search", description="🔍 Find clients"),
+        BotCommand(command="keywords", description="⚙️ My keywords"),
+        BotCommand(command="channels", description="📢 My channels"),
+        BotCommand(command="subscriptions", description="📋 My subscriptions"),
+        BotCommand(command="plan", description="💰 Plan & payment"),
+        BotCommand(command="settings", description="⚙️ Settings"),
+        BotCommand(command="cancel", description="❌ Cancel"),
+    ]
+    scope = BotCommandScopeAllPrivateChats()
+    await bot.set_my_commands(ru_cmds, scope=scope, language_code="ru")
+    await bot.set_my_commands(en_cmds, scope=scope, language_code="en")
+    await bot.delete_my_commands(scope=scope)  # clear default (no language)
+    logger.info("Commands menu set (RU + EN)")
     dp = Dispatcher()
     dp.include_router(catalog_router)
     dp.include_router(keywords_router)
