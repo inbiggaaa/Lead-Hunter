@@ -93,10 +93,12 @@ class ChannelPoller:
                 )
 
     async def _dispatch(self, chat_username, message_text, message_id, matched_segments, is_urgent, sender):
-        """Find interested users and push notifications to queue."""
+        """Find interested users matching BOTH segment AND geo, push to queue."""
         from app.cache.subscription_cache import (
             get_interested_users, push_notification, build_message_hash, rebuild_subscription_cache,
         )
+        from app.db.models import CatalogChannel, Segment
+        from sqlalchemy import select as sa_select
 
         message_hash = build_message_hash(chat_username, message_id)
         users = await get_interested_users(chat_username)
@@ -105,14 +107,42 @@ class ChannelPoller:
             await rebuild_subscription_cache(chat_username)
             users = await get_interested_users(chat_username)
 
+        # Get channel's country/city
+        async with async_session_factory() as session:
+            ch = (await session.execute(
+                sa_select(CatalogChannel).where(CatalogChannel.chat_username == chat_username)
+            )).scalar_one_or_none()
+        channel_country_id = ch.auto_matched_country_id if ch else None
+        channel_city_id = ch.auto_matched_city_id if ch else None
+
+        # Map matched segment slugs → IDs
+        async with async_session_factory() as session:
+            segs = (await session.execute(sa_select(Segment))).scalars().all()
+        seg_by_slug = {s.slug: s.id for s in segs}
+        matched_segment_ids = {seg_by_slug.get(s) for s in matched_segments}
+        matched_segment_ids.discard(None)
+
         for user in users:
-            user_segment_ids = set(user.get("segment_ids", []))
+            subscriptions = user.get("subscriptions", [])
             personal_kws = user.get("keyword_texts", [])
 
-            interested = bool(
-                user_segment_ids
-                or any(kw.lower() in message_text.lower() for kw in personal_kws)
-            )
+            # Check geo + segment match
+            interested = False
+            for sub in subscriptions:
+                if sub["country_id"] != channel_country_id:
+                    continue
+                if sub.get("city_ids") and channel_city_id:
+                    if channel_city_id not in sub["city_ids"]:
+                        continue
+                if sub["segment_id"] in matched_segment_ids:
+                    interested = True
+                    break
+
+            # Personal keywords work regardless of geo
+            if not interested and personal_kws:
+                if any(kw.lower() in message_text.lower() for kw in personal_kws):
+                    interested = True
+
             if not interested:
                 continue
 

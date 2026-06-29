@@ -26,45 +26,67 @@ CLASS_CACHE_KEY = "class:cache:{message_hash}"
 
 async def rebuild_subscription_cache(chat_username: str) -> None:
     """Rebuild the subscription cache for a given chat username.
-
-    Maps chat → list of interested users with their segments and keywords.
+    
+    Maps chat → list of interested users with their segments, keywords, and geo filters.
     """
     redis = await get_redis()
     key = CACHE_CHAT_KEY.format(chat_username=chat_username)
 
     async with async_session_factory() as session:
-        # Find all users subscribed to segments covering this chat
-        # In production: join with channel_segments to filter per-channel
+        # Look up channel's country and city
+        from app.db.models import CatalogChannel
+        ch_result = await session.execute(
+            select(CatalogChannel).where(CatalogChannel.chat_username == chat_username)
+        )
+        channel = ch_result.scalar_one_or_none()
+        channel_country_id = channel.auto_matched_country_id if channel else None
+        channel_city_id = channel.auto_matched_city_id if channel else None
+
+        # Get all users with their subscriptions and keywords
         from sqlalchemy import select
+        from app.db.models import User, UserSubscription, Keyword, SubscriptionCity
         users = (await session.execute(select(User))).scalars().all()
 
         cache_data: list[dict] = []
         for user in users:
-            # Get user's subscriptions and personal keywords
             subs = (await session.execute(
                 select(UserSubscription).where(UserSubscription.user_id == user.id)
             )).scalars().all()
 
-            from app.db.models import Keyword
             kws = (await session.execute(
                 select(Keyword).where(Keyword.user_id == user.id, Keyword.is_active == True)
             )).scalars().all()
 
-            segment_ids = [sub.segment_id for sub in subs]
-            keyword_texts = [kw.text for kw in kws]
+            # For each subscription, get subscription cities
+            sub_geo = []  # list of {segment_id, country_id, city_ids}
+            for sub in subs:
+                city_ids = []
+                if sub.mode == "cities":
+                    sc_result = await session.execute(
+                        select(SubscriptionCity.city_id).where(
+                            SubscriptionCity.subscription_id == sub.id
+                        )
+                    )
+                    city_ids = [row[0] for row in sc_result.all()]
+                sub_geo.append({
+                    "segment_id": sub.segment_id,
+                    "country_id": sub.country_id,
+                    "city_ids": city_ids,
+                })
 
             cache_data.append({
                 "user_id": user.id,
                 "telegram_id": user.telegram_id,
-                "segment_ids": segment_ids,
-                "keyword_texts": keyword_texts,
                 "lang": user.language,
                 "plan": user.plan,
+                "subscriptions": sub_geo,
+                "keyword_texts": [kw.text for kw in kws],
             })
 
     await redis.set(key, json.dumps(cache_data, default=str))
-    await redis.expire(key, 3600)  # TTL 1 hour
-    logger.info("Rebuilt cache for @%s: %d users", chat_username, len(cache_data))
+    await redis.expire(key, 3600)
+    logger.info("Rebuilt cache for @%s: %d users (country=%s)",
+                chat_username, len(cache_data), channel_country_id)
     await redis.close()
 
 
