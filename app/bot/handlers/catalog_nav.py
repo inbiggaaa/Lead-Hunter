@@ -40,11 +40,28 @@ def _user_lang(message: Message) -> str:
     return "en"
 
 
+async def _get_lang(callback: CallbackQuery, state: FSMContext) -> str:
+    """Get user language: FSM state first, then DB."""
+    data = await state.get_data()
+    lang = data.get("lang")
+    if lang:
+        return lang
+    return await _get_lang_nostate(callback)
+
+
+async def _get_lang_nostate(callback: CallbackQuery) -> str:
+    """Get user language from DB."""
+    async for session in get_session():
+        from app.db.crud import get_user
+        user = await get_user(session, callback.from_user.id)
+        return user.language if user else "ru"
+
+
 # ── Step 1: Choose segment ──
 
 @router.callback_query(F.data == "menu:search")
 async def on_search_start(callback: CallbackQuery, state: FSMContext):
-    lang = _user_lang(callback.message)
+    lang = await _get_lang(callback, state)
     await state.clear()
 
     async for session in get_session():
@@ -82,7 +99,7 @@ async def on_search_start(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(CatStates.choosing_segment, F.data.startswith("cat:seg:"))
 async def on_segment_chosen(callback: CallbackQuery, state: FSMContext):
     segment_id = int(callback.data.split(":")[2])
-    lang = _user_lang(callback.message)
+    lang = await _get_lang(callback, state)
 
     await state.update_data(segment_id=segment_id)
 
@@ -111,7 +128,7 @@ async def on_segment_chosen(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(CatStates.choosing_country, F.data.startswith("cat:country:"))
 async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
     country_id = int(callback.data.split(":")[2])
-    lang = _user_lang(callback.message)
+    lang = await _get_lang(callback, state)
 
     await state.update_data(country_id=country_id)
 
@@ -131,7 +148,7 @@ async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(CatStates.choosing_geo, F.data == "cat:geo:cities")
 async def on_geo_cities(callback: CallbackQuery, state: FSMContext):
-    lang = _user_lang(callback.message)
+    lang = await _get_lang(callback, state)
     data = await state.get_data()
     country_id = data["country_id"]
 
@@ -182,7 +199,7 @@ async def on_toggle_city(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(CatStates.choosing_cities, F.data == "cat:back:country")
 async def on_back_to_country(callback: CallbackQuery, state: FSMContext):
-    lang = _user_lang(callback.message)
+    lang = await _get_lang(callback, state)
     data = await state.get_data()
 
     async for session in get_session():
@@ -208,7 +225,7 @@ async def on_back_to_country(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(CatStates.choosing_geo, F.data == "cat:geo:all")
 async def on_geo_all(callback: CallbackQuery, state: FSMContext):
-    lang = _user_lang(callback.message)
+    lang = await _get_lang(callback, state)
     data = await state.get_data()
     await state.update_data(mode="all", selected_cities=[])
     await _show_confirmation(callback, state)
@@ -227,7 +244,7 @@ async def on_confirm_from_cities(callback: CallbackQuery, state: FSMContext):
 
 
 async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
-    lang = _user_lang(callback.message)
+    lang = await _get_lang(callback, state)
     data = await state.get_data()
 
     async for session in get_session():
@@ -274,7 +291,7 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(CatStates.confirm_subscription, F.data == "cat:subscribe")
 async def on_subscribe(callback: CallbackQuery, state: FSMContext):
-    lang = _user_lang(callback.message)
+    lang = await _get_lang(callback, state)
     data = await state.get_data()
 
     async for session in get_session():
@@ -330,7 +347,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "menu:subs")
 async def on_show_subscriptions(callback: CallbackQuery):
-    lang = _user_lang(callback.message)
+    lang = await _get_lang_nostate(callback)
 
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
@@ -363,7 +380,7 @@ async def on_show_subscriptions(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("sub:del:"))
 async def on_delete_subscription(callback: CallbackQuery):
     sub_id = int(callback.data.split(":")[2])
-    lang = _user_lang(callback.message)
+    lang = await _get_lang_nostate(callback)
 
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)

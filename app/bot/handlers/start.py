@@ -67,11 +67,16 @@ async def on_language_select(callback: CallbackQuery):
 
 async def _show_onboarding_step1(message: Message, lang: str):
     text = get_text(lang, "onb_step1_title")
+    cat_labels = {
+        "catering": {"ru": "🍜 Кейтеринг / Повара", "en": "🍜 Catering / Chefs"},
+        "massage": {"ru": "💆 Массаж", "en": "💆 Massage"},
+        "bikes": {"ru": "🏍 Аренда байков", "en": "🏍 Bike rental"},
+    }
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🍜 Кейтеринг / Catering", callback_data=f"onb:cat:catering:{lang}")],
-            [InlineKeyboardButton(text="💆 Массаж / Massage", callback_data=f"onb:cat:massage:{lang}")],
-            [InlineKeyboardButton(text="🏍 Аренда байков / Bike rental", callback_data=f"onb:cat:bikes:{lang}")],
+            [InlineKeyboardButton(text=cat_labels["catering"][lang], callback_data=f"onb:cat:catering:{lang}")],
+            [InlineKeyboardButton(text=cat_labels["massage"][lang], callback_data=f"onb:cat:massage:{lang}")],
+            [InlineKeyboardButton(text=cat_labels["bikes"][lang], callback_data=f"onb:cat:bikes:{lang}")],
             [
                 InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
             ],
@@ -88,11 +93,16 @@ async def on_onboard_category(callback: CallbackQuery):
     lang = parts[3] if len(parts) > 3 else "ru"
 
     text = get_text(lang, "onb_step2_title")
+    country_labels = {
+        "vn": {"ru": "🇻🇳 Вьетнам", "en": "🇻🇳 Vietnam"},
+        "id": {"ru": "🇮🇩 Индонезия", "en": "🇮🇩 Indonesia"},
+        "th": {"ru": "🇹🇭 Таиланд", "en": "🇹🇭 Thailand"},
+    }
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🇻🇳 Вьетнам / Vietnam", callback_data=f"onb:country:vn:{lang}")],
-            [InlineKeyboardButton(text="🇮🇩 Индонезия / Indonesia", callback_data=f"onb:country:id:{lang}")],
-            [InlineKeyboardButton(text="🇹🇭 Таиланд / Thailand", callback_data=f"onb:country:th:{lang}")],
+            [InlineKeyboardButton(text=country_labels["vn"][lang], callback_data=f"onb:country:vn:{lang}")],
+            [InlineKeyboardButton(text=country_labels["id"][lang], callback_data=f"onb:country:id:{lang}")],
+            [InlineKeyboardButton(text=country_labels["th"][lang], callback_data=f"onb:country:th:{lang}")],
             [
                 InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
             ],

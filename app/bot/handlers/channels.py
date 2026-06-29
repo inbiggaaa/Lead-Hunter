@@ -30,11 +30,19 @@ def _user_lang(message: Message) -> str:
     return "en"
 
 
+async def _get_user_lang(telegram_id: int) -> str:
+    """Get user language from DB."""
+    async for session in get_session():
+        from app.db.crud import get_user
+        user = await get_user(session, telegram_id)
+        return user.language if user else "ru"
+
+
 # ── Menu entry point ──
 
 @router.callback_query(F.data == "menu:channels")
 async def on_menu_channels(callback: CallbackQuery):
-    lang = _user_lang(callback.message)
+    lang = await _get_user_lang(callback.from_user.id)
     await show_channels(callback, lang)
 
 
@@ -87,7 +95,7 @@ async def show_channels(callback: CallbackQuery, lang: str):
 
 @router.callback_query(F.data == "ch:add")
 async def on_add_channel_prompt(callback: CallbackQuery, state: FSMContext):
-    lang = _user_lang(callback.message)
+    lang = await _get_user_lang(callback.from_user.id)
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
@@ -115,7 +123,7 @@ async def on_add_channel_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(AddChannelState.waiting_for_username)
 async def on_channel_username(message: Message, state: FSMContext):
     raw = message.text.strip().lstrip("@")
-    lang = _user_lang(message)
+    lang = await _get_user_lang(message.from_user.id)
 
     if len(raw) < 3:
         await message.answer("Некорректный @username. Попробуй ещё раз или /cancel.")
@@ -195,7 +203,7 @@ async def show_channels_via_message(message: Message, lang: str):
 @router.callback_query(F.data.startswith("ch:del:"))
 async def on_delete_channel(callback: CallbackQuery):
     chat_id = int(callback.data.split(":")[2])
-    lang = _user_lang(callback.message)
+    lang = await _get_user_lang(callback.from_user.id)
 
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)

@@ -30,11 +30,19 @@ def _user_lang(message: Message) -> str:
     return "en"
 
 
+async def _get_user_lang(telegram_id: int) -> str:
+    """Get user language from DB."""
+    async for session in get_session():
+        from app.db.crud import get_user
+        user = await get_user(session, telegram_id)
+        return user.language if user else "ru"
+
+
 # ── Menu entry point ──
 
 @router.callback_query(F.data == "menu:keywords")
 async def on_menu_keywords(callback: CallbackQuery):
-    lang = _user_lang(callback.message)
+    lang = await _get_user_lang(callback.from_user.id)
     await show_keywords(callback, lang)
 
 
@@ -87,7 +95,7 @@ async def show_keywords(callback: CallbackQuery, lang: str):
 
 @router.callback_query(F.data == "kw:add")
 async def on_add_keyword_prompt(callback: CallbackQuery, state: FSMContext):
-    lang = _user_lang(callback.message)
+    lang = await _get_user_lang(callback.from_user.id)
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
@@ -116,7 +124,7 @@ async def on_add_keyword_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(AddKeywordState.waiting_for_text)
 async def on_keyword_text(message: Message, state: FSMContext):
     text = message.text.strip()
-    lang = _user_lang(message)
+    lang = await _get_user_lang(message.from_user.id)
 
     if len(text) < 2:
         await message.answer("Слишком короткое. Попробуй ещё раз или /cancel.")
@@ -186,7 +194,7 @@ async def show_keywords_via_message(message: Message, lang: str):
 @router.callback_query(F.data.startswith("kw:del:"))
 async def on_delete_keyword(callback: CallbackQuery):
     kw_id = int(callback.data.split(":")[2])
-    lang = _user_lang(callback.message)
+    lang = await _get_user_lang(callback.from_user.id)
 
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
