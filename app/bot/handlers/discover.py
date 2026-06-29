@@ -10,15 +10,16 @@ from app.locales import get_text
 router = Router()
 
 
-def _user_lang(text: str) -> str:
-    if any(w in text.lower() for w in ("русский", "настройк", "язык", "приглас")):
-        return "ru"
-    return "en"
+async def _get_lang(callback: CallbackQuery) -> str:
+    """Get user language from DB."""
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        return user.language if user else "ru"
 
 
 @router.callback_query(F.data == "menu:language")
 async def on_language(callback: CallbackQuery):
-    lang = _user_lang(callback.message.text or "")
+    lang = await _get_lang(callback)
     text = "Выбери язык / Choose language:"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru")],
@@ -31,7 +32,7 @@ async def on_language(callback: CallbackQuery):
 
 @router.callback_query(F.data == "menu:settings")
 async def on_settings(callback: CallbackQuery):
-    lang = _user_lang(callback.message.text or "")
+    lang = await _get_lang(callback)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=get_text(lang, "btn_keywords"), callback_data="menu:keywords")],
         [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
@@ -47,7 +48,7 @@ async def on_settings(callback: CallbackQuery):
 
 @router.callback_query(F.data == "menu:instructions")
 async def on_instructions(callback: CallbackQuery):
-    lang = _user_lang(callback.message.text or "")
+    lang = await _get_lang(callback)
     if lang == "ru":
         text = (
             "📖 <b>Инструкции</b>\n\n"
@@ -99,7 +100,7 @@ async def on_instructions(callback: CallbackQuery):
 
 @router.callback_query(F.data == "menu:about")
 async def on_about(callback: CallbackQuery):
-    lang = _user_lang(callback.message.text or "")
+    lang = await _get_lang(callback)
     from app.db.models import CatalogChannel, Country
     from sqlalchemy import func, select as sa_sel
     from app.db.session import async_session_factory
@@ -149,7 +150,7 @@ async def on_about(callback: CallbackQuery):
 @router.callback_query(F.data == "menu:referral")
 async def on_referral(callback: CallbackQuery):
     import urllib.parse, uuid
-    lang = _user_lang(callback.message.text or "")
+    lang = await _get_lang(callback)
 
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
