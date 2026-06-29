@@ -73,46 +73,20 @@ async def on_language_select(callback: CallbackQuery):
 # ── Onboarding step 1: choose category (with language in callback) ──
 
 async def _show_onboarding_step1(message: Message, lang: str):
-    text = get_text(lang, "onb_step1_title")
-
-    # Load all segments from DB
-    from app.db.session import async_session_factory
-    from app.db.models import Segment
-    from sqlalchemy import select
-
-    async with async_session_factory() as session:
-        result = await session.execute(
-            select(Segment).where(Segment.is_active == True, Segment.slug != "other-services").order_by(Segment.sort_order)
-        )
-        segments = result.scalars().all()
-
-    kb_rows = []
-    row = []
-    for seg in segments:
-        emoji = seg.emoji or ""
-        title = seg.title_ru if lang == "ru" else (seg.title_en or seg.title_ru)
-        row.append(InlineKeyboardButton(
-            text=f"{emoji} {title}",
-            callback_data=f"onb:cat:{seg.slug}:{lang}",
-        ))
-        if len(row) == 2:
-            kb_rows.append(row)
-            row = []
-    if row:
-        kb_rows.append(row)
-
-    kb_rows.append([
-        InlineKeyboardButton(
-            text="💬 Нет вашего вида деятельности? Связаться с поддержкой" if lang == "ru" else "💬 Don't see your category? Contact support",
-            callback_data="support:missing_category",
-        ),
-    ])
-
-    kb_rows.append([
-        InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
-    ])
-    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    await message.answer(text, reply_markup=kb)
+    # Auto-activate trial and go to main menu — full flow via 🔍 Search
+    import datetime
+    async for session in get_session():
+        await set_onboarded(session, message.chat.id)
+        from app.db.crud import get_user as crud_user
+        from app.config import settings
+        user = await crud_user(session, message.chat.id)
+        if user and user.plan == "free":
+            now = datetime.datetime.now(datetime.timezone.utc)
+            user.plan = "trial"
+            user.plan_activated_at = now
+            user.plan_expires_at = now + datetime.timedelta(days=settings.trial_days)
+        await session.commit()
+    await _show_menu_from_db(message, message.chat.id)
 
 
 # ── Onboarding category select → step 2 ──
