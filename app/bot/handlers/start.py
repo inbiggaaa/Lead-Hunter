@@ -82,7 +82,7 @@ async def _show_onboarding_step1(message: Message, lang: str):
 
     async with async_session_factory() as session:
         result = await session.execute(
-            select(Segment).where(Segment.is_active == True).order_by(Segment.sort_order)
+            select(Segment).where(Segment.is_active == True, Segment.slug != "other-services").order_by(Segment.sort_order)
         )
         segments = result.scalars().all()
 
@@ -100,6 +100,13 @@ async def _show_onboarding_step1(message: Message, lang: str):
             row = []
     if row:
         kb_rows.append(row)
+
+    kb_rows.append([
+        InlineKeyboardButton(
+            text="💬 Нет вашего вида деятельности? Связаться с поддержкой" if lang == "ru" else "💬 Don't see your category? Contact support",
+            callback_data="support:missing_category",
+        ),
+    ])
 
     kb_rows.append([
         InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
