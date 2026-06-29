@@ -532,15 +532,15 @@ show_last_leads → done
 
 **ОБНОВЛЯТЬ ПОСЛЕ КАЖДОЙ СЕССИИ.**
 
-Дата: **2026-06-25**
+Дата: **2026-06-29**
 
-Фаза: **Фаза 0 (подготовка сервера)** ⬜
+Фаза: **Фаза 0 (подготовка сервера)** 🔄
 
-Сделано: CLAUDE.md v4 (сжат), созданы DECISIONS.md, ROADMAP.md, USERFLOW.md, segment_seed.md, CODING_STYLE.md, TESTING.md, RECOVERY.md, .env.example, .gitignore.
+Сделано: SSH по ключу, UFW (22,80,443), Docker 29.6.1, Swap 2GB, passwordless sudo, docker-compose.yml + Dockerfile с memory limits (bot=300M, worker=400M, admin=200M, db=400M, redis=100M), скелет проекта (app/, config.py, main.py, worker/tasks.py, admin/app.py), requirements.txt, alembic.ini. Все 5 контейнеров стартуют.
 
-Следующее: **Фаза 0** — сервер, Docker, Python, файрвол, токены, swap.
+Осталось: **USERBOT_API_ID и USERBOT_API_HASH** (получить на my.telegram.org/apps и вписать в .env).
 
-Git-тег: нет (начальный коммит d79f982).
+Git-тег: нет.
 
 ---
 

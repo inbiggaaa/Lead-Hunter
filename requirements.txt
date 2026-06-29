@@ -1,0 +1,34 @@
+# LeadHunter — Python dependencies
+# Версии зафиксированы согласно CLAUDE.md §3
+
+# Bot
+aiogram>=3.7,<4.0
+
+# Userbot
+telethon>=1.36,<2.0
+
+# Database
+SQLAlchemy>=2.0,<3.0
+asyncpg>=0.29,<1.0
+alembic>=1.13,<2.0
+
+# Redis
+redis>=5.0,<6.0
+
+# HTTP
+aiohttp>=3.9,<4.0
+
+# Admin panel
+fastapi>=0.110,<1.0
+sqladmin>=0.16,<1.0
+uvicorn[standard]>=0.27,<1.0
+
+# Config
+pydantic-settings>=2.2,<3.0
+
+# Monitoring
+sentry-sdk>=2.0,<3.0
+
+# Testing
+pytest>=8.0,<9.0
+pytest-asyncio>=0.23,<1.0
