@@ -186,12 +186,18 @@ async def on_segments_done(callback: CallbackQuery, state: FSMContext):
 
     text = "В какой стране ищешь клиентов?"
     kb_rows = []
+    row = []
     for c in countries:
         name = c.name_ru if lang == "ru" else (c.name_en or c.name_ru)
         flag = _country_flag(c.slug)
-        kb_rows.append([InlineKeyboardButton(
+        row.append(InlineKeyboardButton(
             text=f"{flag} {name}", callback_data=f"cat:country:{c.id}",
-        )])
+        ))
+        if len(row) == 2:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
     kb_rows.append([InlineKeyboardButton(
         text=get_text(lang, "btn_back"), callback_data="menu:search",
     )])
@@ -245,13 +251,19 @@ async def on_geo_cities(callback: CallbackQuery, state: FSMContext):
 
     text = f"Выбери города (выбрано: {len(selected_cities)}):"
     kb_rows = []
+    row = []
     for city in cities:
         name = city.name_ru if lang == "ru" else (city.name_en or city.name_ru)
         prefix = "☑️ " if city.id in selected_cities else "⬜ "
-        kb_rows.append([InlineKeyboardButton(
+        row.append(InlineKeyboardButton(
             text=f"{prefix}{name}",
             callback_data=f"cat:city:{city.id}",
-        )])
+        ))
+        if len(row) == 2:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
 
     footer = []
     if selected_cities:
