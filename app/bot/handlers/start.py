@@ -56,10 +56,16 @@ async def on_language_select(callback: CallbackQuery):
 
     async for session in get_session():
         await set_language(session, callback.from_user.id, lang)
+        user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
+        is_onboarded = user.onboarded
         await session.commit()
 
     await callback.message.edit_text(get_text(lang, "language_set"))
-    await _show_onboarding_step1(callback.message, lang)
+
+    if not is_onboarded:
+        await _show_onboarding_step1(callback.message, lang)
+    else:
+        await _show_menu_from_db(callback.message, callback.from_user.id)
     await callback.answer()
 
 
