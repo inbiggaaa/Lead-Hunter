@@ -209,7 +209,7 @@ def get_max_channels(plan: str) -> int:
 def get_max_segments(plan: str) -> int:
     from app.config import settings
     if plan == "free":
-        return settings.max_segments_free
+        return settings.max_segments_free  # 1 — but existing subs from trial are preserved
     if plan == "pro":
         return settings.max_segments_pro
     return settings.business_hidden_cap_segments  # trial, business
