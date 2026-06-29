@@ -42,6 +42,26 @@ app = FastAPI(title="Dashboard")
 active_connections: set[WebSocket] = set()
 
 
+async def _redis_listener(ws: WebSocket):
+    """Listen for new chat messages via Redis pub/sub."""
+    import json as json_mod
+    from app.cache import get_redis
+    redis = await get_redis()
+    pubsub = redis.pubsub()
+    await pubsub.subscribe("chat:new_msg")
+    try:
+        async for msg in pubsub.listen():
+            if msg["type"] == "message":
+                data = json_mod.loads(msg["data"])
+                try:
+                    await ws.send_json({"type": "new_msg", **data})
+                except Exception:
+                    break
+    finally:
+        await pubsub.unsubscribe("chat:new_msg")
+        await redis.aclose()
+
+
 # ═══════════════ DASHBOARD ═══════════════
 
 @app.get("/", response_class=HTMLResponse)
@@ -126,6 +146,11 @@ async def chat_history(user_id: int):
 async def chat_ws(ws: WebSocket):
     await ws.accept()
     active_connections.add(ws)
+
+    # Start Redis pub/sub listener in background
+    import asyncio as aio_mod
+    listener_task = aio_mod.create_task(_redis_listener(ws))
+
     try:
         while True:
             data = await ws.receive_json()
@@ -153,6 +178,7 @@ async def chat_ws(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        listener_task.cancel()
         active_connections.discard(ws)
 
 
