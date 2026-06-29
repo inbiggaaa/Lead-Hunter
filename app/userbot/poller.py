@@ -64,8 +64,8 @@ class ChannelPoller:
         """Poll a single channel using a specific account."""
         try:
             entity = await account.get_entity(channel_username)
-        except Exception:
-            logger.warning("Account %d cannot access channel: %s", account.account_id, channel_username)
+        except Exception as e:
+            logger.warning("Account %d cannot access @%s: %s", account.account_id, channel_username, e)
             return
 
         messages = await account.get_messages(entity, limit=10)
@@ -164,13 +164,21 @@ class ChannelPoller:
 
         while True:
             async with async_session_factory() as session:
-                from app.db.models import WatchedChat
-                result = await session.execute(
+                # User-specific watched channels
+                from app.db.models import WatchedChat, CatalogChannel
+                watched_result = await session.execute(
                     select(WatchedChat.chat_username).where(
                         WatchedChat.status == "approved"
                     ).distinct()
                 )
-                channels = [row[0] for row in result.all()]
+                # Global catalog channels
+                catalog_result = await session.execute(
+                    select(CatalogChannel.chat_username)
+                )
+                channels = [row[0] for row in watched_result.all()]
+                channels += [row[0] for row in catalog_result.all()]
+                # Deduplicate
+                channels = list(set(channels))
 
             if channels:
                 await self.poll_channels(channels)
