@@ -159,12 +159,13 @@ async def _show_menu(message: Message, lang: str):
     await message.answer(text, reply_markup=kb)
 
 
-# ── Menu stub callbacks ──
+# ── Return to main menu ──
 
-@router.callback_query(F.data.startswith("menu:"))
-async def on_menu_stub(callback: CallbackQuery):
+@router.callback_query(F.data == "menu:main")
+async def on_menu_main(callback: CallbackQuery):
     lang = _detect_lang_from_message(callback.message)
-    await callback.answer(get_text(lang, "coming_soon"), show_alert=True)
+    await _show_menu(callback.message, lang)
+    await callback.answer()
 
 
 # ── Helpers ──

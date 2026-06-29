@@ -9,6 +9,10 @@ from app.config import settings
 from app.db.session import engine
 from app.db.models import Base
 from app.bot.handlers.start import router as start_router
+from app.bot.handlers.keywords import router as keywords_router
+from app.bot.handlers.channels import router as channels_router
+from app.bot.handlers.catalog_nav import router as catalog_router
+from app.bot.handlers.discover import router as discover_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,6 +35,10 @@ async def main():
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
+    dp.include_router(catalog_router)
+    dp.include_router(keywords_router)
+    dp.include_router(channels_router)
+    dp.include_router(discover_router)
     dp.include_router(start_router)
 
     logger.info("Bot started")
