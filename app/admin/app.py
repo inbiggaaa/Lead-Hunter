@@ -1,5 +1,6 @@
 """FastAPI + SQLAdmin admin panel. Runs on 127.0.0.1:8001."""
 
+
 import uvicorn
 from fastapi import FastAPI
 from sqladmin import Admin
