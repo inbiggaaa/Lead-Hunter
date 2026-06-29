@@ -390,8 +390,8 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
     skipped = len(selected_segments) - len(new_segments)
 
     if not new_segments:
-        await callback.answer("Уже подписан на все выбранные", show_alert=True)
-        return
+        await state.clear()
+        await on_show_subscriptions(callback)
 
     await state.update_data(selected_segments=new_segments)
 
