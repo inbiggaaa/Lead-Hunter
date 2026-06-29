@@ -100,24 +100,5 @@ services:
         limits:
           memory: 200M
 
-  dashboard:
-    build: .
-    command: python -m app.admin.dashboard
-    env_file: .env
-    environment:
-      - PYTHONPATH=/app
-    volumes:
-      - ./app:/app/app
-    ports:
-      - "127.0.0.1:8002:8002"
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 100M
-
 volumes:
   postgres_data:

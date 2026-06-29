@@ -1,0 +1,174 @@
+"""Admin REST API — root router assembling all sub-routers."""
+
+from fastapi import APIRouter
+
+from app.admin.api.auth import router as auth_router
+from app.admin.api.users import router as users_router
+from app.admin.api.stats import router as stats_router
+from app.admin.api.broadcast import router as broadcast_router
+from app.admin.api.chat import router as chat_router
+from app.admin.api.crud import create_crud_router
+from app.db.models import Country, City, Segment, SegmentKeyword
+
+api_router = APIRouter()
+
+# Auth
+api_router.include_router(auth_router)
+
+# Users (custom)
+api_router.include_router(users_router)
+
+# Stats
+api_router.include_router(stats_router)
+
+# Broadcast
+api_router.include_router(broadcast_router)
+
+# Chat (includes WebSocket)
+api_router.include_router(chat_router)
+
+# Generic CRUD for simple catalog models
+api_router.include_router(create_crud_router(Country, "countries", "countries"))
+api_router.include_router(create_crud_router(City, "cities", "cities"))
+api_router.include_router(create_crud_router(Segment, "segments", "segments"))
+api_router.include_router(
+    create_crud_router(SegmentKeyword, "segment_keywords", "segment-keywords")
+)
+
+
+# ── Channels (custom — needs M:N joins) ──
+
+from sqlalchemy import select, func
+from app.db.models import (
+    CatalogChannel,
+    ChannelSegment,
+    ChannelCity,
+)
+from app.db.session import async_session_factory
+
+channels_router = APIRouter(prefix="/api/channels", tags=["channels"])
+
+
+@channels_router.get("")
+async def list_channels(
+    page: int = 1,
+    per_page: int = 20,
+    search: str | None = None,
+    is_verified: bool | None = None,
+):
+    async with async_session_factory() as session:
+        stmt = select(CatalogChannel)
+
+        if search:
+            stmt = stmt.where(
+                (CatalogChannel.chat_username.ilike(f"%{search}%"))
+                | (CatalogChannel.title.ilike(f"%{search}%"))
+            )
+        if is_verified is not None:
+            stmt = stmt.where(CatalogChannel.is_verified == is_verified)
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = (await session.execute(count_stmt)).scalar() or 0
+
+        stmt = stmt.offset((page - 1) * per_page).limit(per_page)
+        result = await session.execute(stmt)
+        channels = result.scalars().all()
+
+    items = []
+    for ch in channels:
+        items.append(
+            {
+                "id": ch.id,
+                "chat_username": ch.chat_username,
+                "title": ch.title,
+                "participants": ch.participants,
+                "is_verified": ch.is_verified,
+                "auto_matched_country_id": ch.auto_matched_country_id,
+                "auto_matched_city_id": ch.auto_matched_city_id,
+                "discovered_at": ch.discovered_at.isoformat()
+                if ch.discovered_at
+                else None,
+            }
+        )
+
+    return {"items": items, "total": total, "page": page, "per_page": per_page}
+
+
+@channels_router.get("/{channel_id}")
+async def get_channel(channel_id: int):
+    async with async_session_factory() as session:
+        ch = await session.get(CatalogChannel, channel_id)
+        if not ch:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Get segments
+        seg_result = await session.execute(
+            select(ChannelSegment).where(ChannelSegment.channel_id == channel_id)
+        )
+        segments = [s.segment_id for s in seg_result.scalars().all()]
+
+        # Get cities
+        city_result = await session.execute(
+            select(ChannelCity).where(ChannelCity.channel_id == channel_id)
+        )
+        cities = [c.city_id for c in city_result.scalars().all()]
+
+        return {
+            "id": ch.id,
+            "chat_username": ch.chat_username,
+            "title": ch.title,
+            "participants": ch.participants,
+            "is_verified": ch.is_verified,
+            "auto_matched_country_id": ch.auto_matched_country_id,
+            "auto_matched_city_id": ch.auto_matched_city_id,
+            "discovered_at": ch.discovered_at.isoformat()
+            if ch.discovered_at
+            else None,
+            "segments": segments,
+            "cities": cities,
+        }
+
+
+@channels_router.put("/{channel_id}")
+async def update_channel(channel_id: int, data: dict):
+    from fastapi import HTTPException
+
+    async with async_session_factory() as session:
+        ch = await session.get(CatalogChannel, channel_id)
+        if not ch:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        updatable = {"title", "participants", "is_verified",
+                      "auto_matched_country_id", "auto_matched_city_id"}
+        for k, v in data.items():
+            if k in updatable:
+                setattr(ch, k, v)
+
+        # Update segments
+        if "segments" in data:
+            await session.execute(
+                __import__("sqlalchemy").sql.delete(ChannelSegment).where(
+                    ChannelSegment.channel_id == channel_id
+                )
+            )
+            for sid in data["segments"]:
+                session.add(
+                    ChannelSegment(channel_id=channel_id, segment_id=sid)
+                )
+
+        # Update cities
+        if "cities" in data:
+            await session.execute(
+                __import__("sqlalchemy").sql.delete(ChannelCity).where(
+                    ChannelCity.channel_id == channel_id
+                )
+            )
+            for cid in data["cities"]:
+                session.add(ChannelCity(channel_id=channel_id, city_id=cid))
+
+        await session.commit()
+        return {"ok": True}
+
+
+api_router.include_router(channels_router)
