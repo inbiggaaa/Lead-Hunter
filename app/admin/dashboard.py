@@ -11,6 +11,7 @@ from sqlalchemy import func, select, update, desc, case
 from app.db.models import User, Subscription, SupportMessage
 from app.db.session import async_session_factory
 from app.config import settings
+from app.admin.broadcast import broadcast_send, get_broadcast_stats
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +21,19 @@ NAV = """
 <div style="background:#1976d2;padding:10px 24px;display:flex;gap:20px;font-size:14px">
 <a href="/" style="color:#fff;text-decoration:none">📊 Дашборд</a>
 <a href="/chat" style="color:#fff;text-decoration:none">💬 Чат</a>
+<a href="/broadcast" style="color:#fff;text-decoration:none">📨 Рассылка</a>
 <a href="http://localhost:8001/admin" style="color:#bbdefb;text-decoration:none">⚙️ Админка →</a>
 </div>
+"""
+
+BROADCAST_JS = """
+async function sendBroadcast(){
+const btn=document.querySelector('button');btn.disabled=true;btn.textContent='⏳ Отправка...';
+const r=await fetch('/broadcast/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan:document.getElementById('planFilter').value,source:document.getElementById('sourceFilter').value,text:document.getElementById('broadcastText').value})});
+const d=await r.json();
+document.getElementById('result').innerHTML=d.error?'❌ '+d.error:'✅ Отправлено: '+d.sent+' / Всего: '+d.total+' (ошибок: '+d.failed+')';
+btn.disabled=false;btn.textContent='📨 Отправить';
+}
 """
 
 app = FastAPI(title="Dashboard")
@@ -184,6 +196,45 @@ function escHtml(s){const d=document.createElement('div');d.textContent=s;return
 init();
 </script></body></html>"""
 
+
+# ═══════════════ BROADCAST ═══════════════
+
+@app.get("/broadcast", response_class=HTMLResponse)
+async def broadcast_page():
+    stats = await get_broadcast_stats()
+    return NAV + f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Broadcast</title></head>
+<body style="margin:0;font-family:-apple-system,sans-serif;background:#f5f5f5">
+<div style="max-width:700px;margin:0 auto;padding:24px">
+<h2>📨 Рассылка</h2>
+<p>Всего пользователей: <b>{stats['total']}</b></p>
+<div style="display:flex;gap:16px;margin:16px 0">
+<div style="flex:1;background:#fff;padding:12px;border-radius:8px"><b>По тарифам:</b><br>{"".join(f'{k}: {v}<br>' for k,v in stats['plans'].items())}</div>
+<div style="flex:1;background:#fff;padding:12px;border-radius:8px"><b>По источникам:</b><br>{"".join(f'{k}: {v}<br>' for k,v in stats['sources'].items())}</div>
+</div>
+<label>Тариф: <select id="planFilter"><option value="all">Все</option>{"".join(f'<option value="{k}">{k}</option>' for k in stats['plans'])}</select></label>
+<label style="margin-left:16px">Источник: <select id="sourceFilter"><option value="all">Все</option>{"".join(f'<option value="{k}">{k}</option>' for k in stats['sources'])}</select></label>
+<br><br>
+<textarea id="broadcastText" rows="5" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px" placeholder="Текст рассылки..."></textarea>
+<br><br>
+<button onclick="sendBroadcast()" style="padding:10px 24px;background:#e53935;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:16px">📨 Отправить</button>
+<div id="result" style="margin-top:16px"></div>
+</div>
+<script>
+""" + BROADCAST_JS + """
+</script></body></html>"""
+
+
+@app.post("/broadcast/send")
+async def broadcast_send_route(data: dict):
+    result = await broadcast_send(
+        plan_filter=data.get("plan"),
+        source_filter=data.get("source"),
+        text=data.get("text", ""),
+    )
+    return result
+
+
+# ═══════════════ MAIN ═══════════════
 
 def main():
     uvicorn.run(app, host="0.0.0.0", port=8002, log_level="info")

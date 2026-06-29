@@ -5,6 +5,7 @@ import logging
 
 from app.worker.sender import NotificationSender
 from app.worker.heartbeat import heartbeat_loop
+from app.worker.reminders import reminders_loop
 from app.userbot.poller import ChannelPoller
 
 logging.basicConfig(level=logging.INFO)
@@ -17,11 +18,12 @@ async def main():
     poller = ChannelPoller()
     sender = NotificationSender()
 
-    # Run all three loops concurrently
+    # Run all four loops concurrently
     await asyncio.gather(
         poller.run_forever(),
         sender.run(),
         heartbeat_loop(),
+        reminders_loop(),
     )
 
 
