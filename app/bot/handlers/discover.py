@@ -32,14 +32,15 @@ async def on_language(callback: CallbackQuery):
 @router.callback_query(F.data == "menu:settings")
 async def on_settings(callback: CallbackQuery):
     lang = _user_lang(callback.message.text or "")
-    text = "⚙️ Настройки"
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Мои подписки", callback_data="menu:subs")],
-        [InlineKeyboardButton(text="🌐 Язык", callback_data="menu:language")],
-        [InlineKeyboardButton(text="ℹ️ О сервисе", callback_data="menu:about")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:main")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_keywords"), callback_data="menu:keywords")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_subscriptions"), callback_data="menu:subs")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_about"), callback_data="menu:about")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
     ])
-    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.message.edit_text("⚙️ Settings" if lang == "en" else "⚙️ Настройки", reply_markup=kb)
     await callback.answer()
 
 
