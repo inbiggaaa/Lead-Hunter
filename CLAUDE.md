@@ -496,7 +496,7 @@ show_last_leads → done
 
 | Фаза | Название | Статус |
 |---|---|---|
-| Ф0 | Подготовка сервера | ⬜ |
+| Ф0 | Подготовка сервера | ✅ |
 | Ф1 | Скелет проекта, /start | ⬜ |
 | Ф2 | БД, модели, Alembic, seed, тесты | ⬜ |
 | Ф3 | Inline-кнопки + FSM-навигация | ⬜ |
@@ -534,13 +534,11 @@ show_last_leads → done
 
 Дата: **2026-06-29**
 
-Фаза: **Фаза 0 (подготовка сервера)** 🔄
+Фаза: **Фаза 1 (скелет проекта, /start)** ⏳
 
-Сделано: SSH по ключу, UFW (22,80,443), Docker 29.6.1, Swap 2GB, passwordless sudo, docker-compose.yml + Dockerfile с memory limits (bot=300M, worker=400M, admin=200M, db=400M, redis=100M), скелет проекта (app/, config.py, main.py, worker/tasks.py, admin/app.py), requirements.txt, alembic.ini. Все 5 контейнеров стартуют.
+Сделано: Фаза 0 завершена — SSH+UFW, Docker Compose с memory limits, скелет проекта.
 
-Осталось: **USERBOT_API_ID и USERBOT_API_HASH** (получить на my.telegram.org/apps и вписать в .env).
-
-Git-тег: нет.
+Следующее: бот отвечает на /start, i18n ru/en, onboarding wizard.
 
 ---
 
