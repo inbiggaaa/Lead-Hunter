@@ -116,11 +116,12 @@ async def report_discovery_stats(new_found: int):
 
 
 async def _notify_admin(text: str):
-    """Send notification to bot owner."""
+    """Send notification to admin channel or owner."""
     from aiogram import Bot
     bot = Bot(token=settings.bot_token)
+    chat_id = settings.admin_channel_id or settings.owner_telegram_id
     try:
-        await bot.send_message(settings.owner_telegram_id, text)
+        await bot.send_message(chat_id, text)
     except Exception:
         pass
     finally:
