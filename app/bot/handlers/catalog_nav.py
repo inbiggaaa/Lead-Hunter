@@ -372,18 +372,24 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
         await callback.answer(f"Лимит: {max_seg}", show_alert=True)
         return
 
-    # Check duplicates
+    # Filter out existing subscriptions silently
     existing_pairs = {(s.segment_id, s.country_id) for s in existing}
-    duplicates = [
+    new_segments = [
         sid for sid in selected_segments
-        if (sid, country_id) in existing_pairs
+        if (sid, country_id) not in existing_pairs
     ]
-    if duplicates:
-        await callback.answer(f"Уже подписан на {len(duplicates)} из выбранных", show_alert=True)
+    skipped = len(selected_segments) - len(new_segments)
+
+    if not new_segments:
+        await callback.answer("Уже подписан на все выбранные", show_alert=True)
         return
 
+    await state.update_data(selected_segments=new_segments)
+
     text = f"Подтверди подписку:\n\n"
-    text += f"📌 Направлений: {len(selected_segments)}\n"
+    text += f"📌 Новых направлений: {len(new_segments)}\n"
+    if skipped:
+        text += f"📎 Уже подписано: {skipped} (пропущено)\n"
     text += f"🌍 Страна: {country_id}\n"
     if mode == "cities":
         text += f"🏙 Городов: {len(selected_cities)}\n"
@@ -421,16 +427,21 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             await callback.answer(f"Лимит: {max_seg}", show_alert=True)
             return
 
-        # Create subscriptions for all selected segments
+        # Create subscriptions — silently skip duplicates
+        created = 0
+        existing_pairs = {(s.segment_id, s.country_id) for s in await get_user_subscriptions(session, user.id)}
         for seg_id in selected_segments:
+            if (seg_id, country_id) in existing_pairs:
+                continue
             await create_subscription(
                 session, user_id=user.id,
                 segment_id=seg_id, country_id=country_id,
                 mode=mode, city_ids=selected_cities if mode == "cities" else None,
             )
+            created += 1
 
         # Activate trial if first subscription
-        is_first = current == 0
+        is_first = current == 0 and created > 0
         if is_first and user.plan == "free":
             from app.config import settings
             user.plan = "trial"
@@ -444,11 +455,11 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
     if is_first:
         text = (
             "🎉 Готово! Ты получил 5 дней Business-тарифа.\n"
-            f"Подписок создано: {len(selected_segments)}\n\n"
+            f"Подписок создано: {created}\n\n"
             "Заявки начнут приходить в ближайшее время."
         )
     else:
-        text = f"✅ Добавлено подписок: {len(selected_segments)}"
+        text = f"✅ Добавлено подписок: {created}"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
