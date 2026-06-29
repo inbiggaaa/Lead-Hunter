@@ -98,7 +98,7 @@ class NotificationSender:
         text_preview = (payload.get("text", "") or "")[:500]
         is_free = payload.get("plan", "free") == "free"
 
-        msg = f"{urgency}<b>Я нашел нового клиента! | Lead Hunter AI</b>\n\n"
+        msg = f"{urgency}🎯 <b>Я нашел нового клиента! | Lead Hunter AI</b>\n\n"
         msg += f"{text_preview}\n\n"
         msg += f"💬 <a href='https://t.me/{chat}/{msg_id}'>@{chat}</a>"
         if sender:
