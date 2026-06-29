@@ -48,6 +48,7 @@ services:
       - ./tests:/app/tests
       - ./alembic.ini:/app/alembic.ini
       - ./pytest.ini:/app/pytest.ini
+      - ./app/static:/app/static
     depends_on:
       db:
         condition: service_healthy
