@@ -4,15 +4,19 @@ TEXTS = {
     # ── Welcome screen ──
     "welcome_title": "🎯 LeadHunter",
     "welcome_body": (
-        "A client request monitoring system for Telegram.\n\n"
-        "The bot scans public Telegram channels and notifies you in real time "
-        "when potential clients look for your services. You receive each lead "
-        "first and stay ahead of competitors.\n\n"
-        "🚀 Why LeadHunter:\n"
-        "1. Userbot technology — we see messages in any public chat\n"
-        "2. Smart filter — AI classifier tells real demand from spam and ads\n"
-        "3. Lead in 2 seconds — you respond to the client first\n\n"
-        "🎁 A free trial is available — 5 days of the Business plan."
+        "<b>Lead Hunter AI — client request monitoring on Telegram</b>\n\n"
+        "The service tracks public Telegram channels in real time "
+        "and identifies messages from potential clients in your "
+        "line of business. Relevant leads are delivered to you as notifications.\n\n"
+        "<b>What you get:</b>\n\n"
+        "✔️ A steady flow of inbound leads — no manual searching\n"
+        "✔️ Setup by category, geography, and keywords\n"
+        "✔️ First-contact advantage over competitors\n"
+        "✔️ 24/7 automated operation\n\n"
+        "Lead Hunter AI handles client discovery — "
+        "so you can focus on working with them.\n\n"
+        "A free trial is available — 5 days of the Business plan.\n\n"
+        "Tap the button below to get started. 👇"
     ),
     "welcome_lang_prompt": "Выбери язык / Choose language:",
 

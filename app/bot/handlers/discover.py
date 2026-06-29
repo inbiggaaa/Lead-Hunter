@@ -62,9 +62,15 @@ async def on_about(callback: CallbackQuery):
             f"Пока конкуренты листают чаты вручную,\n"
             f"ты уже отвечаешь клиенту.\n\n"
             f"📊 {ch} каналов в {co} странах\n"
+            f"🎯 29 направлений бизнеса\n"
             f"⚡ Заявки за 2 секунды\n"
-            f"🤖 AI-фильтр спама\n\n"
-            f"Ты всегда первый."
+            f"🤖 AI-фильтр спама\n"
+            f"🔒 Контакты клиентов (на платных тарифах)\n"
+            f"💬 Ответ клиенту в 1 клик\n"
+            f"🆓 5 дней Business-тарифа бесплатно\n\n"
+            f"Не жди, пока клиент найдёт конкурента.\n"
+            f"Начни получать заявки прямо сейчас.\n"
+            f"👇 Жми «Поиск клиентов» в главном меню."
         )
     else:
         text = (
@@ -72,9 +78,15 @@ async def on_about(callback: CallbackQuery):
             f"While competitors scroll chats manually,\n"
             f"you're already replying to the client.\n\n"
             f"📊 {ch} channels in {co} countries\n"
+            f"🎯 29 business categories\n"
             f"⚡ Leads in 2 seconds\n"
-            f"🤖 AI spam filter\n\n"
-            f"You're always first."
+            f"🤖 AI spam filter\n"
+            f"🔒 Client contacts (paid plans)\n"
+            f"💬 Reply in 1 click\n"
+            f"🆓 5-day Business trial free\n\n"
+            f"Don't wait for the client to find a competitor.\n"
+            f"Start getting leads right now.\n"
+            f"👇 Tap «Find clients» in the main menu."
         )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:settings")],
