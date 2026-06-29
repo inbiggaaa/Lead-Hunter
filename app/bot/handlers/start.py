@@ -127,6 +127,12 @@ async def _show_onboarding_step1(message: Message, lang: str):
             user.plan = "trial"
             user.plan_activated_at = now
             user.plan_expires_at = now + datetime.timedelta(days=settings.trial_days)
+            # Notify admin
+            from app.userbot.discovery import notify_new_trial
+            import asyncio as aio_mod
+            aio_mod.create_task(notify_new_trial(
+                user.username, user.telegram_id, user.source
+            ))
         await session.commit()
     await _show_menu_from_db(message, message.chat.id)
 
