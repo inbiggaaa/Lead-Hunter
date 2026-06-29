@@ -14,6 +14,18 @@ router = Router()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
+    from aiogram.filters import CommandObject
+    import datetime as dt
+
+    # Extract referral code from deep link
+    ref_code = None
+    if message.text and "ref_" in message.text:
+        parts = message.text.split()
+        if len(parts) > 1:
+            arg = parts[1]
+            if arg.startswith("ref_"):
+                ref_code = arg[4:]
+
     async for session in get_session():
         user = await get_or_create_user(
             session,
@@ -21,6 +33,29 @@ async def cmd_start(message: Message):
             username=message.from_user.username,
         )
         lang = user.language
+
+        # Process referral
+        if ref_code and user.source == "direct" and user.created_at and \
+           (dt.datetime.now(dt.timezone.utc) - user.created_at).seconds < 60:
+            from app.db.models import Referral
+            from sqlalchemy import select
+            ref = (await session.execute(
+                select(Referral).where(Referral.ref_code == ref_code)
+            )).scalar_one_or_none()
+
+            if ref and ref.referrer_id != user.id:
+                user.source = "referral"
+                ref.referral_id = user.id
+                ref.status = "pending"
+                # Give bonus trial days
+                from app.config import settings
+                if user.plan == "free" and not user.onboarded:
+                    now = dt.datetime.now(dt.timezone.utc)
+                    user.plan = "trial"
+                    user.plan_activated_at = now
+                    user.plan_expires_at = now + dt.timedelta(
+                        days=settings.trial_days + settings.referral_trial_bonus
+                    )
 
         if not user.onboarded:
             await _show_welcome(message, lang)
