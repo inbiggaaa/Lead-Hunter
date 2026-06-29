@@ -138,10 +138,17 @@ class ChannelPoller:
                     interested = True
                     break
 
-            # Personal keywords work regardless of geo
-            if not interested and personal_kws:
-                if any(kw.lower() in message_text.lower() for kw in personal_kws):
-                    interested = True
+            # Personal keywords also respect geo filter
+            if not interested:
+                for sub in subscriptions:
+                    if sub["country_id"] != channel_country_id:
+                        continue
+                    if sub.get("city_ids") and channel_city_id:
+                        if channel_city_id not in sub["city_ids"]:
+                            continue
+                    if personal_kws and any(kw.lower() in message_text.lower() for kw in personal_kws):
+                        interested = True
+                        break
 
             if not interested:
                 continue
