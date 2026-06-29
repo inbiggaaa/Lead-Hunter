@@ -440,9 +440,19 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
     selected_segments: list[int] = data.get("selected_segments", [])
-    country_id = data["country_id"]
+    country_id = data.get("country_id")
     mode = data.get("mode", "all")
     selected_cities: list[int] = data.get("selected_cities", [])
+
+    if not country_id:
+        await callback.answer("Ошибка: страна не выбрана. Начни заново.", show_alert=True)
+        await state.clear()
+        return
+
+    if not selected_segments:
+        await callback.answer("Ошибка: направления не выбраны.", show_alert=True)
+        await state.clear()
+        return
 
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
@@ -487,17 +497,47 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
 
     await state.clear()
 
+    # Load names for the confirmation message
+    seg_names = []
+    country_name = ""
+    city_labels = []
+    async for s2 in get_session():
+        from app.db.models import Segment as SegModel, Country as CoModel, City as CiModel
+        from sqlalchemy import select as sa_sel2
+        for sid in selected_segments:
+            seg = (await s2.execute(sa_sel2(SegModel).where(SegModel.id == sid))).scalar_one_or_none()
+            if seg:
+                name = seg.title_ru if lang == "ru" else (seg.title_en or seg.title_ru)
+                seg_names.append(f"{seg.emoji or ''} {name}")
+        co = (await s2.execute(sa_sel2(CoModel).where(CoModel.id == country_id))).scalar_one_or_none()
+        if co:
+            country_name = co.name_ru if lang == "ru" else (co.name_en or co.name_ru)
+        if mode == "cities" and selected_cities:
+            for cid in selected_cities[:5]:
+                ci = (await s2.execute(sa_sel2(CiModel).where(CiModel.id == cid))).scalar_one_or_none()
+                if ci:
+                    city_labels.append(ci.name_ru if lang == "ru" else (ci.name_en or ci.name_ru))
+        break
+
     if is_first:
         text = (
-            "🎉 Готово! Ты получил 5 дней Business-тарифа.\n"
-            f"Подписок создано: {created}\n\n"
-            "Заявки начнут приходить в ближайшее время."
+            "🎉 Готово! Ты получил 5 дней Business-тарифа.\n\n"
+            f"📌 Направления: {', '.join(seg_names)}\n"
+            f"🌍 Страна: {country_name}\n"
         )
+        if city_labels:
+            text += f"🏙 Города: {', '.join(city_labels)}\n"
+        text += f"\n✅ Создано подписок: {created}\n"
+        text += "Заявки начнут приходить в ближайшее время."
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
         ])
     else:
-        text = f"✅ Добавлено подписок: {created}"
+        text = f"✅ Добавлено подписок: {created}\n\n"
+        text += f"📌 {', '.join(seg_names)}\n"
+        text += f"🌍 {country_name}"
+        if city_labels:
+            text += f" 🏙 {', '.join(city_labels)}"
         kb_rows = [[InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")]]
         if show_upgrade:
             text += (
