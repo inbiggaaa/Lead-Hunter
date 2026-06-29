@@ -23,8 +23,8 @@ class CryptoBotPaymentProvider:
         plan: str,
         amount_stars: int,
         amount_usd: float,
-    ) -> str:
-        """Create a CryptoBot invoice."""
+    ) -> dict:
+        """Create a CryptoBot invoice. Returns dict with pay_url, invoice_id."""
         if not settings.cryptobot_api_token:
             raise ValueError("CRYPTOBOT_API_TOKEN not set")
 
@@ -34,6 +34,8 @@ class CryptoBotPaymentProvider:
             "amount": str(amount_usd),
             "description": f"LeadHunter {plan} subscription",
             "payload": f"sub:{plan}:{user_id}",
+            "allow_comments": False,
+            "allow_anonymous": False,
         }
 
         async with aiohttp.ClientSession() as session:
@@ -45,16 +47,21 @@ class CryptoBotPaymentProvider:
                 data = await resp.json()
 
         if data.get("ok"):
-            invoice_id = str(data["result"]["invoice_id"])
-            logger.info("CryptoBot invoice %s created for user %d", invoice_id, user_id)
-            return invoice_id
+            result = data["result"]
+            logger.info("CryptoBot invoice %s created for user %d", result["invoice_id"], user_id)
+            return {
+                "invoice_id": str(result["invoice_id"]),
+                "pay_url": result.get("pay_url", ""),
+                "bot_invoice_url": result.get("bot_invoice_url", ""),
+                "amount": amount_usd,
+            }
         else:
             raise RuntimeError(f"CryptoBot error: {data}")
 
-    async def check_payment(self, invoice_id: str) -> bool:
-        """Check if a CryptoBot invoice was paid."""
+    async def check_payment(self, invoice_id: str) -> str:
+        """Check invoice status. Returns 'paid', 'active', or 'expired'."""
         if not settings.cryptobot_api_token:
-            return False
+            return "active"
 
         headers = {"Crypto-Pay-API-Token": settings.cryptobot_api_token}
 
@@ -67,7 +74,21 @@ class CryptoBotPaymentProvider:
                 data = await resp.json()
 
         if data.get("ok") and data["result"]["items"]:
-            status = data["result"]["items"][0]["status"]
-            return status == "paid"
+            return data["result"]["items"][0]["status"]
 
-        return False
+        return "active"
+
+
+async def poll_payment(invoice_id: str, timeout: int = 600, interval: int = 3) -> bool:
+    """Poll invoice until paid or timeout. Returns True if paid."""
+    provider = CryptoBotPaymentProvider()
+    elapsed = 0
+    while elapsed < timeout:
+        status = await provider.check_payment(invoice_id)
+        if status == "paid":
+            return True
+        if status == "expired":
+            return False
+        await asyncio.sleep(interval)
+        elapsed += interval
+    return False
