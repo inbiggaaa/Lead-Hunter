@@ -14,6 +14,16 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# ── Navigation bar shared across pages ──
+
+NAV = """
+<div style="background:#1976d2;padding:10px 24px;display:flex;gap:20px;font-size:14px">
+<a href="/" style="color:#fff;text-decoration:none">📊 Дашборд</a>
+<a href="/chat" style="color:#fff;text-decoration:none">💬 Чат</a>
+<a href="http://localhost:8001/admin" style="color:#bbdefb;text-decoration:none">⚙️ Админка →</a>
+</div>
+"""
+
 app = FastAPI(title="Dashboard")
 
 # WebSocket connections
@@ -35,7 +45,7 @@ async def dashboard():
     pl = list(plan_data.keys())
     pv = list(plan_data.values())
 
-    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Dashboard</title></head>
+    return NAV + f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Dashboard</title></head>
 <body style="margin:0;font-family:-apple-system,sans-serif;background:#f5f5f5">
 <div style="max-width:1100px;margin:0 auto;padding:24px">
 <h1 style="color:#333;margin-bottom:24px">📊 Дашборд LeadHunter</h1>
@@ -136,7 +146,7 @@ async def chat_ws(ws: WebSocket):
 
 @app.get("/chat", response_class=HTMLResponse)
 async def chat_page():
-    return """<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Chat</title>
+    return NAV + """<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Chat</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,sans-serif;display:flex;height:100vh;background:#f5f5f5}

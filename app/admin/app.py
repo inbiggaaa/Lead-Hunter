@@ -16,8 +16,10 @@ from app.admin.views import (
     ReminderAdmin, PeriodicPrefAdmin,
 )
 
+from app.admin.nav import NavView, NavChatView
+
 VIEWS = [
-    UserAdmin, SubscriptionAdmin, KeywordAdmin, WatchedChatAdmin, SentLogAdmin,
+    NavView, NavChatView,
     CountryAdmin, CityAdmin, SegmentAdmin, SegmentKeywordAdmin, CatalogChannelAdmin,
     ChannelSegmentAdmin, ChannelCityAdmin, UserSubscriptionAdmin, SubscriptionCityAdmin,
     DiscoveredChatAdmin, ReferralAdmin, SupportMessageAdmin, UserIgnoreAdmin,
