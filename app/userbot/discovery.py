@@ -140,7 +140,7 @@ async def notify_new_trial(username: str, telegram_id: int, source: str):
     await _notify_admin(text)
 
 
-async def notify_new_subscription(username: str, telegram_id: int, plan: str, period: str, source: str):
+async def notify_new_subscription(username: str, telegram_id: int, plan: str, period: str, source: str, amount: float = 0):
     """Notify admin about new paid subscription."""
     name = f"@{username}" if username else f"ID:{telegram_id}"
     period_labels = {"1m": "1 месяц", "3m": "3 месяца", "1y": "1 год"}
@@ -150,6 +150,7 @@ async def notify_new_subscription(username: str, telegram_id: int, plan: str, pe
         f"👤 {name}\n"
         f"📋 Тариф: {plan.title()}\n"
         f"📅 Срок: {period_text}\n"
+        f"💵 Сумма: \${amount:.0f}\n"
         f"📡 Источник: {source}"
     )
     await _notify_admin(text)

@@ -104,5 +104,6 @@ async def _activate_by_msg(message, plan, period_key, method, invoice_id):
         s.add(Subscription(user_id=u.id, plan=plan, period=period_key, expires_at=exp, payment_method=method, payment_status="paid", invoice_id=invoice_id, amount=info["total"]))
         u.plan = plan; u.plan_activated_at = now; u.plan_expires_at = exp; await s.commit()
     from app.userbot.discovery import notify_new_subscription
-    asyncio.create_task(notify_new_subscription(message.from_user.username, message.from_user.id, plan, period_key, "direct"))
+    info2 = _calc(plan, period_key)
+    asyncio.create_task(notify_new_subscription(message.from_user.username, message.from_user.id, plan, period_key, "direct", info2["total"]))
     await message.answer(f"✅ Оплата прошла! Тариф: {info['plan_name']}\nСрок: {info['period_label']}\nДействует до: {exp.strftime('%d.%m.%Y')}")

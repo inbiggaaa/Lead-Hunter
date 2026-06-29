@@ -99,7 +99,7 @@ async def _activate(data: dict, invoice_id: str):
     from app.userbot.discovery import notify_new_subscription
     import asyncio as aio
     user_obj = await _get_user_for_notify(user_id)
-    aio.create_task(notify_new_subscription(user_obj.username if user_obj else None, user_obj.telegram_id if user_obj else 0, plan, period_key, "direct"))
+    aio.create_task(notify_new_subscription(user_obj.username if user_obj else None, user_obj.telegram_id if user_obj else 0, plan, period_key, "direct", info["total"]))
 
     # Notify user
     bot = Bot(token=settings.bot_token)
