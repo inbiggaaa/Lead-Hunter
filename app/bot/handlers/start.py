@@ -1,5 +1,6 @@
 from aiogram import F, Router
 from aiogram.filters import CommandStart, Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 
 from app.db.crud import get_or_create_user, set_language, set_onboarded
@@ -212,9 +213,8 @@ async def on_menu_main(callback: CallbackQuery):
 # ── /cancel ──
 
 @router.message(Command("cancel"))
-async def cmd_cancel(message: Message, state: FSMContext = None):
-    if state:
-        await state.clear()
+async def cmd_cancel(message: Message, state: FSMContext):
+    await state.clear()
     await _show_menu_from_db(message, message.from_user.id)
 
 
