@@ -67,10 +67,12 @@ async def search_channels(client: TelegramClient, queries: list[str], limit: int
                     title = getattr(chat, "title", username)
                     participants = getattr(chat, "participants_count", None)
 
-                    session.add(DiscoveredChat(
+                    # Auto-add to catalog
+                    session.add(CatalogChannel(
                         chat_username=username,
                         title=title,
                         participants=participants,
+                        is_verified=False,
                     ))
                     await session.commit()
                     found += 1

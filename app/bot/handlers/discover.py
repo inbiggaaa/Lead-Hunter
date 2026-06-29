@@ -47,12 +47,35 @@ async def on_settings(callback: CallbackQuery):
 @router.callback_query(F.data == "menu:about")
 async def on_about(callback: CallbackQuery):
     lang = _user_lang(callback.message.text or "")
-    text = (
-        f"ℹ️ LeadHunter\n\n"
-        f"Система мониторинга заявок в Telegram.\n"
-        f"Версия: 0.3.0\n"
-        f"Фаза: 7"
-    )
+
+    # Live stats
+    from app.db.models import CatalogChannel, Country
+    from sqlalchemy import func, select as sa_sel
+    from app.db.session import async_session_factory
+    async with async_session_factory() as s:
+        ch = (await s.execute(sa_sel(func.count(CatalogChannel.id)))).scalar() or 0
+        co = (await s.execute(sa_sel(func.count(Country.id)))).scalar() or 0
+
+    if lang == "ru":
+        text = (
+            f"ℹ️ LeadHunter\n\n"
+            f"Система мониторинга заявок в Telegram.\n\n"
+            f"📊 {ch} каналов в {co} странах\n"
+            f"⚡ Уведомления за 2 секунды\n"
+            f"🤖 AI-фильтр спама и рекламы\n\n"
+            f"Находите клиентов первыми — "
+            f"пока конкуренты ещё не ответили."
+        )
+    else:
+        text = (
+            f"ℹ️ LeadHunter\n\n"
+            f"Client request monitoring for Telegram.\n\n"
+            f"📊 {ch} channels in {co} countries\n"
+            f"⚡ 2-second notifications\n"
+            f"🤖 AI spam filter\n\n"
+            f"Find clients first — "
+            f"before your competitors respond."
+        )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:settings")],
     ])
