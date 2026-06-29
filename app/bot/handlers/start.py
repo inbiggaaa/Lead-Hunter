@@ -164,28 +164,25 @@ async def _finish_onboarding(callback: CallbackQuery, lang: str):
 # ── Main menu ──
 
 async def _show_menu_from_db(message: Message, telegram_id: int):
-    """Show main menu using language from DB."""
+    """Show main menu using language and plan from DB."""
+    import datetime
     async for session in get_session():
         from app.db.crud import get_user
         user = await get_user(session, telegram_id)
         lang = user.language if user else "ru"
-    await _show_menu(message, lang)
+        plan_name = "Free"
+        if user:
+            plan_name = user.plan.capitalize()
+            if user.plan == "trial" and user.plan_expires_at:
+                days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
+                plan_name = f"Trial ({max(0, days_left)} дн)"
+            elif user.plan in ("pro", "business") and user.plan_expires_at:
+                days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
+                plan_name = f"{user.plan.capitalize()} ({max(0, days_left)} дн)"
+    await _show_menu(message, lang, plan_name)
 
 
-async def _show_menu(message: Message, lang: str):
-    async for session in get_session():
-        from app.db.crud import get_user
-        user = await get_user(session, message.chat.id)
-        plan_name = user.plan.capitalize() if user else "Free"
-        # Add days remaining for trial
-        import datetime
-        if user and user.plan == "trial" and user.plan_expires_at:
-            days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
-            plan_name = f"Trial ({max(0, days_left)} дн)"
-        elif user and user.plan in ("pro", "business") and user.plan_expires_at:
-            days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
-            plan_name = f"{user.plan.capitalize()} ({max(0, days_left)} дн)"
-
+async def _show_menu(message: Message, lang: str, plan_name: str = "Free"):
     text = (
         f"{get_text(lang, 'menu_header')}\n\n"
         f"{get_text(lang, 'menu_plan', plan=plan_name)}\n"
