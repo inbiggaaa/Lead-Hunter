@@ -115,11 +115,11 @@ async def on_pay_method(callback: CallbackQuery):
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=f"⭐ Telegram Stars ({info['stars']} ⭐)",
+            text=f"⭐ Telegram Stars",
             callback_data=f"pay_exec:stars:{plan}:{period_key}",
         )],
         [InlineKeyboardButton(
-            text=f"₮ CryptoBot (${info['total']:.0f})",
+            text=f"₮ CryptoBot",
             callback_data=f"pay_exec:crypto:{plan}:{period_key}",
         )],
         [InlineKeyboardButton(text="◀️ Назад", callback_data=f"pay_plan:{plan}")],
