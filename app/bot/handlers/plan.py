@@ -90,10 +90,50 @@ async def on_successful_payment(message: Message):
     parts = payload.split(":")
     if len(parts) >= 4 and parts[0] == "sub": await _activate_by_msg(message, parts[1], parts[2], "stars", payload)
 
-async def _get_user_id(callback):
-    async for s in get_session():
-        u = await get_user(s, callback.from_user.id)
-        return u.id if u else 0
+async def _apply_referral_bonus(user_id: int):
+    """Give bonus days to referrer when referral pays."""
+    from app.db.session import async_session_factory
+    from app.db.models import Referral, User
+    from sqlalchemy import select
+    import datetime as dt
+    from app.config import settings
+
+    async with async_session_factory() as s:
+        ref = (await s.execute(
+            select(Referral).where(Referral.referral_id == user_id, Referral.status == "pending")
+        )).scalar_one_or_none()
+        if not ref:
+            return
+
+        ref.status = "paid"
+        ref.activated_at = dt.datetime.now(dt.timezone.utc)
+
+        referrer = (await s.execute(
+            select(User).where(User.id == ref.referrer_id)
+        )).scalar_one_or_none()
+
+        if referrer and referrer.plan in ("pro", "business", "trial"):
+            if referrer.plan_expires_at:
+                referrer.plan_expires_at += dt.timedelta(days=settings.referral_bonus_days)
+            else:
+                referrer.plan_expires_at = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=settings.referral_bonus_days)
+
+        await s.commit()
+
+        # Notify referrer
+        if referrer:
+            from aiogram import Bot
+            bot = Bot(token=settings.bot_token)
+            try:
+                await bot.send_message(
+                    referrer.telegram_id,
+                    f"🎁 Ваш реферал оплатил подписку!\n\n"
+                    f"+{settings.referral_bonus_days} дней к вашему тарифу."
+                )
+            except Exception:
+                pass
+            finally:
+                await bot.session.close()
 
 async def _activate_by_msg(message, plan, period_key, method, invoice_id):
     info = _calc(plan, period_key)
@@ -103,6 +143,7 @@ async def _activate_by_msg(message, plan, period_key, method, invoice_id):
         now = datetime.datetime.now(datetime.timezone.utc); exp = now + datetime.timedelta(days=30 * info["months"])
         s.add(Subscription(user_id=u.id, plan=plan, period=period_key, expires_at=exp, payment_method=method, payment_status="paid", invoice_id=invoice_id, amount=info["total"]))
         u.plan = plan; u.plan_activated_at = now; u.plan_expires_at = exp; await s.commit()
+    await _apply_referral_bonus(message.from_user.id)
     from app.userbot.discovery import notify_new_subscription
     info2 = _calc(plan, period_key)
     asyncio.create_task(notify_new_subscription(message.from_user.username, message.from_user.id, plan, period_key, "direct", info2["total"]))

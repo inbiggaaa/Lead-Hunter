@@ -95,6 +95,10 @@ async def _activate(data: dict, invoice_id: str):
         user.plan_expires_at = expires
         await session.commit()
 
+    # Apply referral bonus
+    from app.bot.handlers.plan import _apply_referral_bonus
+    await _apply_referral_bonus(user_id)
+
     # Notify admin
     from app.userbot.discovery import notify_new_subscription
     import asyncio as aio
