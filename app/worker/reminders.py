@@ -38,6 +38,19 @@ async def send_reminders():
     today = datetime.now(timezone.utc).date()
 
     async with async_session_factory() as session:
+        # Auto-downgrade expired trial users
+        expired_trial = (await session.execute(
+            select(User).where(
+                User.plan == "trial",
+                User.plan_expires_at.isnot(None),
+                User.plan_expires_at < today,
+            )
+        )).scalars().all()
+
+        for user in expired_trial:
+            user.plan = "free"
+            logger.info("Trial expired for user %d → downgraded to free", user.telegram_id)
+        await session.commit()
         # Trial expired reminders
         trial_users = (await session.execute(
             select(User).where(
