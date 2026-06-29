@@ -476,6 +476,9 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             user.plan = "trial"
             user.plan_activated_at = datetime.datetime.now(datetime.timezone.utc)
             user.plan_expires_at = user.plan_activated_at + datetime.timedelta(days=settings.trial_days)
+            # Notify admin
+            from app.userbot.discovery import notify_new_trial
+            asyncio.create_task(notify_new_trial(callback.from_user.username, callback.from_user.id, user.source))
             show_upgrade = False
         else:
             show_upgrade = (user.plan == "free")

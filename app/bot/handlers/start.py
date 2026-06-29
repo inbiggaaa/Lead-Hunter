@@ -165,6 +165,9 @@ async def _finish_onboarding(callback: CallbackQuery, lang: str):
             user.plan = "trial"
             user.plan_activated_at = now
             user.plan_expires_at = now + datetime.timedelta(days=settings.trial_days)
+            # Notify admin
+            from app.userbot.discovery import notify_new_trial
+            asyncio.create_task(notify_new_trial(callback.from_user.username, callback.from_user.id, user.source))
         await session.commit()
 
     text = get_text(lang, "onb_step3_title") + "\n\n" + get_text(lang, "onb_step3_placeholder")

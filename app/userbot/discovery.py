@@ -112,6 +112,12 @@ async def report_discovery_stats(new_found: int):
         f"Ожидают проверки: {discovered}"
     )
 
+    await _notify_admin(text)
+
+
+async def _notify_admin(text: str):
+    """Send notification to bot owner."""
+    from aiogram import Bot
     bot = Bot(token=settings.bot_token)
     try:
         await bot.send_message(settings.owner_telegram_id, text)
@@ -119,6 +125,33 @@ async def report_discovery_stats(new_found: int):
         pass
     finally:
         await bot.session.close()
+
+
+async def notify_new_trial(username: str, telegram_id: int, source: str):
+    """Notify admin about new trial activation."""
+    name = f"@{username}" if username else f"ID:{telegram_id}"
+    text = (
+        f"🆕 Новый пользователь!\n\n"
+        f"👤 {name}\n"
+        f"🎁 Активирован триал (5 дней Business)\n"
+        f"📡 Источник: {source}"
+    )
+    await _notify_admin(text)
+
+
+async def notify_new_subscription(username: str, telegram_id: int, plan: str, period: str, source: str):
+    """Notify admin about new paid subscription."""
+    name = f"@{username}" if username else f"ID:{telegram_id}"
+    period_labels = {"1m": "1 месяц", "3m": "3 месяца", "1y": "1 год"}
+    period_text = period_labels.get(period, period)
+    text = (
+        f"💰 Новая оплата!\n\n"
+        f"👤 {name}\n"
+        f"📋 Тариф: {plan.title()}\n"
+        f"📅 Срок: {period_text}\n"
+        f"📡 Источник: {source}"
+    )
+    await _notify_admin(text)
 
 
 async def discovery_loop():

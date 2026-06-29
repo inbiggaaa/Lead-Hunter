@@ -95,6 +95,12 @@ async def _activate(data: dict, invoice_id: str):
         user.plan_expires_at = expires
         await session.commit()
 
+    # Notify admin
+    from app.userbot.discovery import notify_new_subscription
+    import asyncio as aio
+    user_obj = await _get_user_for_notify(user_id)
+    aio.create_task(notify_new_subscription(user_obj.username if user_obj else None, user_obj.telegram_id if user_obj else 0, plan, period_key, "direct"))
+
     # Notify user
     bot = Bot(token=settings.bot_token)
     try:
@@ -109,6 +115,14 @@ async def _activate(data: dict, invoice_id: str):
         logger.exception("Failed to notify user %d", user_id)
     finally:
         await bot.session.close()
+
+
+async def _get_user_for_notify(user_id: int):
+    from app.db.session import async_session_factory
+    from app.db.models import User
+    from sqlalchemy import select
+    async with async_session_factory() as s:
+        return (await s.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
 
 
 async def payment_checker_loop():
