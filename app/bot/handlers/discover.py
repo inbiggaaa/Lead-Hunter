@@ -216,6 +216,7 @@ async def on_referral(callback: CallbackQuery):
             f"Твой друг получит +{settings.referral_trial_bonus} дня к пробному периоду "
             f"(итого {settings.trial_days + settings.referral_trial_bonus} дней Business).\n\n"
             f"🔗 Твоя ссылка:\n{link}\n\n"
+            f"<i>Нажми и удерживай ссылку чтобы скопировать</i>\n\n"
             f"📊 Статистика:\n"
             f"👥 Приглашено: {invited}\n"
             f"✅ Активировано: {activated}\n"
@@ -236,7 +237,6 @@ async def on_referral(callback: CallbackQuery):
         )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Копировать ссылку" if lang == "ru" else "📋 Copy link", callback_data="ref_copy")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:main")],
     ])
     await callback.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
