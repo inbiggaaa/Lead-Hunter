@@ -476,6 +476,14 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             user.plan = "trial"
             user.plan_activated_at = datetime.datetime.now(datetime.timezone.utc)
             user.plan_expires_at = user.plan_activated_at + datetime.timedelta(days=settings.trial_days)
+            offer_payment = False
+        elif user.plan == "free":
+            # Free user without trial → offer payment
+            offer_payment = True
+            is_first = False
+        else:
+            offer_payment = False
+            is_first = False
 
         await session.commit()
 
@@ -487,12 +495,24 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             f"Подписок создано: {created}\n\n"
             "Заявки начнут приходить в ближайшее время."
         )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
+        ])
+    elif offer_payment:
+        text = (
+            f"⚠️ Твой пробный период закончился.\n\n"
+            f"Подписок создано: {created}\n\n"
+            f"Чтобы получать заявки, активируй платный тариф."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💰 Оплатить подписку", callback_data="menu:plan")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
+        ])
     else:
         text = f"✅ Добавлено подписок: {created}"
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
-    ])
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
+        ])
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
