@@ -173,9 +173,22 @@ async def _show_menu_from_db(message: Message, telegram_id: int):
 
 
 async def _show_menu(message: Message, lang: str):
+    async for session in get_session():
+        from app.db.crud import get_user
+        user = await get_user(session, message.chat.id)
+        plan_name = user.plan.capitalize() if user else "Free"
+        # Add days remaining for trial
+        import datetime
+        if user and user.plan == "trial" and user.plan_expires_at:
+            days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
+            plan_name = f"Trial ({max(0, days_left)} дн)"
+        elif user and user.plan in ("pro", "business") and user.plan_expires_at:
+            days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
+            plan_name = f"{user.plan.capitalize()} ({max(0, days_left)} дн)"
+
     text = (
         f"{get_text(lang, 'menu_header')}\n\n"
-        f"{get_text(lang, 'menu_plan', plan='Free')}\n"
+        f"{get_text(lang, 'menu_plan', plan=plan_name)}\n"
         f"{get_text(lang, 'menu_notifications', sent=0, limit=50)}\n"
     )
     kb = InlineKeyboardMarkup(

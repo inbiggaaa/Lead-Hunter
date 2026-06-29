@@ -51,10 +51,27 @@ async def _get_lang_nostate(callback: CallbackQuery) -> str:
 
 
 def _country_flag(slug: str) -> str:
-    flags = {"vn": "🇻🇳", "id": "🇮🇩", "th": "🇹🇭", "ru": "🇷🇺", "other": "🌍",
-             "tr": "🇹🇷", "ae": "🇦🇪", "ge": "🇬🇪", "kz": "🇰🇿", "de": "🇩🇪",
-             "es": "🇪🇸", "fr": "🇫🇷", "us": "🇺🇸", "gb": "🇬🇧", "in": "🇮🇳",
-             "cn": "🇨🇳", "jp": "🇯🇵", "br": "🇧🇷", "eg": "🇪🇬", "za": "🇿🇦"}
+    flags = {
+        "vn": "🇻🇳", "id": "🇮🇩", "th": "🇹🇭", "ru": "🇷🇺", "tr": "🇹🇷",
+        "ae": "🇦🇪", "ge": "🇬🇪", "kz": "🇰🇿", "de": "🇩🇪", "es": "🇪🇸",
+        "fr": "🇫🇷", "us": "🇺🇸", "gb": "🇬🇧", "in": "🇮🇳", "cn": "🇨🇳",
+        "jp": "🇯🇵", "br": "🇧🇷", "eg": "🇪🇬", "za": "🇿🇦", "it": "🇮🇹",
+        "pt": "🇵🇹", "nl": "🇳🇱", "gr": "🇬🇷", "cy": "🇨🇾", "bg": "🇧🇬",
+        "ro": "🇷🇴", "hr": "🇭🇷", "cz": "🇨🇿", "pl": "🇵🇱", "hu": "🇭🇺",
+        "ie": "🇮🇪", "se": "🇸🇪", "no": "🇳🇴", "fi": "🇫🇮", "dk": "🇩🇰",
+        "ca": "🇨🇦", "mx": "🇲🇽", "ar": "🇦🇷", "co": "🇨🇴", "ma": "🇲🇦",
+        "tn": "🇹🇳", "kr": "🇰🇷", "ph": "🇵🇭", "my": "🇲🇾", "sg": "🇸🇬",
+        "au": "🇦🇺", "nz": "🇳🇿", "il": "🇮🇱", "lb": "🇱🇧", "ke": "🇰🇪",
+        "lk": "🇱🇰", "np": "🇳🇵", "mv": "🇲🇻", "kh": "🇰🇭", "la": "🇱🇦",
+        "mm": "🇲🇲", "mn": "🇲🇳", "pk": "🇵🇰", "bd": "🇧🇩", "cl": "🇨🇱",
+        "pe": "🇵🇪", "ec": "🇪🇨", "cr": "🇨🇷", "pa": "🇵🇦", "do": "🇩🇴",
+        "cu": "🇨🇺", "qa": "🇶🇦", "kw": "🇰🇼", "bh": "🇧🇭", "om": "🇴🇲",
+        "sa": "🇸🇦", "jo": "🇯🇴", "ch": "🇨🇭", "at": "🇦🇹", "be": "🇧🇪",
+        "lt": "🇱🇹", "lv": "🇱🇻", "ee": "🇪🇪", "sk": "🇸🇰", "si": "🇸🇮",
+        "al": "🇦🇱", "mk": "🇲🇰", "ba": "🇧🇦", "md": "🇲🇩", "ua": "🇺🇦",
+        "az": "🇦🇿", "am": "🇦🇲", "by": "🇧🇾", "rs": "🇷🇸", "me": "🇲🇪",
+        "kg": "🇰🇬", "uz": "🇺🇿",
+    }
     return flags.get(slug, "🌍")
 
 
@@ -91,14 +108,20 @@ async def _render_segments(
     current: int, max_seg: int,
 ):
     kb_rows = []
+    row = []
     for seg in segments:
         emoji = seg.emoji or ""
         title = seg.title_ru if lang == "ru" else (seg.title_en or seg.title_ru)
         prefix = "☑️ " if seg.id in selected else "⬜ "
-        kb_rows.append([InlineKeyboardButton(
+        row.append(InlineKeyboardButton(
             text=f"{prefix}{emoji} {title}",
             callback_data=f"cat:seg:{seg.id}",
-        )])
+        ))
+        if len(row) == 2:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
 
     # "Done" button — enabled only if at least 1 selected
     if selected and (current + len(selected) <= max_seg):
@@ -273,12 +296,18 @@ async def on_back_to_country_from_cities(callback: CallbackQuery, state: FSMCont
 
     text = "В какой стране ищешь клиентов?"
     kb_rows = []
+    row = []
     for c in countries:
         name = c.name_ru if lang == "ru" else (c.name_en or c.name_ru)
         flag = _country_flag(c.slug)
-        kb_rows.append([InlineKeyboardButton(
+        row.append(InlineKeyboardButton(
             text=f"{flag} {name}", callback_data=f"cat:country:{c.id}",
-        )])
+        ))
+        if len(row) == 2:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
     kb_rows.append([InlineKeyboardButton(
         text=get_text(lang, "btn_back"), callback_data="cat:back:to_segments",
     )])
