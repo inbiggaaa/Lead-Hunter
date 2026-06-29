@@ -30,6 +30,14 @@ def _user_lang(message: Message) -> str:
     return "en"
 
 
+# ── Menu entry point ──
+
+@router.callback_query(F.data == "menu:channels")
+async def on_menu_channels(callback: CallbackQuery):
+    lang = _user_lang(callback.message)
+    await show_channels(callback, lang)
+
+
 # ── Show channels list ──
 
 async def show_channels(callback: CallbackQuery, lang: str):

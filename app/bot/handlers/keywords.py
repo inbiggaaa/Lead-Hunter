@@ -30,6 +30,14 @@ def _user_lang(message: Message) -> str:
     return "en"
 
 
+# ── Menu entry point ──
+
+@router.callback_query(F.data == "menu:keywords")
+async def on_menu_keywords(callback: CallbackQuery):
+    lang = _user_lang(callback.message)
+    await show_keywords(callback, lang)
+
+
 # ── Show keywords list ──
 
 async def show_keywords(callback: CallbackQuery, lang: str):
