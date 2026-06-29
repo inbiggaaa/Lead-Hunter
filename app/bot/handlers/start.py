@@ -274,9 +274,6 @@ async def cmd_settings(message: Message):
 @router.message(Command("chatid"))
 async def cmd_chatid(message: Message):
     await message.answer(f"Chat ID: `{message.chat.id}`")
-    await message.answer("⚙️", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Настройки", callback_data="menu:settings")]
-    ]))
 
 
 # ── Helpers ──
