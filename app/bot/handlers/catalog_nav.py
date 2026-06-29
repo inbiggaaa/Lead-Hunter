@@ -476,14 +476,9 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             user.plan = "trial"
             user.plan_activated_at = datetime.datetime.now(datetime.timezone.utc)
             user.plan_expires_at = user.plan_activated_at + datetime.timedelta(days=settings.trial_days)
-            offer_payment = False
-        elif user.plan == "free":
-            # Free user without trial → offer payment
-            offer_payment = True
-            is_first = False
+            show_upgrade = False
         else:
-            offer_payment = False
-            is_first = False
+            show_upgrade = (user.plan == "free")
 
         await session.commit()
 
@@ -498,21 +493,16 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
         ])
-    elif offer_payment:
-        text = (
-            f"⚠️ Твой пробный период закончился.\n\n"
-            f"Подписок создано: {created}\n\n"
-            f"Чтобы получать заявки, активируй платный тариф."
-        )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💰 Оплатить подписку", callback_data="menu:plan")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
-        ])
     else:
         text = f"✅ Добавлено подписок: {created}"
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
-        ])
+        kb_rows = [[InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")]]
+        if show_upgrade:
+            text += (
+                "\n\n💡 На бесплатном тарифе контакты клиентов скрыты.\n"
+                "Оформи подписку чтобы видеть отправителя и отвечать первым!"
+            )
+            kb_rows.insert(0, [InlineKeyboardButton(text="💰 Перейти на Pro", callback_data="menu:plan")])
+        kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
