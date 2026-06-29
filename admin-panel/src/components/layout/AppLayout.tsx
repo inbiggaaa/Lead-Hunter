@@ -1,4 +1,5 @@
 import { Outlet, NavLink } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -11,6 +12,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
 } from "@/components/ui/sidebar";
+import { Badge } from "@/components/ui/badge";
 import {
   LayoutDashboard,
   Users,
@@ -22,6 +24,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { api } from "@/lib/api";
 
 const NAV_ITEMS = [
   { to: "/", icon: LayoutDashboard, label: "Дашборд" },
@@ -33,8 +36,21 @@ const NAV_ITEMS = [
   { to: "/settings", icon: Settings, label: "Настройки" },
 ];
 
+interface DialogItem {
+  user_id: number;
+  unread: number;
+}
+
 export default function AppLayout() {
   const { logout } = useAuth();
+
+  const { data: dialogsData } = useQuery<{ dialogs: DialogItem[] }>({
+    queryKey: ["chat-dialogs-sidebar"],
+    queryFn: () => api("/api/chat/dialogs"),
+    refetchInterval: 10_000,
+  });
+
+  const unreadTotal = dialogsData?.dialogs.reduce((sum, d) => sum + (d.unread || 0), 0) ?? 0;
 
   return (
     <SidebarProvider>
@@ -68,6 +84,14 @@ export default function AppLayout() {
                       >
                         <item.icon className="size-4" />
                         <span>{item.label}</span>
+                        {item.to === "/chat" && unreadTotal > 0 && (
+                          <Badge
+                            variant="destructive"
+                            className="ml-auto px-1.5 py-0 text-xs rounded-full"
+                          >
+                            {unreadTotal}
+                          </Badge>
+                        )}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

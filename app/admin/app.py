@@ -16,7 +16,6 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from sqladmin import Admin
 from sqlalchemy import create_engine
-from starlette.responses import Response
 
 from app.config import settings
 from app.db.models import Base
@@ -51,20 +50,6 @@ def create_app() -> FastAPI:
         SessionMiddleware,
         secret_key=settings.admin_secret or "dev-secret",
     )
-
-    # ── Auth middleware for /api/* routes ──
-    @app.middleware("http")
-    async def api_auth_middleware(request: Request, call_next):
-        if request.url.path.startswith("/api/") and not request.url.path.startswith("/api/auth/"):
-            if not request.session.get("authenticated"):
-                if request.url.path.startswith("/api/chat/ws"):
-                    # WebSocket — handled in endpoint
-                    pass
-                else:
-                    return Response(status_code=401, content='{"detail":"Not authenticated"}',
-                                    media_type="application/json")
-        response = await call_next(request)
-        return response
 
     # ── Sync engine for SQLAdmin ──
     sync_url = settings.database_url.replace("+asyncpg", "")

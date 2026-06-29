@@ -1,6 +1,6 @@
 """Admin REST API — root router assembling all sub-routers."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.admin.api.auth import router as auth_router
 from app.admin.api.users import router as users_router
@@ -10,29 +10,30 @@ from app.admin.api.chat import router as chat_router
 from app.admin.api.crud import create_crud_router
 from app.db.models import Country, City, Segment, SegmentKeyword
 
+# ── Auth dependency (duplicated here to avoid circular import) ──
+
+async def require_auth(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+
 api_router = APIRouter()
 
-# Auth
+# Auth (public — no dependency)
 api_router.include_router(auth_router)
 
-# Users (custom)
-api_router.include_router(users_router)
-
-# Stats
-api_router.include_router(stats_router)
-
-# Broadcast
-api_router.include_router(broadcast_router)
-
-# Chat (includes WebSocket)
-api_router.include_router(chat_router)
-
-# Generic CRUD for simple catalog models
-api_router.include_router(create_crud_router(Country, "countries", "countries"))
-api_router.include_router(create_crud_router(City, "cities", "cities"))
-api_router.include_router(create_crud_router(Segment, "segments", "segments"))
+# Protected routes
+_protected = [Depends(require_auth)]
+api_router.include_router(users_router, dependencies=_protected)
+api_router.include_router(stats_router, dependencies=_protected)
+api_router.include_router(broadcast_router, dependencies=_protected)
+api_router.include_router(chat_router, dependencies=_protected)
+api_router.include_router(create_crud_router(Country, "countries", "countries"), dependencies=_protected)
+api_router.include_router(create_crud_router(City, "cities", "cities"), dependencies=_protected)
+api_router.include_router(create_crud_router(Segment, "segments", "segments"), dependencies=_protected)
 api_router.include_router(
-    create_crud_router(SegmentKeyword, "segment_keywords", "segment-keywords")
+    create_crud_router(SegmentKeyword, "segment_keywords", "segment-keywords"),
+    dependencies=_protected,
 )
 
 
@@ -171,4 +172,4 @@ async def update_channel(channel_id: int, data: dict):
         return {"ok": True}
 
 
-api_router.include_router(channels_router)
+api_router.include_router(channels_router, dependencies=_protected)
