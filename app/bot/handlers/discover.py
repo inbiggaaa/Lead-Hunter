@@ -166,6 +166,7 @@ async def on_about(callback: CallbackQuery):
 
 @router.callback_query(F.data == "menu:referral")
 async def on_referral(callback: CallbackQuery):
+    import urllib.parse
     lang = _user_lang(callback.message.text or "")
 
     async for session in get_session():
@@ -174,7 +175,6 @@ async def on_referral(callback: CallbackQuery):
             await callback.answer("Error", show_alert=True)
             return
 
-        # Get or create referral code
         from app.db.models import Referral
         from sqlalchemy import select, func
         ref = (await session.execute(
@@ -184,15 +184,12 @@ async def on_referral(callback: CallbackQuery):
         if not ref:
             import uuid
             ref = Referral(
-                referrer_id=user.id,
-                referral_id=user.id,  # placeholder
-                ref_code=uuid.uuid4().hex[:8].upper(),
-                status="active",
+                referrer_id=user.id, referral_id=user.id,
+                ref_code=uuid.uuid4().hex[:8].upper(), status="active",
             )
             session.add(ref)
             await session.commit()
 
-        # Stats
         invited = (await session.execute(
             select(func.count(Referral.id)).where(Referral.referrer_id == user.id)
         )).scalar() or 0
@@ -203,46 +200,52 @@ async def on_referral(callback: CallbackQuery):
         )).scalar() or 0
         from app.config import settings
         bonus_days = activated * settings.referral_bonus_days
-
         await session.commit()
 
     link = f"https://t.me/LeadHunterAiApp_bot?start=ref_{ref.ref_code}"
 
     if lang == "ru":
+        share_msg = (
+            f"🔥 Нашёл сервис — Lead Hunter AI!\n\n"
+            f"Находит клиентов в Telegram: 1747+ каналов в 70 странах, "
+            f"AI-фильтр спама, заявки за 2 секунды.\n\n"
+            f"🎁 По ссылке — 8 дней Business бесплатно (вместо 5): {link}"
+        )
         text = (
             f"🎁 Пригласи друга\n\n"
-            f"Пригласи друга в LeadHunter и получи +{settings.referral_bonus_days} дней "
-            f"подписки когда он оплатит Pro или Business.\n\n"
-            f"Твой друг получит +{settings.referral_trial_bonus} дня к пробному периоду "
-            f"(итого {settings.trial_days + settings.referral_trial_bonus} дней Business).\n\n"
-            f"🔗 Твоя ссылка:\n{link}\n\n"
-            f"<i>Нажми и удерживай ссылку чтобы скопировать</i>\n\n"
-            f"📊 Статистика:\n"
-            f"👥 Приглашено: {invited}\n"
-            f"✅ Активировано: {activated}\n"
-            f"🎁 Бонусных дней: +{bonus_days}"
+            f"+{settings.referral_bonus_days} дней подписки когда друг оплатит.\n"
+            f"Друг получит +{settings.referral_trial_bonus} дня к триалу (итого {settings.trial_days + settings.referral_trial_bonus}).\n\n"
+            f"🔗 {link}\n
+"
+            f"📊 Приглашено: {invited} | Активировано: {activated} | +{bonus_days} дн"
         )
     else:
+        share_msg = (
+            f"🔥 Found a tool — Lead Hunter AI!\n\n"
+            f"Finds clients on Telegram: 1747+ channels in 70 countries, "
+            f"AI spam filter, 2-second leads.\n\n"
+            f"🎁 8 days Business free (instead of 5): {link}"
+        )
         text = (
             f"🎁 Invite a friend\n\n"
-            f"Invite a friend to LeadHunter and get +{settings.referral_bonus_days} days "
-            f"when they pay for Pro or Business.\n\n"
-            f"Your friend gets +{settings.referral_trial_bonus} extra trial days "
-            f"({settings.trial_days + settings.referral_trial_bonus} days of Business total).\n\n"
-            f"🔗 Your link:\n{link}\n\n"
-            f"📊 Stats:\n"
-            f"👥 Invited: {invited}\n"
-            f"✅ Activated: {activated}\n"
-            f"🎁 Bonus days: +{bonus_days}"
+            f"+{settings.referral_bonus_days} days when they pay.\n"
+            f"They get +{settings.referral_trial_bonus} trial days ({settings.trial_days + settings.referral_trial_bonus} total).\n\n"
+            f"🔗 {link}\n
+"
+            f"📊 Invited: {invited} | Activated: {activated} | +{bonus_days}d"
         )
 
+    share_url = f"https://t.me/share/url?url={urllib.parse.quote(link)}&text={urllib.parse.quote(share_msg)}"
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="📤 Отправить другу" if lang == "ru" else "📤 Share with a friend",
+            url=share_url,
+        )],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:main")],
     ])
     await callback.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
     await callback.answer()
-
-
 @router.callback_query(F.data == "ref_copy")
 async def on_ref_copy(callback: CallbackQuery):
     lang = _user_lang(callback.message.text or "")
