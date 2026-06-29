@@ -68,14 +68,6 @@ async def cmd_start(message: Message):
 # ── Welcome screen (language selection) ──
 
 async def _show_welcome(message: Message, lang: str):
-    # Send welcome image
-    from aiogram.types import FSInputFile
-    try:
-        photo = FSInputFile("/app/static/welcome.jpg")
-        await message.answer_photo(photo)
-    except Exception:
-        pass
-
     text = (
         f"{get_text(lang, 'welcome_title')}\n\n"
         f"{get_text(lang, 'welcome_body')}\n\n"
@@ -89,7 +81,14 @@ async def _show_welcome(message: Message, lang: str):
             ]
         ]
     )
-    await message.answer(text, reply_markup=kb)
+
+    # Send photo with caption + keyboard in one message
+    from aiogram.types import FSInputFile
+    try:
+        photo = FSInputFile("/app/static/welcome.jpg")
+        await message.answer_photo(photo, caption=text, reply_markup=kb)
+    except Exception:
+        await message.answer(text, reply_markup=kb)
 
 
 # ── Language selection ──
