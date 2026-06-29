@@ -7,6 +7,7 @@ from app.worker.sender import NotificationSender
 from app.worker.heartbeat import heartbeat_loop
 from app.worker.reminders import reminders_loop
 from app.worker.end_of_day import end_of_day_loop
+from app.worker.payment_checker import payment_checker_loop
 from app.userbot.poller import ChannelPoller
 
 logging.basicConfig(level=logging.INFO)
@@ -26,6 +27,7 @@ async def main():
         heartbeat_loop(),
         reminders_loop(),
         end_of_day_loop(),
+        payment_checker_loop(),
     )
 
 

@@ -76,7 +76,8 @@ async def on_pay_execute(callback: CallbackQuery):
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="💳 Оплатить", url=pay_link)],
                     [InlineKeyboardButton(text="◀️ Назад", callback_data=f"pay_plan:{plan}")]]))
-            asyncio.create_task(_auto_poll(callback, r["invoice_id"], plan, period_key))
+            from app.worker.payment_checker import add_pending
+            await add_pending(r["invoice_id"], await _get_user_id(callback), plan, period_key, callback.from_user.id)
         except Exception as e: logger.exception("CryptoBot"); await callback.answer(f"Ошибка: {e}", show_alert=True)
     await callback.answer()
 
@@ -89,23 +90,10 @@ async def on_successful_payment(message: Message):
     parts = payload.split(":")
     if len(parts) >= 4 and parts[0] == "sub": await _activate_by_msg(message, parts[1], parts[2], "stars", payload)
 
-async def _auto_poll(callback, invoice_id, plan, period_key):
-    from app.payments.cryptobot import poll_payment
-    paid = await poll_payment(invoice_id, timeout=600, interval=3)
-    if paid:
-        info = _calc(plan, period_key)
-        async for s in get_session():
-            u = await get_user(s, callback.from_user.id)
-            if u:
-                now = datetime.datetime.now(datetime.timezone.utc)
-                exp = now + datetime.timedelta(days=30 * info["months"])
-                s.add(Subscription(user_id=u.id, plan=plan, period=period_key, expires_at=exp, payment_method="cryptobot", payment_status="paid", invoice_id=invoice_id, amount=info["total"]))
-                u.plan = plan; u.plan_activated_at = now; u.plan_expires_at = exp
-                await s.commit()
-                try:
-                    await callback.message.edit_text(f"✅ Оплата прошла!\n\nТариф: {info['plan_name']}\nСрок: {info['period_label']}\nДействует до: {exp.strftime('%d.%m.%Y')}",
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")]]))
-                except: pass
+async def _get_user_id(callback):
+    async for s in get_session():
+        u = await get_user(s, callback.from_user.id)
+        return u.id if u else 0
 
 async def _activate_by_msg(message, plan, period_key, method, invoice_id):
     info = _calc(plan, period_key)
