@@ -40,20 +40,9 @@ async def heartbeat_loop():
             stored_time = float(stored)
             if now - stored_time > settings.heartbeat_interval_minutes * 60 * 3:
                 if now - last_alert > alert_cooldown:
-                    logger.warning("Heartbeat STALE — alerting owner")
-                    await _alert_owner("⚠️ LeadHunter heartbeat is stale! Userbot may be down.")
+                    logger.warning("Heartbeat STALE — alerting admin")
+                    from app.worker.notify_admin import notify_admin
+                    await notify_admin("⚠️ LeadHunter heartbeat просрочен! Userbot возможно упал.")
                     last_alert = now
 
         await asyncio.sleep(settings.heartbeat_interval_minutes * 60)
-
-
-async def _alert_owner(text: str):
-    """Send alert to owner via Bot API."""
-    try:
-        from aiogram import Bot
-        from app.config import settings
-        bot = Bot(token=settings.bot_token)
-        await bot.send_message(settings.owner_telegram_id, text)
-        await bot.session.close()
-    except Exception:
-        logger.exception("Failed to alert owner")

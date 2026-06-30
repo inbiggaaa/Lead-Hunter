@@ -139,9 +139,9 @@ async def _apply_referral_bonus(user_id: int):
 
         # Notify admin
         if referrer:
-            from app.userbot.discovery import _notify_admin
+            from app.worker.notify_admin import notify_admin
             ref_name = f"@{referrer.username}" if referrer.username else f"ID:{referrer.telegram_id}"
-            await _notify_admin(
+            await notify_admin(
                 f"🎁 Реферал оплатил!\n\n👤 Реферер: {ref_name}\n➕ +{settings.referral_bonus_days} дней"
             )
 

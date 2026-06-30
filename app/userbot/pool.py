@@ -21,10 +21,11 @@ class UserbotAccount:
     def __init__(self, account_id: int, session_name: str):
         self.account_id = account_id
         self.session_name = session_name
+        api_id, api_hash, _ = settings.get_userbot_creds(account_id)
         self.client = TelegramClient(
             str(SESSIONS_DIR / session_name),
-            settings.userbot_api_id,
-            settings.userbot_api_hash,
+            api_id,
+            api_hash,
         )
         self.channel_count = 0
         self.is_healthy = True
@@ -33,7 +34,8 @@ class UserbotAccount:
     async def start(self):
         """Start and authorize this account."""
         try:
-            await self.client.start(phone=settings.userbot_phone or None)
+            _, _, phone = settings.get_userbot_creds(self.account_id)
+            await self.client.start(phone=phone or None)
             me = await self.client.get_me()
             logger.info("Account %d authorized as @%s", self.account_id, me.username)
             self.is_healthy = True
@@ -173,8 +175,28 @@ class UserbotPool:
                 if was_healthy and not is_ok:
                     logger.warning("Account %d became unhealthy — redistributing channels", acc.account_id)
                     await self.handle_account_failure(acc)
+                    from app.worker.notify_admin import notify_admin
+                    await notify_admin(
+                        f"⚠️ Аккаунт #{acc.account_id} перестал отвечать\n\n"
+                        f"Каналы перераспределены на оставшиеся."
+                    )
+                elif not was_healthy and is_ok:
+                    logger.info("Account %d recovered", acc.account_id)
+                    from app.worker.notify_admin import notify_admin
+                    await notify_admin(f"✅ Аккаунт #{acc.account_id} восстановил работу")
 
             await asyncio.sleep(300)  # Check every 5 minutes
+
+    def get_healthy_client(self, prefer_account_id: int | None = None):
+        """Return a healthy account's Telethon client. Optionally prefer a specific account_id."""
+        if prefer_account_id:
+            for a in self.accounts:
+                if a.account_id == prefer_account_id and a.is_healthy:
+                    return a.client
+        for a in self.accounts:
+            if a.is_healthy:
+                return a.client
+        raise RuntimeError("No healthy accounts available")
 
     @property
     def healthy_count(self) -> int:

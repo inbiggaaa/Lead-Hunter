@@ -138,3 +138,76 @@
 - [ ] Несколько userbot'ов в пуле
 - [ ] Новый канал → наименее загруженный аккаунт
 - [ ] При падении аккаунта — авто-перераспределение каналов
+
+---
+
+## План развития (после Фазы 9)
+
+### 📋 Задача: Второй userbot-аккаунт
+
+**Статус:** ⏳ отложена (~через неделю, ожидается второй номер)
+
+**Зачем:** распределить нагрузку между двумя Telegram-аккаунтами. Аккаунт 1 слушает каналы (poller), аккаунт 2 ищет новые каналы (discovery). Если один ловит FloodWait — второй продолжает работу.
+
+**Кодовая база готова** — изменения внесены 2026-06-30, осталось получить номер и авторизовать.
+
+#### Что уже сделано (код)
+
+| Файл | Изменение |
+|---|---|
+| `app/config.py` | Поля `userbot_2_api_id`, `userbot_2_api_hash`, `userbot_2_phone` + метод `get_userbot_creds(account_id)` |
+| `.env.example` | Документация для аккаунта 2 |
+| `app/userbot/auth.py` | Поддержка `--session userbot2`, авто-выбор кредов под сессию |
+| `app/userbot/pool.py` | `UserbotAccount.__init__` и `.start()` берут креды через `get_userbot_creds(account_id)` |
+| `app/userbot/discovery.py` | `_discovery_session()` — если `userbot2.session` существует, discovery использует аккаунт 2; иначе падает обратно на аккаунт 1 |
+
+#### Логика распределения
+
+- **Аккаунт 1** (`userbot.session`): только прослушивание каналов (poller)
+- **Аккаунт 2** (`userbot2.session`): только поиск новых каналов (discovery)
+- Если аккаунта 2 нет — discovery падает обратно на аккаунт 1
+- Pool сам подхватит обе сессии и распределит каналы между ними round-robin
+- Rate limiter общий (3 сек между любыми API-вызовами, независимо от аккаунта)
+- Circuit breaker срабатывает при любом FloodWait на любом аккаунте — блокирует оба
+
+#### Инструкция (что осталось сделать)
+
+**Шаг 1. Получить второй номер.** Любая SIM с возможностью принять SMS.
+
+**Шаг 2. Зарегистрировать отдельное приложение Telegram:**
+1. Зайти на https://my.telegram.org/apps с аккаунта второго номера
+2. Создать новое приложение (App title: LeadHunter2, Platform: Desktop)
+3. Скопировать `api_id` и `api_hash`
+
+**Шаг 3. Добавить креды в `.env`:**
+```env
+USERBOT_2_API_ID=НОВЫЙ_API_ID
+USERBOT_2_API_HASH=НОВЫЙ_API_HASH
+USERBOT_2_PHONE=+7XXXXXXXXXX
+```
+
+**Шаг 4. Авторизовать аккаунт 2:**
+```bash
+cd /opt/LeadHunter
+docker compose run --rm -it worker python -m app.userbot.auth --session userbot2
+# Ввести код из SMS
+```
+
+**Шаг 5. Перезапустить worker:**
+```bash
+docker compose up -d worker
+```
+
+**Шаг 6. Проверить:**
+```bash
+docker compose logs worker | grep "Pool initialized"
+# Должно быть: Pool initialized: 2 healthy accounts
+docker compose logs worker | grep "Discovery using session"
+# Должно быть: Discovery using session 'userbot2' (api_id=...)
+```
+
+#### Критерий готовности
+- [ ] `docker compose logs worker` → `Pool initialized: 2 healthy accounts`
+- [ ] Discovery использует `userbot2.session`, а не `userbot`
+- [ ] Poller распределяет каналы между обоими аккаунтами
+- [ ] При остановке одного аккаунта — каналы перераспределяются на оставшийся

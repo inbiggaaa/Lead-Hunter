@@ -2,12 +2,14 @@
 
 import asyncio
 import logging
+import random
 
 from telethon.errors import FloodWaitError
 from telethon.tl.types import Message
 
 from app.userbot.classifier import classify_message
 from app.userbot.pool import UserbotPool
+from app.userbot.rate_limiter import limiter
 from app.db.session import async_session_factory
 from app.db.models import SegmentKeyword, Segment
 from sqlalchemy import select
@@ -23,17 +25,18 @@ class ChannelPoller:
         self._keyword_map: dict[str, dict[str, list[str]]] = {}
 
     async def start(self):
-        """Initialize pool and load keywords."""
-        await self.pool.initialize()
-        self._keyword_map = await self._load_keywords()
+        """Initialize pool and load keywords. Idempotent — safe to call multiple times."""
+        if not self.pool.accounts:
+            await self.pool.initialize()
+        if not self._keyword_map:
+            self._keyword_map = await self._load_keywords()
 
     async def poll_channels(self, channels: list[str]):
         """Distribute and poll channels across pool accounts."""
         # Redistribute channels across pool
         await self.pool.redistribute_channels(channels)
 
-        # Poll each account's channels concurrently
-        tasks = []
+        # Poll accounts sequentially to avoid concurrent API bursts
         for account in self.pool.accounts:
             if not account.is_healthy:
                 continue
@@ -42,35 +45,39 @@ class ChannelPoller:
                 if aid == account.account_id
             ]
             if acc_channels:
-                tasks.append(self._poll_account_channels(account, acc_channels))
-
-        if tasks:
-            await asyncio.gather(*tasks)
+                await self._poll_account_channels(account, acc_channels)
 
     async def _poll_account_channels(self, account, channels: list[str]):
         """Poll channels assigned to a specific account."""
-        # Limit per cycle to avoid flood
-        max_per_cycle = 50
+        # Aggressive rate limit: max 10 channels per cycle
+        max_per_cycle = 10
         channels_to_poll = channels[:max_per_cycle]
 
         for channel in channels_to_poll:
+            # Check circuit breaker before each channel
+            await limiter.wait_if_circuit_open()
+
             try:
                 await self._poll_channel(account, channel.strip().lstrip("@"))
-                await asyncio.sleep(0.5)  # Delay between channels
             except FloodWaitError as e:
                 logger.warning("FloodWait for account %d: %ds", account.account_id, e.seconds)
-                await asyncio.sleep(min(e.seconds, 60))
+                await limiter.report_flood_wait(e.seconds, context=f"poller:@{channel}")
+                await asyncio.sleep(e.seconds)
             except Exception:
                 logger.exception("Error polling channel %s on account %d", channel, account.account_id)
 
     async def _poll_channel(self, account, channel_username: str):
         """Poll a single channel using a specific account."""
         try:
+            await limiter.acquire()
             entity = await account.get_entity(channel_username)
+        except FloodWaitError:
+            raise  # Handled by _poll_account_channels
         except Exception as e:
             logger.warning("Account %d cannot access @%s: %s", account.account_id, channel_username, e)
             return
 
+        await limiter.acquire()
         messages = await account.get_messages(entity, limit=3)
         if not messages:
             return

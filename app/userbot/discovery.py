@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import random
 import re
 from pathlib import Path
 
@@ -137,10 +138,12 @@ async def search_channels(client: TelegramClient, geo_queries: dict, limit: int 
                                        country.name_ru if country else "?",
                                        city.name_ru if city else "?")
 
-                    await asyncio.sleep(0.5)
+                    # Slow background fill: 5-6 min between search queries
+                    await asyncio.sleep(300 + random.uniform(0, 60))
+
                 except FloodWaitError as e:
-                    logger.warning("FloodWait: %ds", e.seconds)
-                    await asyncio.sleep(min(e.seconds, 30))
+                    logger.warning("Discovery FloodWait: %ds", e.seconds)
+                    await asyncio.sleep(e.seconds)
                 except Exception as e:
                     logger.warning("Search failed '%s': %s", query, e)
 
@@ -149,7 +152,6 @@ async def search_channels(client: TelegramClient, geo_queries: dict, limit: int 
 
 async def report_discovery_stats(new_found: int):
     """Send discovery stats to admin."""
-    from aiogram import Bot
     from app.db.session import async_session_factory
     from app.db.models import CatalogChannel, DiscoveredChat
     from sqlalchemy import func, select as sa_sel
@@ -160,57 +162,79 @@ async def report_discovery_stats(new_found: int):
             sa_sel(func.count(CatalogChannel.id)).where(CatalogChannel.auto_matched_country_id.isnot(None))
         )).scalar() or 0
 
-    text = (
+    from app.worker.notify_admin import notify_admin
+    await notify_admin(
         f"📊 Отчёт поиска каналов\n\n"
         f"Найдено новых: {new_found}\n"
         f"Всего в каталоге: {total}\n"
         f"С гео-привязкой: {with_geo}"
     )
-    await _notify_admin(text)
-
-
-async def _notify_admin(text: str):
-    from aiogram import Bot
-    bot = Bot(token=settings.bot_token)
-    chat_id = settings.admin_channel_id or settings.owner_telegram_id
-    try:
-        await bot.send_message(chat_id, text)
-    except Exception:
-        pass
-    finally:
-        await bot.session.close()
 
 
 async def notify_new_trial(username: str, telegram_id: int, source: str):
+    from app.worker.notify_admin import notify_admin
     name = f"@{username}" if username else f"ID:{telegram_id}"
-    await _notify_admin(f"🆕 Новый пользователь!\n\n👤 {name}\n🎁 Триал (5 дн Business)\n📡 {source}")
+    await notify_admin(f"🆕 Новый пользователь!\n\n👤 {name}\n🎁 Триал (5 дн Business)\n📡 {source}")
 
 
 async def notify_new_subscription(username: str, telegram_id: int, plan: str, period: str, source: str, amount: float = 0):
+    from app.worker.notify_admin import notify_admin
     name = f"@{username}" if username else f"ID:{telegram_id}"
     period_labels = {"1m": "1 мес", "3m": "3 мес", "1y": "1 год"}
-    await _notify_admin(
+    await notify_admin(
         f"💰 Новая оплата!\n\n👤 {name}\n📋 {plan.title()}\n"
         f"📅 {period_labels.get(period, period)}\n💵 ${amount:.0f}\n📡 {source}"
     )
 
 
-async def discovery_loop():
-    await asyncio.sleep(300)
+def _discovery_has_dedicated_account() -> bool:
+    """Check if a dedicated discovery account (userbot2) session exists."""
+    return (Path("/app/sessions") / "userbot2.session").exists()
+
+
+async def _create_dedicated_client() -> TelegramClient:
+    """Create a dedicated client for discovery using account 2 credentials."""
+    api_id, api_hash, phone = settings.get_userbot_creds(2)
+    client = TelegramClient(
+        str(Path("/app/sessions/userbot2")),
+        api_id,
+        api_hash,
+    )
+    await client.start(phone=phone or None)
+    logger.info("Discovery using dedicated session 'userbot2' (api_id=%d)", api_id)
+    return client
+
+
+async def discovery_loop(client: TelegramClient | None = None):
+    """Background discovery loop.
+
+    If a dedicated account 2 session exists, creates its own client.
+    Otherwise, uses the client passed from the pool (shared with poller).
+    """
+    # Stagger startup: wait 10 minutes so poller establishes a calm rhythm first
+    await asyncio.sleep(600)
     geo = await parse_geo_queries()
     if not geo:
         return
 
-    client = TelegramClient(
-        str(Path("/app/sessions/userbot")), settings.userbot_api_id, settings.userbot_api_hash)
-    await client.start()
-
-    while True:
+    own_client = None
+    if client is None:
+        if _discovery_has_dedicated_account():
+            client = await _create_dedicated_client()
+            own_client = client
+        else:
+            logger.warning("Discovery: no dedicated account and no client passed — skipping")
+            return
+    else:
+        logger.info("Discovery using shared pool client (api_id from pool)")
         logger.info("Starting geo-aware discovery...")
         found = 0
         try:
             found = await search_channels(client, geo)
+        except FloodWaitError as e:
+            logger.warning("Discovery FloodWait: %ds — sleeping full duration", e.seconds)
+            await asyncio.sleep(e.seconds)
         except Exception:
             logger.exception("Discovery failed")
         await report_discovery_stats(found)
-        await asyncio.sleep(43200)
+        await asyncio.sleep(86400)  # 24 hours — enough for 195 queries × ~5.5 min

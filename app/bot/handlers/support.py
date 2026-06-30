@@ -27,9 +27,9 @@ async def on_support_message(message: Message):
         await session.commit()
 
         # Notify admin channel
-        from app.userbot.discovery import _notify_admin
+        from app.worker.notify_admin import notify_admin
         name = f"@{message.from_user.username}" if message.from_user.username else f"ID:{message.from_user.id}"
-        await _notify_admin(
+        await notify_admin(
             f"💬 Новый запрос в поддержку\n\n👤 {name}\n📩 {message.text[:200]}"
         )
 

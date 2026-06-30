@@ -3,17 +3,49 @@
 Pass 1 — demand: word-boundary match against segment keywords (demand type).
 Pass 2 — stop: candidate checked against stop-phrases.
 Pass 3 — structural signals: demand markers vs offer markers.
+
+Lemmatization: input text and keywords are lemmatized via pymorphy3 before
+comparison, so grammatical forms (рублей/рубли, нужен/нужна) match automatically.
+Does NOT handle lexical synonyms (поменять/обменять) — those must be in the seed.
 """
 
 import re
 from typing import NamedTuple
 
-from app.db.models import SegmentKeyword
+try:
+    import pymorphy3
+    _morph = pymorphy3.MorphAnalyzer()
+except Exception:
+    _morph = None
 
 
 class ClassificationResult(NamedTuple):
     matched_segments: list[str]  # list of segment slugs
     is_urgent: bool
+
+
+# ── Lemmatization ──
+
+def _lemmatize_word(word: str) -> str:
+    """Lemmatize a single word. Falls back to original if parsing fails."""
+    if _morph is None:
+        return word
+    try:
+        parsed = _morph.parse(word)
+        if parsed:
+            return parsed[0].normal_form
+    except Exception:
+        pass
+    return word
+
+
+def _lemmatize_text(text: str) -> str:
+    """Lemmatize all Russian words in text, preserving non-Russian tokens."""
+    if _morph is None:
+        return text
+    words = text.split()
+    lemmas = [_lemmatize_word(w) for w in words]
+    return " ".join(lemmas)
 
 
 # ── Universal stop-phrases (from segment_seed.md §1) ──
@@ -129,9 +161,20 @@ def _has_offer_signal(text: str) -> bool:
 
 
 def _match_keyword(keyword: str, text: str) -> bool:
-    """Check if keyword matches text with word boundary, case-insensitive, Unicode."""
-    pattern = _build_word_pattern(keyword)
-    return bool(re.search(pattern, text, re.UNICODE | re.IGNORECASE))
+    """Check if keyword matches text with word boundary, case-insensitive, Unicode.
+
+    Multi-word keywords match if ALL individual words appear in text (not
+    necessarily adjacent — real messages rarely have words exactly side by side).
+    """
+    words = keyword.split()
+    if len(words) == 1:
+        pattern = _build_word_pattern(keyword)
+        return bool(re.search(pattern, text, re.UNICODE | re.IGNORECASE))
+    # Multi-word: all words must be present as word-boundary matches
+    return all(
+        bool(re.search(_build_word_pattern(w), text, re.UNICODE | re.IGNORECASE))
+        for w in words
+    )
 
 
 def _is_urgent(text: str) -> bool:
@@ -158,9 +201,24 @@ def classify_message(
         return ClassificationResult(matched_segments=[], is_urgent=False)
 
     text_lower = text.lower()
+    text_lemma = _lemmatize_text(text_lower)  # Grammatical form normalization
     has_demand_context = _has_demand_signal(text)
     has_offer_context = _has_offer_signal(text)
     is_urgent = _is_urgent(text)
+
+    def _match_kw(kw: str) -> bool:
+        """Match keyword against original text and lemmatized forms."""
+        # Original keyword vs original text
+        if _match_keyword(kw, text_lower):
+            return True
+        # Original keyword vs lemmatized text (handles text inflection)
+        if text_lemma != text_lower and _match_keyword(kw, text_lemma):
+            return True
+        # Lemmatized keyword vs lemmatized text (handles keyword inflection)
+        kw_lemma = _lemmatize_text(kw)
+        if kw_lemma != kw and _match_keyword(kw_lemma, text_lemma):
+            return True
+        return False
 
     matched: list[str] = []
 
@@ -176,7 +234,7 @@ def classify_message(
 
         demand_matched = False
         for kw in all_demand:
-            if _match_keyword(kw, text):
+            if _match_kw(kw):
                 demand_matched = True
                 break
 
@@ -187,7 +245,7 @@ def classify_message(
         blocked = False
         all_stops = list(UNIVERSAL_STOP) + stop_kws
         for stop_kw in all_stops:
-            if _match_keyword(stop_kw, text):
+            if _match_kw(stop_kw):
                 # If there's a strong demand signal, stop-phrase might be overridden
                 if not has_demand_context:
                     blocked = True

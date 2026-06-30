@@ -11,6 +11,21 @@ class Settings(BaseSettings):
     userbot_api_hash: str
     userbot_phone: str = ""
 
+    # Userbot account 2 (optional — separate API credentials for second phone number)
+    userbot_2_api_id: int = 0
+    userbot_2_api_hash: str = ""
+    userbot_2_phone: str = ""
+
+    def get_userbot_creds(self, account_id: int) -> tuple[int, str, str]:
+        """Return (api_id, api_hash, phone) for a given account_id (1-based)."""
+        if account_id == 1:
+            return (self.userbot_api_id, self.userbot_api_hash, self.userbot_phone)
+        if account_id == 2:
+            api_id = self.userbot_2_api_id or self.userbot_api_id
+            api_hash = self.userbot_2_api_hash or self.userbot_api_hash
+            return (api_id, api_hash, self.userbot_2_phone)
+        raise ValueError(f"No credentials configured for account {account_id}")
+
     # Database
     postgres_host: str = "db"
     postgres_port: int = 5432

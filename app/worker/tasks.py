@@ -21,7 +21,11 @@ async def main():
     poller = ChannelPoller()
     sender = NotificationSender()
 
-    # Run all five loops concurrently
+    # Initialize pool first so discovery can share the client
+    await poller.start()
+    discovery_client = poller.pool.get_healthy_client()
+
+    # Run all loops concurrently
     await asyncio.gather(
         poller.run_forever(),
         sender.run(),
@@ -29,7 +33,7 @@ async def main():
         reminders_loop(),
         end_of_day_loop(),
         payment_checker_loop(),
-        discovery_loop(),
+        discovery_loop(client=discovery_client),
     )
 
 
