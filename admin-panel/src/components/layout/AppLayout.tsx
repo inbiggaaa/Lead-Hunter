@@ -22,6 +22,8 @@ import {
   Send,
   Settings,
   LogOut,
+  CircleOff,
+  TriangleAlert,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
@@ -31,6 +33,8 @@ const NAV_ITEMS = [
   { to: "/users", icon: Users, label: "Пользователи" },
   { to: "/catalog", icon: Globe, label: "Каталог" },
   { to: "/channels", icon: Radio, label: "Каналы" },
+  { to: "/stop-words", icon: CircleOff, label: "Стоп-слова" },
+  { to: "/unmatched", icon: TriangleAlert, label: "Несматченные" },
   { to: "/chat", icon: MessageSquare, label: "Чат" },
   { to: "/broadcast", icon: Send, label: "Рассылка" },
   { to: "/settings", icon: Settings, label: "Настройки" },

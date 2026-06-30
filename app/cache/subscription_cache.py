@@ -4,6 +4,7 @@ import json
 import logging
 
 from redis.asyncio import Redis
+from sqlalchemy import select
 
 from app.cache import get_redis
 from app.db.session import async_session_factory
@@ -43,7 +44,6 @@ async def rebuild_subscription_cache(chat_username: str) -> None:
         channel_city_id = channel.auto_matched_city_id if channel else None
 
         # Get all users with their subscriptions and keywords
-        from sqlalchemy import select
         from app.db.models import User, UserSubscription, Keyword, SubscriptionCity
         users = (await session.execute(select(User))).scalars().all()
 

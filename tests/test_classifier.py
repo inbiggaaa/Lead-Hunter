@@ -111,12 +111,20 @@ class TestStopPhrases:
         assert "catering" not in result.matched_segments
 
     def test_universal_stop(self):
-        result = classify_message("ищу повара, записывайтесь ко мне", SAMPLE_KEYWORDS)
+        result = classify_message(
+            "ищу повара, записывайтесь ко мне",
+            SAMPLE_KEYWORDS,
+            universal_stops=["записывайтесь"],
+        )
         # "записывайтесь" is universal stop + demand matched → demand signal overrides
         assert "catering" in result.matched_segments
 
     def test_demand_signal_overrides_stop(self):
-        result = classify_message("ищу повара, принимаю у себя", SAMPLE_KEYWORDS)
+        result = classify_message(
+            "ищу повара, принимаю у себя",
+            SAMPLE_KEYWORDS,
+            universal_stops=["принимаю у себя"],
+        )
         # "принимаю у себя" is universal stop, but "ищу" is strong demand signal
         assert "catering" in result.matched_segments
 

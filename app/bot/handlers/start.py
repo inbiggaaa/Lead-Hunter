@@ -280,48 +280,211 @@ async def cmd_cancel(message: Message, state: FSMContext):
     await _show_menu_from_db(message, message.from_user.id)
 
 
-# ── Command shortcuts → menu callbacks ──
+# ── Command shortcuts → direct screens (no emoji-only bridge) ──
 
 @router.message(Command("search"))
-async def cmd_search(message: Message):
-    await message.answer("🔍", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Перейти к поиску", callback_data="menu:search")]
-    ]))
+async def cmd_search(message: Message, state: FSMContext):
+    """Open the segment picker directly (same as inline menu:search)."""
+    from app.bot.handlers.catalog_nav import CatStates
+    from app.db.crud import get_user, count_user_subscriptions, get_max_segments, get_segments
+
+    await state.clear()
+    lang = await _get_user_lang_for_message(message)
+
+    async for session in get_session():
+        user = await get_user(session, message.from_user.id)
+        if not user:
+            await message.answer("Ошибка: пользователь не найден. Нажмите /start")
+            return
+        current = await count_user_subscriptions(session, user.id)
+        max_seg = get_max_segments(user.plan)
+        segments = await get_segments(session)
+
+    # Filter out "other-services" — replaced by support button
+    segments = [s for s in segments if s.slug != "other-services"]
+
+    selected: list[int] = []
+    await state.update_data(lang=lang, plan=user.plan, max_seg=max_seg, current_subs=current)
+
+    # Build segment picker keyboard
+    kb_rows = []
+    row = []
+    for seg in segments:
+        emoji = seg.emoji or ""
+        title = seg.title_ru if lang == "ru" else (seg.title_en or seg.title_ru)
+        prefix = "☑️ " if seg.id in selected else "⬜ "
+        row.append(InlineKeyboardButton(
+            text=f"{prefix}{emoji} {title}",
+            callback_data=f"cat:seg:{seg.id}",
+        ))
+        if len(row) == 2:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
+
+    kb_rows.append([InlineKeyboardButton(
+        text="💬 Нет вашего вида деятельности? Связаться с поддержкой" if lang == "ru" else "💬 Don't see your category? Contact support",
+        callback_data="support:missing_category",
+    )])
+    kb_rows.append([InlineKeyboardButton(
+        text=get_text(lang, "btn_back"), callback_data="menu:main",
+    )])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+    text = (
+        f"Выбери направления ({current}/{max_seg}):\n\n"
+        f"Можно выбрать несколько. Нажми «Готово» когда закончишь."
+    )
+    await message.answer(text, reply_markup=kb)
+    await state.set_state(CatStates.choosing_segments)
 
 @router.message(Command("keywords"))
 async def cmd_keywords(message: Message):
-    await message.answer("⚙️", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Мои ключевые слова", callback_data="menu:keywords")]
-    ]))
+    """Show keywords list directly."""
+    from app.bot.handlers.keywords import show_keywords_via_message
+    lang = await _get_user_lang_for_message(message)
+    await show_keywords_via_message(message, lang)
 
 @router.message(Command("channels"))
 async def cmd_channels(message: Message):
-    await message.answer("📢", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Мои каналы", callback_data="menu:channels")]
-    ]))
+    """Show channels list directly."""
+    from app.bot.handlers.channels import show_channels_via_message
+    lang = await _get_user_lang_for_message(message)
+    await show_channels_via_message(message, lang)
 
 @router.message(Command("subscriptions"))
 async def cmd_subscriptions(message: Message):
-    await message.answer("📋", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Мои подписки", callback_data="menu:subs")]
-    ]))
+    """Show subscriptions list directly."""
+    lang = await _get_user_lang_for_message(message)
+    await _show_subscriptions_via_message(message, lang)
 
 @router.message(Command("plan"))
 async def cmd_plan(message: Message):
-    await message.answer("💰", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Тариф и оплата", callback_data="menu:plan")]
-    ]))
+    """Show plan & payment screen directly."""
+    lang = await _get_user_lang_for_message(message)
+    await _show_plan_via_message(message, lang)
 
 @router.message(Command("settings"))
 async def cmd_settings(message: Message):
-    await message.answer("⚙️", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Настройки", callback_data="menu:settings")]
-    ]))
+    """Show settings screen directly."""
+    lang = await _get_user_lang_for_message(message)
+    await _show_settings_via_message(message, lang)
 
 
 @router.message(Command("chatid"))
 async def cmd_chatid(message: Message):
     await message.answer(f"Chat ID: `{message.chat.id}`")
+
+
+# ── Message-based display helpers (used by /command shortcuts) ──
+
+async def _get_user_lang_for_message(message: Message) -> str:
+    """Get user language from DB using a Message (not CallbackQuery)."""
+    from app.db.crud import get_user
+    async for session in get_session():
+        user = await get_user(session, message.from_user.id)
+        return user.language if user else "ru"
+
+
+async def _show_subscriptions_via_message(message: Message, lang: str):
+    """Show subscriptions list via message.answer() — used by /subscriptions."""
+    from app.db.crud import get_user, get_user_subscriptions, get_max_segments
+    from app.db.models import Segment, Country, SubscriptionCity, City
+    from sqlalchemy import select as sa_select
+
+    async for session in get_session():
+        user = await get_user(session, message.from_user.id)
+        if not user:
+            return
+        subs = await get_user_subscriptions(session, user.id)
+        current = len(subs)
+        max_seg = get_max_segments(user.plan)
+
+        segs = (await session.execute(sa_select(Segment))).scalars().all()
+        seg_names = {s.id: (s.emoji or "") + " " + (s.title_ru if lang == "ru" else (s.title_en or s.title_ru)) for s in segs}
+        countries = (await session.execute(sa_select(Country))).scalars().all()
+        country_names = {c.id: c.name_ru if lang == "ru" else (c.name_en or c.name_ru) for c in countries}
+        cities_all = (await session.execute(sa_select(City))).scalars().all()
+        city_names = {c.id: c.name_ru if lang == "ru" else (c.name_en or c.name_ru) for c in cities_all}
+        sub_cities_map: dict[int, list[str]] = {}
+        for sub in subs:
+            if sub.mode == "cities":
+                sc = (await session.execute(
+                    sa_select(SubscriptionCity.city_id).where(SubscriptionCity.subscription_id == sub.id)
+                )).scalars().all()
+                sub_cities_map[sub.id] = [city_names.get(cid, f"#{cid}") for cid in sc]
+
+    text = f"📋 Мои подписки ({current}/{max_seg})\n\n"
+    if not subs:
+        text += "У тебя пока нет подписок.\nНажми 🔍 Поиск клиентов чтобы найти первых!"
+
+    kb_rows = []
+    for sub in subs:
+        seg_name = seg_names.get(sub.segment_id, f"Сегмент #{sub.segment_id}")
+        country_name = country_names.get(sub.country_id, f"Страна #{sub.country_id}")
+        label = f"🗑️ {seg_name} | {country_name}"
+        if sub.mode == "cities" and sub.id in sub_cities_map:
+            cities_list = ", ".join(sub_cities_map[sub.id][:3])
+            if len(sub_cities_map[sub.id]) > 3:
+                cities_list += f" +{len(sub_cities_map[sub.id]) - 3}"
+            label += f" | {cities_list}"
+        kb_rows.append([InlineKeyboardButton(text=label[:60], callback_data=f"sub:del:{sub.id}")])
+
+    if current < max_seg:
+        kb_rows.append([InlineKeyboardButton(
+            text="➕ Подписаться на направление", callback_data="menu:search",
+        )])
+    kb_rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+    await message.answer(text, reply_markup=kb)
+
+
+async def _show_plan_via_message(message: Message, lang: str):
+    """Show plan & payment screen via message.answer() — used by /plan."""
+    from app.db.crud import get_user
+    from app.config import settings
+
+    async for session in get_session():
+        user = await get_user(session, message.from_user.id)
+        plan_name = user.plan.capitalize() if user else "Free"
+
+    pro_price = settings.price_pro_monthly_usd
+    biz_price = settings.price_business_monthly_usd
+    text = (
+        f"💰 Тариф и оплата\n\n"
+        f"Твой тариф: {plan_name}\n\n"
+        f"🚀 Pro — от ${pro_price}/мес\n"
+        f"💎 Business — от ${biz_price}/мес\n\n"
+        f"Скидки: 3 мес = -10%, 1 год = -20%"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Pro", callback_data="pay_plan:pro")],
+        [InlineKeyboardButton(text="💎 Business", callback_data="pay_plan:business")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
+    ])
+    await message.answer(text, reply_markup=kb)
+
+
+async def _show_settings_via_message(message: Message, lang: str):
+    """Show settings screen via message.answer() — used by /settings."""
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_text(lang, "btn_keywords"), callback_data="menu:keywords")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_subscriptions"), callback_data="menu:subs")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
+        [InlineKeyboardButton(
+            text="📖 Инструкции" if lang == "ru" else "📖 Instructions",
+            callback_data="menu:instructions",
+        )],
+        [InlineKeyboardButton(text=get_text(lang, "btn_about"), callback_data="menu:about")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
+    ])
+    await message.answer(
+        "⚙️ Settings" if lang == "en" else "⚙️ Настройки",
+        reply_markup=kb,
+    )
 
 
 # ── Helpers ──

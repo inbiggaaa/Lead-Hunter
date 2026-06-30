@@ -8,6 +8,9 @@ from app.admin.api.stats import router as stats_router
 from app.admin.api.broadcast import router as broadcast_router
 from app.admin.api.chat import router as chat_router
 from app.admin.api.crud import create_crud_router
+from app.admin.api.stop_words import router as stop_words_router
+from app.admin.api.unmatched import router as unmatched_router
+from app.admin.api.segments import router as segments_detail_router
 from app.db.models import Country, City, Segment, SegmentKeyword
 
 # ── Auth dependency (duplicated here to avoid circular import) ──
@@ -35,6 +38,9 @@ api_router.include_router(
     create_crud_router(SegmentKeyword, "segment_keywords", "segment-keywords"),
     dependencies=_protected,
 )
+api_router.include_router(stop_words_router, dependencies=_protected)
+api_router.include_router(unmatched_router, dependencies=_protected)
+api_router.include_router(segments_detail_router, dependencies=_protected)
 
 
 # ── Channels (custom — needs M:N joins) ──

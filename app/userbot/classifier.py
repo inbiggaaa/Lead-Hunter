@@ -48,61 +48,39 @@ def _lemmatize_text(text: str) -> str:
     return " ".join(lemmas)
 
 
-# ── Universal stop-phrases (from segment_seed.md §1) ──
-
-UNIVERSAL_STOP = [
-    # Booking/scheduling (offer)
-    "записывайтесь", "запись открыта", "открыта запись", "свободные окошки",
-    "свободно окошко", "есть окошко", "бронируйте", "по записи",
-    # Self-promotion
-    "прайс", "прайс-лист", "портфолио", "мастер с опытом", "работаю на дому",
-    "принимаю у себя", "наш салон", "наша студия", "приглашаем вас",
-    "у нас работают", "мы принимаем", "мы работаем", "мы предлагаем",
-    "предлагаем услуги", "наши услуги", "записывайтесь к нам", "ждём вас",
-    "приходите к нам", "мы открылись", "открылись", "новое место",
-    "мы работаем по адресу", "наш адрес", "скидка сегодня", "акция сегодня",
-    "спецпредложение",
-    # Contact bait
-    "пишите нам", "звоните нам", "подписывайтесь", "подписывайтесь на нас",
-    "link in bio", "see our profile", "follow us", "ссылка в шапке",
-    "ссылка в профиле", "ссылка в описании",
-    # Price-first (offer signal)
-    "цена от", "стоимость от", "цена указана", "цены в профиле",
-    "доступные цены", "лучшие цены",
-    # Already resolved
-    "уже нашла", "уже нашёл", "уже записался", "уже записалась",
-    "нашла мастера", "нашёл мастера", "вопрос решён", "уже не актуально",
-    "спасибо всем", "нашли", "решила сама", "решил сам",
-    "вопрос закрыт", "сделано",
-    # Recommendation (past tense)
-    "советую", "рекомендую", "был у", "была у", "ходил к", "ходила к",
-    "попробовала", "попробовал", "понравилось", "не понравилось",
-    "отличный мастер", "довольна результатом",
-    # Urgency bait (offer)
-    "места ещё есть", "осталось мало мест", "только сегодня", "только сейчас",
-    "последние места", "акция действует", "набор закрыт",
-    # English
-    "book now", "slots available", "price list", "taking clients",
-    "open for booking", "dm for price", "promotion today", "special offer",
-    "discount today", "check out our", "visit us", "contact us",
-    "hurry up", "limited time",
-]
+# ── Universal stop-phrases ──
+# Moved to DB (segment_keywords with segment_id=NULL, keyword_type='stop').
+# Loaded at startup via poller._load_keywords() and passed as universal_stops parameter.
 
 # ── Demand signals (from segment_seed.md §2) ──
 
 DEMAND_SIGNAL_PATTERNS = [
-    # Strong demand verbs at start
+    # Strong demand verbs at start of message
     r"^(ищу|нужен|нужна|нужны|сниму|возьму|хочу|ищем)\b",
     r"^(посоветуйте|подскажите|кто знает|помогите)\b",
     r"^(looking for|need a?|want to|iso|wtb|searching for|looking to)\b",
+    # Location/question demand at start: "Где арендовать...?", "Как найти...?"
+    r"^(где|куда|откуда|как|кто)\b.*\?",
+    # Strong demand anywhere in the message (no ^ anchor)
+    r"\b(требуется|требуются)\b",
+    r"\b(кто может|кто сможет|кто умеет|кто занимается)\b",
+    r"\b(подберите|порекомендуйте|посоветуйте)\b",
+    r"\b(есть у кого|у кого есть|у кого нибудь есть)\b",
 ]
 
 # ── Offer signals ──
+# Patterns that indicate the message is an ad/offer, not a client request.
+# Used in Pass 3 to suppress matches when offer signals dominate.
 
 OFFER_SIGNAL_PATTERNS = [
-    r"(цена|прайс|стоимость|price)\s*[:-]?\s*\d+",
-    r"@\w+.*\d{7,}",  # @username + phone
-    r"(#[a-zA-Zа-яА-ЯёЁ0-9_]+[\s\n]*){3,}",  # 3+ hashtags
+    # Price mentions: "Цена от 50к", "цена: 50000", "price $100", "стоимость 1000"
+    r"(цена|прайс|стоимость|price|стоит)\b.*?\d+",
+    # Phone/contact without @username: "WhatsApp +84...", "тел. 8900...", "звони 123"
+    r"(тел|phone|whatsapp|wa|tg|звони|пиши|\+\d)[\s.:\-]*[\d\s\-+()]{7,}",
+    # @username with long number (legacy)
+    r"@\w+.*\d{7,}",
+    # 3+ hashtags (promotional/marketing)
+    r"(#[a-zA-Zа-яА-ЯёЁ0-9_]+[\s\n]*){3,}",
 ]
 
 # ── Noise words for fuzzy matching (excluded from word count) ──
@@ -196,6 +174,7 @@ def _is_urgent(text: str) -> bool:
 def classify_message(
     text: str,
     segment_keywords: dict[str, dict[str, list[str]]],
+    universal_stops: list[str] | None = None,
 ) -> ClassificationResult:
     """
     Classify a text message against segment keywords.
@@ -203,6 +182,7 @@ def classify_message(
     Args:
         text: The message text to classify.
         segment_keywords: Dict of {segment_slug: {"demand": [...], "stop": [...], "synonym": [...]}}
+        universal_stops: Global stop-phrases applied to all segments (from DB, segment_id=NULL).
 
     Returns:
         ClassificationResult with matched segment slugs and urgency flag.
@@ -278,7 +258,7 @@ def classify_message(
         # Stop words match against original text only — lemmatization would
         # cause false positives (e.g. "сделано" → "сделать" blocks "сделать сайт")
         blocked = False
-        all_stops = list(UNIVERSAL_STOP) + stop_kws
+        all_stops = (universal_stops or []) + stop_kws
         for stop_kw in all_stops:
             if _match_keyword(stop_kw, text_lower):
                 # If there's a strong demand signal, stop-phrase might be overridden
@@ -294,16 +274,16 @@ def classify_message(
         if has_offer_context and not has_demand_context:
             continue
 
-        # Strong offer (price+contact) even with weak demand → suppress
-        # unless strong demand signal at start
+        # Strong offer (price+contact) even with demand → suppress
+        # unless demand is a strong verb at the START of the message.
+        # A "?" alone is NOT enough — rhetorical ad questions ("Ищешь байк?") are offers.
         if has_offer_context and has_demand_context:
-            # Check if demand is strong enough to override offer
             strong_demand = bool(re.search(
-                r"^(ищу|нужен|нужна|нужны|сниму|возьму|посоветуйте|подскажите)\b",
+                r"^(ищу|нужен|нужна|нужны|сниму|возьму|ищем|посоветуйте|подскажите|кто знает|помогите|требуется|требуются)\b",
                 text_lower,
                 re.UNICODE,
             ))
-            if not strong_demand and "?" not in text:
+            if not strong_demand:
                 continue
 
         matched.append(segment_slug)

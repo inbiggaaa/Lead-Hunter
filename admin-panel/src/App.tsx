@@ -11,6 +11,8 @@ import ChannelsPage from "@/pages/ChannelsPage";
 import ChatPage from "@/pages/ChatPage";
 import BroadcastPage from "@/pages/BroadcastPage";
 import SettingsPage from "@/pages/SettingsPage";
+import StopWordsPage from "@/pages/StopWordsPage";
+import UnmatchedPage from "@/pages/UnmatchedPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,6 +56,8 @@ export default function App() {
               <Route path="chat" element={<ChatPage />} />
               <Route path="broadcast" element={<BroadcastPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="stop-words" element={<StopWordsPage />} />
+              <Route path="unmatched" element={<UnmatchedPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

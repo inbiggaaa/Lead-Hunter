@@ -21,7 +21,7 @@ CIRCUIT_EXPIRES_KEY = "circuit:expires_at"
 RATE_LIMIT_KEY = "rate:last_request_at"
 
 # ── Defaults (override via .env) ──
-DEFAULT_MIN_INTERVAL = 3.0   # seconds between API calls
+DEFAULT_MIN_INTERVAL = 0.3   # seconds between API calls (~3 rps, safe for Telegram)
 DEFAULT_MAX_BURST = 2        # max consecutive calls before enforced wait
 
 
@@ -85,22 +85,27 @@ class TelegramRateLimiter:
         """If circuit is open, wait until it closes. Returns True if we had to wait."""
         redis = await get_redis()
         val = await redis.get(CIRCUIT_BREAKER_KEY)
-        if val:
-            expires_raw = await redis.get(CIRCUIT_EXPIRES_KEY)
+        if not val:
             await redis.close()
-            if expires_raw:
-                wait_until = int(expires_raw)
-                remaining = wait_until - int(time.time())
-                if remaining > 0:
-                    logger.info("Circuit breaker: waiting %ds before any API call", remaining)
-                    await asyncio.sleep(remaining)
-            # Circuit breaker just closed — notify recovery
-            logger.info("Circuit breaker closed — resuming API calls")
-            from app.worker.notify_admin import notify_admin
-            await notify_admin("✅ FloodWait истёк — userbot возобновил работу. Уведомления снова поступают.")
-            return True
+            return False
+
+        expires_raw = await redis.get(CIRCUIT_EXPIRES_KEY)
+        if expires_raw:
+            wait_until = int(expires_raw)
+            remaining = wait_until - int(time.time())
+            if remaining > 0:
+                logger.info("Circuit breaker: waiting %ds before any API call", remaining)
+                await asyncio.sleep(remaining)
+
+        # Circuit breaker just closed — notify recovery (once)
+        logger.info("Circuit breaker closed — resuming API calls")
+        from app.worker.notify_admin import notify_admin
+        await notify_admin("✅ FloodWait истёк — userbot возобновил работу. Уведомления снова поступают.")
+        # Clear keys immediately to prevent duplicate notifications
+        # from subsequent calls in the same poll cycle (up to 10 channels)
+        await redis.delete(CIRCUIT_BREAKER_KEY, CIRCUIT_EXPIRES_KEY)
         await redis.close()
-        return False
+        return True
 
 
 # Singleton for the worker process
