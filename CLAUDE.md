@@ -99,7 +99,7 @@ SaaS-сервис на базе Telegram-бота. Отслеживает соо
 ┌─────────────────────── VPS (Docker Compose) ───────────────────────┐
 │  [bot]      aiogram 3.x — управляющий бот, команды, платежи         │
 │  [worker]   Telethon + sender — userbot + рассыльщик (один event loop)│
-│  [admin]    FastAPI + SQLAdmin — веб-панель (127.0.0.1:8001)        │
+│  [admin]    FastAPI — админ-панель (React SPA + REST API, порт 8001)      │
 │  [db]       PostgreSQL — пользователи, подписки, слова, каталог      │
 │  [redis]    Redis — кэш подписок + очередь уведомлений               │
 └─────────────────────────────────────────────────────────────────────┘
@@ -140,13 +140,14 @@ LPUSH queue:notifications → sender BRPOP + throttle 25/сек → Bot API
 | HTTP | aiohttp |
 | Миграции | Alembic |
 | Кэш + очередь | Redis (LPUSH/BRPOP) |
-| Админка | FastAPI + SQLAdmin |
+| Админка | FastAPI + React 19 + Vite 8 + shadcn/ui 4 |
+| Админ-UI | React 19, TypeScript, Vite 8, shadcn/ui 4, Tailwind 4, React Query 5, Chart.js 4 |
 | Платежи | Stars, CryptoBot (PaymentProvider Protocol) |
 | Конфиг | pydantic-settings (.env) |
 | Мониторинг | Sentry |
 | Тесты | pytest + pytest-asyncio |
 
-Версии: `aiogram>=3.7,<4.0`, `telethon>=1.36,<2.0`, `SQLAlchemy>=2.0,<3.0`, `asyncpg>=0.29,<1.0`, `aiohttp>=3.9,<4.0`, `alembic>=1.13,<2.0`, `redis>=5.0,<6.0`, `fastapi>=0.110,<1.0`, `sqladmin>=0.16,<1.0`, `pydantic-settings>=2.2,<3.0`, `sentry-sdk>=2.0,<3.0`, `pytest>=8.0,<9.0`, `pytest-asyncio>=0.23,<1.0`
+Версии: `aiogram>=3.7,<4.0`, `telethon>=1.36,<2.0`, `SQLAlchemy>=2.0,<3.0`, `asyncpg>=0.29,<1.0`, `aiohttp>=3.9,<4.0`, `alembic>=1.13,<2.0`, `redis>=5.0,<6.0`, `fastapi>=0.110,<1.0`, `pydantic-settings>=2.2,<3.0`, `sentry-sdk>=2.0,<3.0`, `pytest>=8.0,<9.0`, `pytest-asyncio>=0.23,<1.0`
 
 ### Инфраструктура
 
@@ -186,7 +187,7 @@ LeadHunter/
     │   │   ├── discover.py, catalog_nav.py, referrals.py
     │   │   ├── settings.py, language.py
     │   │   └── middlewares/   ← проверка подписки, лимитов
-    ├── admin/                 ← FastAPI + SQLAdmin
+    ├── admin/                 ← FastAPI (REST API + WebSocket + static SPA)
     │   ├── app.py, views.py, dashboard.py, chat.py
     ├── db/
     │   ├── models.py, session.py, crud.py
@@ -480,17 +481,46 @@ show_last_leads → done
 
 ---
 
-## 5д. Админ-панель (7 разделов)
+## 5д. Админ-панель (10 разделов)
 
-- **📊 Дашборд:** KPI (всего/новых/оплат/продлений), графики Chart.js, источники
-- **👥 Пользователи:** таблица, фильтры, детали, can_edit/delete
-- **💰 Подписки:** таблица, статусы, фильтры
-- **🌍 Каталог:** CRUD стран, городов, сегментов, keywords, каналов (M:N матрица), discovered_chats
-- **💬 Live-чат:** WebSocket + AJAX, список диалогов с 🔴, история
-- **📨 Рассылки:** выборка, превью, статус. Напоминания: trial/подписка/неактивность (дни 1,3,7)
-- **⚙️ Настройки:** тарифные лимиты, системные переменные
+**Архитектура:**
+- **Фронтенд:** React 19 + TypeScript + Vite 8
+- **UI:** shadcn/ui 4 (Radix Nova) + Tailwind CSS 4 + Lucide Icons
+- **Данные:** @tanstack/react-query 5, WebSocket для live-чата
+- **Графики:** Chart.js 4 (дашборд)
+- **Бэкенд:** FastAPI (порт 8001), сессионная авторизация, Redis brute-force protection
+- **Деплой:** отдельный Docker-контейнер (admin), SPA статика закоммичена в `app/admin/static/`
+- **Доступ:** `ADMIN_PUBLIC_PORT` (по умолчанию 17421), пароль в `ADMIN_PASSWORD`
 
-Доступ: SSH-туннель `ssh -L 8001:127.0.0.1:8001`. ADMIN_SECRET обязателен.
+**Страницы:**
+
+| Роут | Название | Функционал |
+|------|----------|------------|
+| `/login` | Вход | Парольная авторизация, защита от брутфорса (Redis, 5 попыток/мин) |
+| `/` | 📊 Дашборд | 4 KPI-карточки, график новых пользователей (30 дней), круговая по тарифам |
+| `/users` | 👥 Пользователи | Таблица с поиском, фильтр по тарифу, бан/разбан, детали |
+| `/catalog` | 🌍 Каталог | 3 вкладки: Сегменты (CRUD + keywords Demand/Stop/Synonym), Страны (CRUD), Города (CRUD) |
+| `/channels` | 📢 Каналы | Таблица каталога с поиском, фильтр verified, просмотр |
+| `/stop-words` | 🛑 Стоп-слова | CRUD стоп-слов с привязкой к сегменту |
+| `/unmatched` | 📋 Несматченные | Пагинированная таблица из Redis `stats:unmatched`, поиск, фильтр по чату |
+| `/chat` | 💬 Live-чат | WebSocket, список диалогов с 🔴, история сообщений, отправка |
+| `/broadcast` | 📨 Рассылки | Выборка по тарифу/источнику, textarea, превью, карточка статистики |
+| `/settings` | ⚙️ Настройки | Таблица тарифных лимитов + системная информация (read-only) |
+
+**API эндпоинты (`/api/*`):**
+
+| Модуль | Эндпоинты |
+|--------|-----------|
+| `auth.py` | `POST /login`, `POST /logout`, `GET /check` |
+| `users.py` | `GET /`, `GET /{id}`, `PUT /{id}` |
+| `stats.py` | `GET /dashboard` |
+| `broadcast.py` | `GET /stats`, `POST /send` |
+| `chat.py` | `GET /dialogs`, `GET /history/{id}`, `WS /ws` |
+| `crud.py` | CRUD для стран, городов, сегментов, keywords |
+| `stop_words.py` | `GET/POST/PUT/DELETE /stop-words` |
+| `unmatched.py` | `GET /`, `GET /chats`, `GET /count` |
+| `segments.py` | `GET/POST/PUT/DELETE /segments/{id}/keywords` |
+| `channels` | `GET /`, `GET /{id}`, `PUT /{id}` |
 
 ---
 
@@ -525,7 +555,8 @@ show_last_leads → done
 - **Heartbeat:** 15 минут, проверка раз в минуту, алерт владельцу
 - **Бэкапы:** pg_dump раз в сутки, ротация 7 дней
 - **Деплой:** сервер = dev + prod, git push с сервера, docker compose up -d --build
-- **Админ-доступ:** SSH-туннель `ssh -L 8001:127.0.0.1:8001`
+- **Админ-доступ:** `ADMIN_PUBLIC_PORT` (по умолчанию 17421), авторизация по паролю (`ADMIN_PASSWORD`)
+- **Админ-технологии:** React 19 + TypeScript + Vite 8 + shadcn/ui 4 + Tailwind 4 + React Query 5 + Chart.js
 - **Авторизация userbot:** `docker compose run --rm -it worker python -m app.userbot.auth`
 
 ---
