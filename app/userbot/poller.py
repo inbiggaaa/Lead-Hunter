@@ -101,6 +101,9 @@ class ChannelPoller:
                     is_urgent=result.is_urgent,
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
                 )
+            else:
+                # Log unmatched messages for statistics analysis
+                await self._log_unmatched(channel_username, msg.message, msg.id)
 
     async def _dispatch(self, chat_username, message_text, message_id, matched_segments, is_urgent, sender):
         """Find interested users matching BOTH segment AND geo, push to queue."""
@@ -175,6 +178,30 @@ class ChannelPoller:
                 "message_hash": message_hash,
                 "is_urgent": is_urgent,
             })
+
+    @staticmethod
+    async def _log_unmatched(chat_username: str, text: str, msg_id: int) -> None:
+        """Log unmatched messages to Redis for later statistics analysis.
+
+        Stores last 10000 unmatched messages with chat source and timestamp.
+        """
+        try:
+            import json
+            from datetime import datetime, timezone
+            from app.cache import get_redis
+
+            redis = await get_redis()
+            entry = json.dumps({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "chat": chat_username,
+                "msg_id": msg_id,
+                "text": text[:500],
+            }, ensure_ascii=False)
+            await redis.lpush("stats:unmatched", entry)
+            await redis.ltrim("stats:unmatched", 0, 9999)
+            await redis.close()
+        except Exception:
+            pass  # Never let stats collection break the main loop
 
     async def _load_keywords(self) -> dict[str, dict[str, list[str]]]:
         """Load all segment keywords from DB into memory."""

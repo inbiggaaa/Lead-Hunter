@@ -105,7 +105,17 @@ OFFER_SIGNAL_PATTERNS = [
     r"(#[a-zA-Zа-яА-ЯёЁ0-9_]+[\s\n]*){3,}",  # 3+ hashtags
 ]
 
-# ── Urgency markers ──
+# ── Noise words for fuzzy matching (excluded from word count) ──
+
+FUZZY_NOISE = {
+    # Prepositions / conjunctions / particles
+    'на', 'в', 'по', 'для', 'с', 'не', 'к', 'за', 'от', 'до', 'из',
+    'без', 'о', 'об', 'у', 'под', 'а', 'и', 'но', 'или', 'то', 'же',
+    'бы', 'ли', 'со', 'ко', 'во', 'над', 'при', 'про', 'ради', 'через',
+    'как', 'что', 'где', 'когда', 'кто', 'кому', 'кого', 'чем', 'чём',
+    'это', 'там', 'тут', 'туда', 'сюда', 'здесь', 'так', 'тоже',
+    'ещё', 'уже', 'пока', 'потом', 'сейчас', 'сегодня',
+}
 
 URGENCY_WORDS = [
     "срочно", "сегодня", "на завтра", "asap", "urgent",
@@ -207,17 +217,40 @@ def classify_message(
     is_urgent = _is_urgent(text)
 
     def _match_kw(kw: str) -> bool:
-        """Match keyword against original text and lemmatized forms."""
-        # Original keyword vs original text
+        """Match keyword against original text and lemmatized forms.
+
+        Multi-word keywords (3+ words) use fuzzy matching as fallback:
+        if ≥70% of individual words appear in text, it's a match.
+        """
+        # Exact match first
         if _match_keyword(kw, text_lower):
             return True
-        # Original keyword vs lemmatized text (handles text inflection)
         if text_lemma != text_lower and _match_keyword(kw, text_lemma):
             return True
-        # Lemmatized keyword vs lemmatized text (handles keyword inflection)
         kw_lemma = _lemmatize_text(kw)
         if kw_lemma != kw and _match_keyword(kw_lemma, text_lemma):
             return True
+
+        # Fuzzy fallback for multi-word keywords (4+ words)
+        #   4 words → ≥3/4 (75%), 5 words → ≥4/5 (80%), 6+ → miss ≤2
+        #   Noise words (prepositions, particles) are excluded from counting
+        words = kw.split()
+        if len(words) >= 4:
+            required = len(words) - 1 if len(words) <= 5 else max(len(words) - 2, 4)
+            matched = 0
+            total_significant = 0
+            for w in words:
+                if len(w) <= 2 or w.lower() in FUZZY_NOISE:
+                    continue
+                total_significant += 1
+                w_lemma = _lemmatize_text(w)
+                if (_match_keyword(w, text_lower)
+                        or _match_keyword(w, text_lemma)
+                        or _match_keyword(w_lemma, text_lemma)):
+                    matched += 1
+            if total_significant >= 2 and matched / max(total_significant, 1) >= 0.7:
+                return True
+
         return False
 
     matched: list[str] = []
@@ -242,10 +275,12 @@ def classify_message(
             continue
 
         # Pass 2: stop phrases (universal + segment-specific)
+        # Stop words match against original text only — lemmatization would
+        # cause false positives (e.g. "сделано" → "сделать" blocks "сделать сайт")
         blocked = False
         all_stops = list(UNIVERSAL_STOP) + stop_kws
         for stop_kw in all_stops:
-            if _match_kw(stop_kw):
+            if _match_keyword(stop_kw, text_lower):
                 # If there's a strong demand signal, stop-phrase might be overridden
                 if not has_demand_context:
                     blocked = True
