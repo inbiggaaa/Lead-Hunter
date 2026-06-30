@@ -7,6 +7,7 @@ Chat WS:       /api/chat/ws         → WebSocket
 """
 
 import os
+import secrets
 
 import uvicorn
 from fastapi import FastAPI
@@ -21,13 +22,23 @@ from app.admin.api import api_router
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 
+def _generate_secret() -> str:
+    """Generate a random session secret at startup if ADMIN_SECRET is not set."""
+    import logging
+    logging.getLogger(__name__).warning(
+        "ADMIN_SECRET not set — using randomly generated key. "
+        "Sessions will be invalidated on restart."
+    )
+    return secrets.token_hex(32)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="LeadHunter Admin")
 
     # ── Session middleware (for SPA auth) ──
     app.add_middleware(
         SessionMiddleware,
-        secret_key=settings.admin_secret or "dev-secret",
+        secret_key=settings.admin_secret or _generate_secret(),
     )
 
     # ── REST API ──
