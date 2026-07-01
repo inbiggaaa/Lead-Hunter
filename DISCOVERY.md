@@ -271,6 +271,28 @@
 
 ---
 
+## 🇷🇺 Россия
+
+| Город | EN | Приоритет | Поисковые запросы |
+|---|---|---|---|
+| Москва | Moscow | 🔥 | `moscow chat`, `москва чат`, `moscow rus` |
+| Санкт-Петербург | St. Petersburg | 🔥 | `spb chat`, `санкт петербург чат`, `spb rus`, `питер чат` |
+| Сочи | Sochi | 🔥 | `sochi chat`, `сочи чат` |
+| Краснодар | Krasnodar | ✅ | `krasnodar chat`, `краснодар чат` |
+| Екатеринбург | Yekaterinburg | ✅ | `ekaterinburg chat`, `екатеринбург чат`, `ekb chat` |
+| Новосибирск | Novosibirsk | ✅ | `novosibirsk chat`, `новосибирск чат` |
+| Казань | Kazan | ✅ | `kazan chat`, `казань чат` |
+| Нижний Новгород | Nizhny Novgorod | ✅ | `nizhny novgorod chat`, `нижний новгород чат`, `nn chat` |
+| Калининград | Kaliningrad | 🆕 | `kaliningrad chat`, `калининград чат` |
+| Владивосток | Vladivostok | 🆕 | `vladivostok chat`, `владивосток чат` |
+| Ростов-на-Дону | Rostov-on-Don | 🆕 | `rostov chat`, `ростов чат` |
+| Самара | Samara | 🆕 | `samara chat`, `самара чат` |
+| Уфа | Ufa | 🆕 | `ufa chat`, `уфа чат` |
+
+**Общие запросы:** `россия чат`, `russia rus chat`, `россия объявления`, `russia expats`
+
+---
+
 ## 📊 Итого
 
 | Параметр | Значение |
