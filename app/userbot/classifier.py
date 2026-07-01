@@ -81,6 +81,13 @@ OFFER_SIGNAL_PATTERNS = [
     r"@\w+.*\d{7,}",
     # 3+ hashtags (promotional/marketing)
     r"(#[a-zA-Zа-яА-ЯёЁ0-9_]+[\s\n]*){3,}",
+    # Commercial language: company introductions, self-promotion, service descriptions.
+    # These NEVER appear in genuine client demand — purely offer/ads.
+    r"\b(добро пожаловать|welcome to)\b",
+    r"\b(ваш|твой) (надёжный )?(партнёр|партнер|помощник|финансовый партнёр)\b",
+    r"\bработаем с \d{4}\b",
+    r"\b(что мы делаем|как мы работаем|наши услуги|наши контакты|наши преимущества)\b",
+    r"\b(по выгодному курсу|по лучшему курсу)\b",
 ]
 
 # ── Noise words for fuzzy matching (excluded from word count) ──
