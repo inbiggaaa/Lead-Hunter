@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 HOT_INTERVAL = 60       # seconds — channels in active-subscription countries
 WARM_INTERVAL = 300     # 5 minutes — channels > 1000 participants
 COLD_INTERVAL = 900     # 15 minutes — everything else
+DORMANT_INTERVAL = 43200  # 12 hours — channels from countries with no subscriptions
 PARALLEL_BATCH = 3       # channels per asyncio.gather batch (1 account)
 # With 3 rps: 195 hot channels = ~65 sec initial sync, then incremental (fast)
 # Tier-specific message fetch limits — per API call.
@@ -37,6 +38,7 @@ TIER_LIMITS = {
     "Hot": 30,    # 60s cycle — 30 msgs/min is extremely active
     "Warm": 80,   # 5min cycle
     "Cold": 150,  # 15min cycle
+    "Dormant": 500,  # 12h cycle — catch up on missed messages
 }
 MAX_PAGINATION_ROUNDS = 5  # absolute safety cap for pagination
 INITIAL_LIMIT = 5           # first-ever poll: just set cursor (no pagination)
@@ -78,6 +80,7 @@ class ChannelPoller:
         self._hot_channels: list[dict] = []
         self._warm_channels: list[dict] = []
         self._cold_channels: list[dict] = []
+        self._dormant_channels: list[dict] = []
 
     # ═══════════════ INIT ═══════════════
 
@@ -91,31 +94,44 @@ class ChannelPoller:
             await self._rebuild_tiers()
 
     async def _rebuild_tiers(self):
-        """Recompute channel tiers: Hot/Warm/Cold based on active subscriptions."""
+        """Recompute channel tiers: Hot/Warm/Cold/Dormant based on subscriptions.
+
+        - Active country (has subscriptions) → Hot (60s)
+        - Watched channel (manual) → Warm/Cold by participants
+        - Inactive country, catalog channel → Dormant (12h)
+        """
         self._active_countries = await self._get_active_countries()
         channels = await self._get_all_channels()
 
-        hot, warm, cold = [], [], []
+        hot, warm, cold, dormant = [], [], [], []
         for ch in channels:
             country_id = ch.get("country_id")
             participants = ch.get("participants", 0) or 0
             is_active_country = country_id in self._active_countries
+            is_watched = country_id is None  # manually added by user, always monitor
 
             if is_active_country:
                 hot.append(ch)
-            elif participants >= 1000:
-                warm.append(ch)
+            elif is_watched:
+                # User explicitly monitors — keep in active tiers
+                if participants >= 1000:
+                    warm.append(ch)
+                else:
+                    cold.append(ch)
             else:
-                cold.append(ch)
+                # Catalog channel from inactive country — lazy poll
+                dormant.append(ch)
 
         self._hot_channels = hot
         self._warm_channels = warm
         self._cold_channels = cold
+        self._dormant_channels = dormant
 
         logger.info(
-            "Tiers rebuilt: %d hot (active countries), %d warm (≥1K), %d cold (rest). "
+            "Tiers rebuilt: %d hot (active countries), %d warm (watched ≥1K), "
+            "%d cold (watched <1K), %d dormant (inactive, 12h). "
             "Active countries: %s",
-            len(hot), len(warm), len(cold),
+            len(hot), len(warm), len(cold), len(dormant),
             sorted(self._active_countries) if len(self._active_countries) < 20
             else f"{len(self._active_countries)} countries",
         )
@@ -505,11 +521,12 @@ class ChannelPoller:
         _last_reload = time.time()
         _last_tier_rebuild = time.time()
 
-        # Launch all three tier loops with staggered startup to prevent API storm
+        # Launch all tier loops with staggered startup
         await asyncio.gather(
             self._run_tier_loop("Hot", self._hot_channels, HOT_INTERVAL, startup_delay=HOT_STARTUP_DELAY),
             self._run_tier_loop("Warm", self._warm_channels, WARM_INTERVAL, startup_delay=WARM_STARTUP_DELAY),
             self._run_tier_loop("Cold", self._cold_channels, COLD_INTERVAL, startup_delay=COLD_STARTUP_DELAY),
+            self._run_tier_loop("Dormant", self._dormant_channels, DORMANT_INTERVAL, startup_delay=COLD_STARTUP_DELAY),
             self._maintenance_loop(KEYWORD_RELOAD, TIER_REBUILD, _last_reload, _last_tier_rebuild),
         )
 
