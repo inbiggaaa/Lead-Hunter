@@ -3,8 +3,10 @@
 Ensures a single account never exceeds safe request rates, regardless of how
 many concurrent consumers (poller, discovery) are active.
 
-Token bucket: 1 token every 3 seconds (20 req/min max).
-Circuit breaker: opens on any FloodWait — blocks ALL API calls until expiry.
+Token bucket: ~3 rps per account.
+Circuit breaker: per-account — opens on FloodWait for one account,
+blocks only that account's API calls until expiry.
+Keys: circuit:open:{account_id}, circuit:expires:{account_id}
 """
 
 import asyncio
@@ -16,8 +18,11 @@ from app.cache import get_redis
 logger = logging.getLogger(__name__)
 
 # ── Redis keys ──
-CIRCUIT_BREAKER_KEY = "circuit:open"
-CIRCUIT_EXPIRES_KEY = "circuit:expires_at"
+def _circuit_key(account_id: int) -> str:
+    return f"circuit:open:{account_id}"
+
+def _circuit_expires_key(account_id: int) -> str:
+    return f"circuit:expires:{account_id}"
 RATE_LIMIT_KEY = "rate:last_request_at"
 
 # ── Defaults (override via .env) ──
@@ -47,14 +52,17 @@ class TelegramRateLimiter:
                 await asyncio.sleep(wait)
             self._last_call = await _now()
 
-    async def report_flood_wait(self, seconds: int, context: str = "") -> None:
-        """Called when any FloodWait is received — opens circuit breaker."""
+    async def report_flood_wait(self, seconds: int, context: str = "", account_id: int = 0) -> None:
+        """Called when FloodWait is received for an account — opens its circuit breaker.
+
+        account_id=0 means global (all accounts), used for backward compat.
+        """
         redis = await get_redis()
         expires_at = int(time.time() + seconds + 10)  # 10s safety margin
-        await redis.set(CIRCUIT_BREAKER_KEY, "1")
-        await redis.set(CIRCUIT_EXPIRES_KEY, str(expires_at))
-        await redis.expire(CIRCUIT_BREAKER_KEY, seconds + 60)
-        await redis.expire(CIRCUIT_EXPIRES_KEY, seconds + 60)
+        await redis.set(_circuit_key(account_id), "1")
+        await redis.set(_circuit_expires_key(account_id), str(expires_at))
+        await redis.expire(_circuit_key(account_id), seconds + 60)
+        await redis.expire(_circuit_expires_key(account_id), seconds + 60)
         await redis.close()
 
         hours = seconds // 3600
@@ -62,48 +70,103 @@ class TelegramRateLimiter:
         duration = f"{hours}ч {mins}м" if hours else f"{mins} мин"
 
         logger.error(
-            "🚨 CIRCUIT BREAKER OPEN — FloodWait %ds from '%s'. All API calls blocked for %ds.",
-            seconds, context, seconds + 10,
+            "🚨 CIRCUIT BREAKER OPEN (account %d) — FloodWait %ds from '%s'. Blocked for %ds.",
+            account_id, seconds, context, seconds + 10,
         )
 
         from app.worker.notify_admin import notify_admin
         await notify_admin(
-            f"🚨 FloodWait — userbot заблокирован\n\n"
+            f"🚨 FloodWait — аккаунт #{account_id} заблокирован\n\n"
             f"⏱ Бан на: {duration}\n"
             f"📍 Источник: {context}\n"
-            f"🛑 Все API-вызовы остановлены до истечения бана."
+            f"🛑 API-вызовы аккаунта #{account_id} остановлены до истечения бана."
         )
 
-    async def is_circuit_open(self) -> bool:
-        """Check if circuit breaker is currently blocking requests."""
+    async def is_circuit_open(self, account_id: int = 0) -> bool:
+        """Check if circuit breaker is currently blocking requests for an account.
+
+        account_id=0 checks the legacy global key (backward compat).
+        """
         redis = await get_redis()
-        val = await redis.get(CIRCUIT_BREAKER_KEY)
+        # Also check legacy global key for backward compat
+        if account_id == 0:
+            val = await redis.get("circuit:open")
+            if val:
+                await redis.close()
+                return True
+        val = await redis.get(_circuit_key(account_id))
         await redis.close()
         return val is not None
 
-    async def wait_if_circuit_open(self) -> bool:
-        """If circuit is open, wait until it closes. Returns True if we had to wait."""
+    async def is_any_circuit_open(self) -> bool:
+        """Check if ANY account has an open circuit breaker."""
         redis = await get_redis()
-        val = await redis.get(CIRCUIT_BREAKER_KEY)
-        if not val:
+        # Check legacy global key
+        val = await redis.get("circuit:open")
+        if val:
+            await redis.close()
+            return True
+        # Scan for any per-account keys
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match="circuit:open:*", count=10)
+            if keys:
+                await redis.close()
+                return True
+            if cursor == 0:
+                break
+        await redis.close()
+        return False
+
+    async def wait_if_circuit_open(self, account_id: int = 0) -> bool:
+        """If circuit is open for this account, wait until it closes.
+
+        account_id=0 means check legacy global key + all accounts (block until all clear).
+        Returns True if we had to wait.
+        """
+        redis = await get_redis()
+        key = _circuit_key(account_id)
+        expires_key = _circuit_expires_key(account_id)
+
+        # Also check legacy global key
+        global_val = await redis.get("circuit:open")
+        val = await redis.get(key)
+
+        if not val and not global_val:
             await redis.close()
             return False
 
-        expires_raw = await redis.get(CIRCUIT_EXPIRES_KEY)
-        if expires_raw:
-            wait_until = int(expires_raw)
-            remaining = wait_until - int(time.time())
-            if remaining > 0:
-                logger.info("Circuit breaker: waiting %ds before any API call", remaining)
-                await asyncio.sleep(remaining)
+        # Find the longest wait needed
+        max_remaining = 0
 
-        # Circuit breaker just closed — notify recovery (once)
-        logger.info("Circuit breaker closed — resuming API calls")
+        for check_key, check_expires_key in [
+            ("circuit:open", "circuit:expires_at"),
+            (key, expires_key),
+        ]:
+            check_val = await redis.get(check_key)
+            if check_val:
+                expires_raw = await redis.get(check_expires_key)
+                if expires_raw:
+                    wait_until = int(expires_raw)
+                    remaining = wait_until - int(time.time())
+                    if remaining > max_remaining:
+                        max_remaining = remaining
+
+        if max_remaining > 0:
+            logger.info(
+                "Circuit breaker (account %d): waiting %ds before API call",
+                account_id, max_remaining,
+            )
+            await asyncio.sleep(max_remaining)
+
+        # Circuit breaker just closed — notify recovery
+        logger.info("Circuit breaker closed for account %d — resuming API calls", account_id)
         from app.worker.notify_admin import notify_admin
-        await notify_admin("✅ FloodWait истёк — userbot возобновил работу. Уведомления снова поступают.")
-        # Clear keys immediately to prevent duplicate notifications
-        # from subsequent calls in the same poll cycle (up to 10 channels)
-        await redis.delete(CIRCUIT_BREAKER_KEY, CIRCUIT_EXPIRES_KEY)
+        await notify_admin(
+            f"✅ FloodWait истёк для аккаунта #{account_id} — работа возобновлена."
+        )
+        # Clear keys to prevent duplicate notifications
+        await redis.delete(key, expires_key, "circuit:open", "circuit:expires_at")
         await redis.close()
         return True
 

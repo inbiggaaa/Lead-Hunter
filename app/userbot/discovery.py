@@ -147,7 +147,7 @@ async def search_channels(client: TelegramClient, geo_queries: dict, limit: int 
                 except FloodWaitError as e:
                     logger.warning("Discovery FloodWait: %ds", e.seconds)
                     # Hard Rule #7: open circuit breaker, don't just sleep locally
-                    await limiter.report_flood_wait(e.seconds, context="discovery:search")
+                    await limiter.report_flood_wait(e.seconds, context="discovery:search", account_id=0)
                 except Exception as e:
                     logger.warning("Search failed '%s': %s", query, e)
 
@@ -231,15 +231,17 @@ async def discovery_loop(client: TelegramClient | None = None):
             return
     else:
         logger.info("Discovery using shared pool client (api_id from pool)")
-        # Hard Rule #6: check circuit breaker before any API calls
-        await limiter.wait_if_circuit_open()
+        # Check if ALL accounts are blocked — if so, skip this cycle
+        if await limiter.is_any_circuit_open():
+            logger.info("Discovery: at least one account blocked, skipping cycle")
+            return
         logger.info("Starting geo-aware discovery...")
         found = 0
         try:
             found = await search_channels(client, geo)
         except FloodWaitError as e:
             logger.warning("Discovery FloodWait: %ds", e.seconds)
-            # Hard Rule #7: report to circuit breaker system
-            await limiter.report_flood_wait(e.seconds, context="discovery:loop")
+            # Hard Rule #7: report to circuit breaker system (account unknown, use 0)
+            await limiter.report_flood_wait(e.seconds, context="discovery:loop", account_id=0)
         await report_discovery_stats(found)
         await asyncio.sleep(86400)  # 24 hours — enough for 195 queries × ~5.5 min

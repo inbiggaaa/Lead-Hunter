@@ -277,8 +277,8 @@ class ChannelPoller:
         if not channels:
             return 0, 0
 
-        # Check circuit breaker before starting batch
-        await limiter.wait_if_circuit_open()
+        # Check circuit breaker for this specific account before starting batch
+        await limiter.wait_if_circuit_open(account.account_id)
 
         limit = 3 if not initial else INITIAL_HOT_LIMIT
 
@@ -296,7 +296,8 @@ class ChannelPoller:
                     account.account_id, e.seconds,
                 )
                 await limiter.report_flood_wait(
-                    e.seconds, context=f"poller:@{ch['chat_username']}"
+                    e.seconds, context=f"poller:@{ch['chat_username']}",
+                    account_id=account.account_id,
                 )
                 await asyncio.sleep(e.seconds)
                 return False
@@ -332,6 +333,12 @@ class ChannelPoller:
 
             for account, chunk in account_chunks:
                 if not account.is_healthy:
+                    continue
+                # Skip accounts with open circuit breaker (they'll be polled when ban expires)
+                if await limiter.is_circuit_open(account.account_id):
+                    logger.debug(
+                        "Skipping account %d — circuit breaker open", account.account_id
+                    )
                     continue
                 limit_tag = f"(initial, limit={INITIAL_HOT_LIMIT})" if initial else "(incremental)"
                 ok, err = await self._poll_batch(account, chunk, initial=initial)
