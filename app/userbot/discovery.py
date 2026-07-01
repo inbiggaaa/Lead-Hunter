@@ -12,6 +12,7 @@ from telethon.errors import FloodWaitError
 from app.config import settings
 from app.db.session import async_session_factory
 from app.db.models import CatalogChannel, Country, City
+from app.userbot.rate_limiter import limiter
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,8 @@ async def search_channels(client: TelegramClient, geo_queries: dict, limit: int 
 
             for query in queries:
                 try:
+                    # Hard Rule #1: limiter before every API call
+                    await limiter.acquire()
                     from telethon.tl.functions.contacts import SearchRequest
                     result = await client(SearchRequest(q=query, limit=limit))
                     for chat in result.chats:
@@ -143,7 +146,8 @@ async def search_channels(client: TelegramClient, geo_queries: dict, limit: int 
 
                 except FloodWaitError as e:
                     logger.warning("Discovery FloodWait: %ds", e.seconds)
-                    await asyncio.sleep(e.seconds)
+                    # Hard Rule #7: open circuit breaker, don't just sleep locally
+                    await limiter.report_flood_wait(e.seconds, context="discovery:search")
                 except Exception as e:
                     logger.warning("Search failed '%s': %s", query, e)
 
@@ -227,14 +231,15 @@ async def discovery_loop(client: TelegramClient | None = None):
             return
     else:
         logger.info("Discovery using shared pool client (api_id from pool)")
+        # Hard Rule #6: check circuit breaker before any API calls
+        await limiter.wait_if_circuit_open()
         logger.info("Starting geo-aware discovery...")
         found = 0
         try:
             found = await search_channels(client, geo)
         except FloodWaitError as e:
-            logger.warning("Discovery FloodWait: %ds — sleeping full duration", e.seconds)
-            await asyncio.sleep(e.seconds)
-        except Exception:
-            logger.exception("Discovery failed")
+            logger.warning("Discovery FloodWait: %ds", e.seconds)
+            # Hard Rule #7: report to circuit breaker system
+            await limiter.report_flood_wait(e.seconds, context="discovery:loop")
         await report_discovery_stats(found)
         await asyncio.sleep(86400)  # 24 hours — enough for 195 queries × ~5.5 min
