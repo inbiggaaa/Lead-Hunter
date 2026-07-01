@@ -15,6 +15,7 @@ Safety:
 
 import asyncio
 import logging
+import random
 from pathlib import Path
 
 from telethon import TelegramClient
@@ -74,15 +75,18 @@ COMMUNITY_EN = [
 DIASPORA_PREFIXES = ["kz", "by", "ua", "uz", "kg", "am", "az", "md"]
 
 # ── Timing ──
-# Ultra-conservative: discovery can run for days, no rush.
-# 30s between queries → ~0.03 calls/sec → invisible to Telegram.
-INTER_QUERY_PAUSE = 30    # seconds between searches
-SEARCH_LIMIT = 10          # max results per SearchRequest
-CYCLE_INTERVAL = 86400     # 24 hours after cycle completes (not between starts)
+# EXTREME caution: discovery shares userbot1 with poller.
+# If discovery triggers a ban, the ENTIRE service goes down.
+# Therefore: 90s between queries → ~0.01 calls/sec → invisible.
+# Full cycle (36K queries): ~37 days. No rush.
+INTER_QUERY_PAUSE_MIN = 60   # minimum seconds between searches
+INTER_QUERY_PAUSE_MAX = 120  # maximum (randomized per query)
+SEARCH_LIMIT = 10             # max results per SearchRequest
 
-# Dedicated discovery account index (matches userbot2 in .env)
-DISCOVERY_ACCOUNT_ID = 2
-DISCOVERY_SESSION_NAME = "userbot2"
+# Dedicated discovery account — uses userbot1 (older, more trusted)
+# WARNING: shares account with poller. Ban on discovery = ban on service.
+DISCOVERY_ACCOUNT_ID = 1
+DISCOVERY_SESSION_NAME = "userbot"
 
 
 def _slugify(text: str | None) -> str:
@@ -306,7 +310,8 @@ async def _search_and_store(
             logger.debug("Discovery v2: DB batch error: %s", e)
 
         skipped += 1
-        await asyncio.sleep(INTER_QUERY_PAUSE)
+        # Randomized pause: unpredictable pattern, very slow (60-120s)
+        await asyncio.sleep(random.uniform(INTER_QUERY_PAUSE_MIN, INTER_QUERY_PAUSE_MAX))
 
     logger.info("Discovery v2: finished — %d new, %d queries", found, total)
     return found
@@ -334,44 +339,41 @@ async def _create_dedicated_discovery_client() -> TelegramClient:
 
 
 async def discovery_v2_loop(client: TelegramClient | None = None):
-    """Background discovery loop — dedicated account, ultra-slow pace.
+    """Background discovery loop — shares userbot1 with poller.
 
-    Uses a SEPARATE userbot account (userbot2) so that:
-    - A ban on discovery NEVER affects the poller
-    - Circuit breaker is per-account (poller stays alive)
+    WARNING: Uses the SAME account as the poller. If discovery triggers
+    a FloodWait, the circuit breaker blocks ALL API calls for account 1
+    including poller. Therefore: extreme caution.
 
-    Speed: 30s between queries → ~0.03 calls/sec → ~8 days per full cycle.
-    Runs continuously: when one cycle ends, starts the next.
+    Speed: 60-120s randomized between queries → ~0.01 calls/sec.
+    Full cycle: ~37 days at 90s avg pause.
+    Queries are shuffled to avoid predictable patterns.
     """
-    # Stagger: wait 5 minutes after startup so poller is running
-    logger.info("Discovery v2: waiting 5 min before first cycle (poller warmup)")
-    await asyncio.sleep(300)
+    # Stagger: wait 15 minutes so poller is fully running
+    logger.info("Discovery v2: waiting 15 min (poller warmup + stagger)")
+    await asyncio.sleep(900)
 
-    # Create dedicated client if not passed (never share with poller)
-    own_client = None
     if client is None:
-        if _discovery_has_dedicated_session():
-            client = await _create_dedicated_discovery_client()
-            own_client = client
-        else:
-            logger.warning(
-                "Discovery v2: no dedicated session for account %d — skipping. "
-                "Run: docker compose run --rm -it worker python -m app.userbot.auth",
-                DISCOVERY_ACCOUNT_ID,
-            )
-            return
-    else:
         logger.warning(
-            "Discovery v2: received shared client — ignoring (must use dedicated account)."
+            "Discovery v2: no pool client passed — skipping. "
+            "Discovery must share userbot1 via pool."
         )
         return
 
+    logger.info(
+        "Discovery v2: using shared pool client for account %d "
+        "(poller shares same account — ALL API calls rate-limited together)",
+        DISCOVERY_ACCOUNT_ID,
+    )
+
     try:
         while True:
-            # Check per-account circuit breaker (won't block poller account)
+            # Check per-account circuit breaker BEFORE any API calls
+            # If account 1 is blocked, BOTH poller and discovery are dead
             if await limiter.is_circuit_open(DISCOVERY_ACCOUNT_ID):
-                logger.info(
-                    "Discovery v2: circuit breaker open for account %d — waiting...",
+                logger.warning(
+                    "Discovery v2: circuit breaker open for account %d — "
+                    "poller is also blocked. Waiting...",
                     DISCOVERY_ACCOUNT_ID,
                 )
                 await limiter.wait_if_circuit_open(DISCOVERY_ACCOUNT_ID)
@@ -384,23 +386,27 @@ async def discovery_v2_loop(client: TelegramClient | None = None):
                     await asyncio.sleep(3600)
                     continue
 
+                # Shuffle to avoid predictable query patterns (anti-spam)
+                random.shuffle(queries)
+
                 found = await _search_and_store(client, queries)
 
                 # Report stats
                 from app.userbot.discovery import report_discovery_stats
                 await report_discovery_stats(found)
 
-                # Estimate next cycle
-                est_hours = (len(queries) * INTER_QUERY_PAUSE) / 3600
+                # Estimate next cycle (avg pause ~90s, randomized 60-120s)
+                avg_pause = (INTER_QUERY_PAUSE_MIN + INTER_QUERY_PAUSE_MAX) / 2
+                est_hours = (len(queries) * avg_pause) / 3600
+                est_days = est_hours / 24
                 logger.info(
                     "Discovery v2: cycle complete — %d new channels from %d queries. "
-                    "Next cycle starts now (est. %.1f hours).",
-                    found, len(queries), est_hours,
+                    "Next cycle starts now (est. %.1f days).",
+                    found, len(queries), est_days,
                 )
             except Exception as e:
                 logger.error("Discovery v2: cycle error: %s", e, exc_info=True)
                 await asyncio.sleep(3600)  # Wait 1h before retry
 
     finally:
-        if own_client:
-            await own_client.disconnect()
+        pass  # Don't disconnect — client is shared with poller
