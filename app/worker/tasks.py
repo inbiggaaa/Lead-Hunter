@@ -35,7 +35,7 @@ async def main():
         end_of_day_loop(),
         payment_checker_loop(),
         discovery_loop(client=discovery_client),
-        discovery_v2_loop(client=discovery_client),
+        discovery_v2_loop(),  # uses dedicated account 2, never shares poller client
     )
 
 

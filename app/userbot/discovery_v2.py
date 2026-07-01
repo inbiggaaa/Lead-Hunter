@@ -2,24 +2,26 @@
 
 Replaces hand-written DISCOVERY.md queries with systematic query generation:
 - All 120+ cities from the DB (not a static file)
-- 34 community-type words (RU + EN): чат, болталка, советы, chat, help, ...
+- 84 community-type words (RU + EN): чат, болталка, советы, chat, help, ...
 - 8 post-Soviet diaspora prefixes: kz, by, ua, uz, kg, am, az, md
 - Matches real Telegram naming patterns: kz_danang, дананг болталка, ...
 
-Rate limit: uses existing limiter (3 rps shared with poller) + 1.5s inter-query pause.
-Full cycle: ~8,000 queries at ~2/sec → ~65 minutes (runs once per 24h).
+Safety:
+- Uses DEDICATED userbot2 account (never shares poller client)
+- Per-account circuit breaker: ban on discovery ≠ ban on poller
+- Ultra-slow pace: 30s between queries → ~8 days per 23K-query cycle
+- Only 0.03 API calls/sec — invisible to Telegram anti-spam
 """
 
 import asyncio
 import logging
-import random
 from pathlib import Path
-from typing import Optional
 
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError
 from telethon.tl.functions.contacts import SearchRequest
 
+from app.config import settings
 from app.db.session import async_session_factory
 from app.db.models import CatalogChannel, Country, City
 from app.userbot.rate_limiter import limiter
@@ -72,9 +74,15 @@ COMMUNITY_EN = [
 DIASPORA_PREFIXES = ["kz", "by", "ua", "uz", "kg", "am", "az", "md"]
 
 # ── Timing ──
-INTER_QUERY_PAUSE = 1.5  # seconds between searches (limiter handles min interval)
-SEARCH_LIMIT = 10         # max results per SearchRequest
-CYCLE_INTERVAL = 86400    # 24 hours between full discovery cycles
+# Ultra-conservative: discovery can run for days, no rush.
+# 30s between queries → ~0.03 calls/sec → invisible to Telegram.
+INTER_QUERY_PAUSE = 30    # seconds between searches
+SEARCH_LIMIT = 10          # max results per SearchRequest
+CYCLE_INTERVAL = 86400     # 24 hours after cycle completes (not between starts)
+
+# Dedicated discovery account index (matches userbot2 in .env)
+DISCOVERY_ACCOUNT_ID = 2
+DISCOVERY_SESSION_NAME = "userbot2"
 
 
 def _slugify(text: str | None) -> str:
@@ -199,14 +207,14 @@ async def _search_and_store(
     total = len(queries)
 
     for i, q in enumerate(queries):
-        # Circuit breaker check every 100 queries
+        # Circuit breaker check every 100 queries (per-account, won't block poller)
         if i % 100 == 0:
-            if await limiter.is_any_circuit_open():
+            if await limiter.is_circuit_open(DISCOVERY_ACCOUNT_ID):
                 logger.warning(
-                    "Discovery v2: circuit breaker open at query %d/%d — pausing cycle",
-                    i, total,
+                    "Discovery v2: circuit breaker open for account %d at query %d/%d — pausing cycle",
+                    DISCOVERY_ACCOUNT_ID, i, total,
                 )
-                await limiter.wait_if_circuit_open(account_id=0)
+                await limiter.wait_if_circuit_open(DISCOVERY_ACCOUNT_ID)
                 logger.info("Discovery v2: circuit breaker closed — resuming")
 
             logger.info(
@@ -220,7 +228,8 @@ async def _search_and_store(
         except FloodWaitError as e:
             logger.warning("Discovery v2 FloodWait: %ds on '%s'", e.seconds, q["query"])
             await limiter.report_flood_wait(
-                e.seconds, context=f"discovery_v2:{q['query']}", account_id=0,
+                e.seconds, context=f"discovery_v2:{q['query']}",
+                account_id=DISCOVERY_ACCOUNT_ID,
             )
             await asyncio.sleep(e.seconds)
             continue
@@ -303,45 +312,95 @@ async def _search_and_store(
     return found
 
 
+def _discovery_has_dedicated_session() -> bool:
+    """Check if a dedicated discovery session exists."""
+    return (Path("/app/sessions") / f"{DISCOVERY_SESSION_NAME}.session").exists()
+
+
+async def _create_dedicated_discovery_client() -> TelegramClient:
+    """Create a dedicated client for discovery using account 2 credentials."""
+    api_id, api_hash, phone = settings.get_userbot_creds(DISCOVERY_ACCOUNT_ID)
+    client = TelegramClient(
+        str(Path("/app/sessions") / DISCOVERY_SESSION_NAME),
+        api_id,
+        api_hash,
+    )
+    await client.start(phone=phone or None)
+    logger.info(
+        "Discovery v2: dedicated client on account %d, api_id=%d",
+        DISCOVERY_ACCOUNT_ID, api_id,
+    )
+    return client
+
+
 async def discovery_v2_loop(client: TelegramClient | None = None):
-    """Background discovery loop using programmatic query generation.
+    """Background discovery loop — dedicated account, ultra-slow pace.
 
-    Shares the pool client with the poller. Runs once per 24h.
+    Uses a SEPARATE userbot account (userbot2) so that:
+    - A ban on discovery NEVER affects the poller
+    - Circuit breaker is per-account (poller stays alive)
+
+    Speed: 30s between queries → ~0.03 calls/sec → ~8 days per full cycle.
+    Runs continuously: when one cycle ends, starts the next.
     """
-    # Stagger: wait 20 minutes after startup so poller is fully running
-    logger.info("Discovery v2: waiting 20 min before first cycle (poller warmup)")
-    await asyncio.sleep(1200)
+    # Stagger: wait 5 minutes after startup so poller is running
+    logger.info("Discovery v2: waiting 5 min before first cycle (poller warmup)")
+    await asyncio.sleep(300)
 
-    while True:
-        if client is None:
-            logger.warning("Discovery v2: no client — skipping cycle")
-            await asyncio.sleep(CYCLE_INTERVAL)
-            continue
-
-        if await limiter.is_any_circuit_open():
-            logger.info("Discovery v2: circuit breaker open — skipping cycle")
-            await asyncio.sleep(3600)  # Check again in 1 hour
-            continue
-
-        logger.info("Discovery v2: starting new cycle...")
-        try:
-            queries = await _generate_queries()
-            if not queries:
-                logger.warning("Discovery v2: no queries generated — empty DB?")
-                await asyncio.sleep(CYCLE_INTERVAL)
-                continue
-
-            found = await _search_and_store(client, queries)
-
-            # Report stats
-            from app.userbot.discovery import report_discovery_stats
-            await report_discovery_stats(found)
-
-            logger.info(
-                "Discovery v2: cycle complete — %d new channels. Next cycle in %dh.",
-                found, CYCLE_INTERVAL // 3600,
+    # Create dedicated client if not passed (never share with poller)
+    own_client = None
+    if client is None:
+        if _discovery_has_dedicated_session():
+            client = await _create_dedicated_discovery_client()
+            own_client = client
+        else:
+            logger.warning(
+                "Discovery v2: no dedicated session for account %d — skipping. "
+                "Run: docker compose run --rm -it worker python -m app.userbot.auth",
+                DISCOVERY_ACCOUNT_ID,
             )
-        except Exception as e:
-            logger.error("Discovery v2: cycle error: %s", e, exc_info=True)
+            return
+    else:
+        logger.warning(
+            "Discovery v2: received shared client — ignoring (must use dedicated account)."
+        )
+        return
 
-        await asyncio.sleep(CYCLE_INTERVAL)
+    try:
+        while True:
+            # Check per-account circuit breaker (won't block poller account)
+            if await limiter.is_circuit_open(DISCOVERY_ACCOUNT_ID):
+                logger.info(
+                    "Discovery v2: circuit breaker open for account %d — waiting...",
+                    DISCOVERY_ACCOUNT_ID,
+                )
+                await limiter.wait_if_circuit_open(DISCOVERY_ACCOUNT_ID)
+
+            logger.info("Discovery v2: starting new cycle...")
+            try:
+                queries = await _generate_queries()
+                if not queries:
+                    logger.warning("Discovery v2: no queries generated — empty DB?")
+                    await asyncio.sleep(3600)
+                    continue
+
+                found = await _search_and_store(client, queries)
+
+                # Report stats
+                from app.userbot.discovery import report_discovery_stats
+                await report_discovery_stats(found)
+
+                # Estimate next cycle
+                est_hours = (len(queries) * INTER_QUERY_PAUSE) / 3600
+                logger.info(
+                    "Discovery v2: cycle complete — %d new channels from %d queries. "
+                    "Next cycle starts now (est. %.1f hours).",
+                    found, len(queries), est_hours,
+                )
+            except Exception as e:
+                logger.error("Discovery v2: cycle error: %s", e, exc_info=True)
+                await asyncio.sleep(3600)  # Wait 1h before retry
+
+    finally:
+        if own_client:
+            await own_client.disconnect()
