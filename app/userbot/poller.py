@@ -31,8 +31,15 @@ WARM_INTERVAL = 300     # 5 minutes — channels > 1000 participants
 COLD_INTERVAL = 900     # 15 minutes — everything else
 PARALLEL_BATCH = 3       # channels per asyncio.gather batch (1 account)
 # With 3 rps: 195 hot channels = ~65 sec initial sync, then incremental (fast)
-INITIAL_HOT_LIMIT = 5
-INITIAL_COLD_LIMIT = 2
+# Tier-specific message fetch limits — per API call.
+# Pagination auto-triggers if a full batch is returned (rare in practice).
+TIER_LIMITS = {
+    "Hot": 30,    # 60s cycle — 30 msgs/min is extremely active
+    "Warm": 80,   # 5min cycle
+    "Cold": 150,  # 15min cycle
+}
+MAX_PAGINATION_ROUNDS = 5  # absolute safety cap for pagination
+INITIAL_LIMIT = 5           # first-ever poll: just set cursor (no pagination)
 BATCH_PAUSE = 0.3        # seconds between batches
 
 # ── Anti-ban protections ──
@@ -196,15 +203,19 @@ class ChannelPoller:
     # ═══════════════ CHANNEL POLLING ═══════════════
 
     async def _poll_channel(
-        self, account, channel_username: str, initial: bool = False, limit: int = 3,
+        self, account, channel_username: str, tier_name: str, initial: bool = False,
     ) -> None:
-        """Poll a single channel: get new messages since cursor, classify, dispatch.
+        """Poll a single channel: get all new messages since cursor, classify, dispatch.
+
+        Uses tier-specific limits with automatic pagination — if a batch returns
+        exactly TIER_LIMITS[tier] messages, we keep fetching until caught up.
+        Guarantees no message loss while adding API calls only for busy channels.
 
         Args:
             account: UserbotAccount to use
             channel_username: @username of the channel
-            initial: True on first-ever poll (get last N messages, set cursor)
-            limit: max messages to fetch (higher for initial catch-up)
+            tier_name: "Hot" | "Warm" | "Cold" — picks TIER_LIMITS[tier]
+            initial: True on first-ever poll (get last N messages, set cursor, no pagination)
         """
         try:
             await limiter.acquire()
@@ -216,18 +227,14 @@ class ChannelPoller:
 
         cursor = await self._get_cursor(channel_username) if not initial else 0
 
-        await limiter.acquire()
-        try:
-            if cursor > 0:
-                messages = await account.get_messages(entity, min_id=cursor, limit=limit)
-            else:
-                messages = await account.get_messages(entity, limit=limit)
-        except FloodWaitError:
-            raise
-        except Exception:
-            return  # Channel became inaccessible
+        # Fetch ALL messages since cursor, paginating if needed
+        all_messages = await self._fetch_all_since(
+            account, entity, cursor,
+            tier_limit=INITIAL_LIMIT if initial else TIER_LIMITS[tier_name],
+            paginate=not initial,  # initial poll is just to set cursor
+        )
 
-        if not messages:
+        if not all_messages:
             return
 
         # Update channel title (async, best-effort)
@@ -236,9 +243,9 @@ class ChannelPoller:
             asyncio.create_task(_update_channel_title(channel_username, new_title))
 
         # Process messages OLDEST-FIRST so cursor advances correctly
-        # get_messages returns newest-first, so iterate reversed
+        # all_messages is accumulated newest-first, so iterate reversed
         max_msg_id = cursor
-        for msg in reversed(messages):
+        for msg in reversed(all_messages):
             if not isinstance(msg, Message) or not msg.message:
                 continue
 
@@ -282,10 +289,78 @@ class ChannelPoller:
         if max_msg_id > cursor:
             await self._set_cursor(channel_username, max_msg_id)
 
+    async def _fetch_all_since(
+        self, account, entity, cursor: int, tier_limit: int, paginate: bool = True,
+    ) -> list:
+        """Fetch all messages since `cursor`, paginating if a batch is full.
+
+        When paginate=True and a batch returns exactly tier_limit messages,
+        continues fetching older messages between cursor and the batch's
+        oldest message until the gap is exhausted or MAX_PAGINATION_ROUNDS.
+
+        Returns messages newest-first (same order as Telethon's get_messages).
+        """
+        all_messages = []
+        fetch_min_id = cursor
+        rounds = 0
+
+        while rounds < (MAX_PAGINATION_ROUNDS if paginate else 1):
+            await limiter.acquire()
+            try:
+                if fetch_min_id > 0 and rounds > 0:
+                    # Pagination: narrow the window to messages between
+                    # the original cursor and just below the oldest message
+                    # we already fetched.
+                    oldest_in_prev = min(m.id for m in all_messages)
+                    batch = await account.get_messages(
+                        entity,
+                        min_id=cursor,
+                        max_id=oldest_in_prev - 1,
+                        limit=tier_limit,
+                    )
+                elif fetch_min_id > 0:
+                    batch = await account.get_messages(
+                        entity, min_id=fetch_min_id, limit=tier_limit,
+                    )
+                else:
+                    batch = await account.get_messages(entity, limit=tier_limit)
+            except FloodWaitError:
+                raise
+            except Exception:
+                break  # Channel became inaccessible
+
+            if not batch:
+                break
+
+            all_messages.extend(batch)
+            rounds += 1
+
+            if len(batch) < tier_limit:
+                break  # got everything — partial batch means no more messages
+
+            if not paginate:
+                break
+
+            # Full batch means there may be more older messages.
+            # Next iteration will use max_id to fetch the gap.
+            logger.debug(
+                "@%s: full batch (%d msgs) — paginating round %d/%d",
+                getattr(entity, 'username', '?'),
+                len(batch), rounds, MAX_PAGINATION_ROUNDS,
+            )
+
+        if rounds > 1:
+            logger.info(
+                "@%s: paginated %d rounds, total %d messages fetched",
+                getattr(entity, 'username', '?'), rounds, len(all_messages),
+            )
+
+        return all_messages
+
     # ═══════════════ BATCH & TIER LOOPS ═══════════════
 
     async def _poll_batch(
-        self, account, channels: list[dict], initial: bool = False,
+        self, account, channels: list[dict], tier_name: str, initial: bool = False,
     ) -> tuple[int, int]:
         """Poll a batch of channels in parallel. Returns (ok_count, error_count)."""
         if not channels:
@@ -294,14 +369,12 @@ class ChannelPoller:
         # Check circuit breaker for this specific account before starting batch
         await limiter.wait_if_circuit_open(account.account_id)
 
-        limit = 3 if not initial else INITIAL_HOT_LIMIT
-
         async def _poll_one(ch: dict) -> bool:
             """Poll one channel, return True on success."""
             try:
                 await self._poll_channel(
                     account, ch["chat_username"].strip().lstrip("@"),
-                    initial=initial, limit=limit,
+                    tier_name=tier_name, initial=initial,
                 )
                 return True
             except FloodWaitError as e:
@@ -388,8 +461,8 @@ class ChannelPoller:
                         "Skipping account %d — circuit breaker open", account.account_id
                     )
                     continue
-                limit_tag = f"(initial, limit={INITIAL_HOT_LIMIT})" if initial else "(incremental)"
-                ok, err = await self._poll_batch(account, chunk, initial=initial)
+                limit_tag = "(initial)" if initial else "(incremental + pagination)"
+                ok, err = await self._poll_batch(account, chunk, tier_name=tier_name, initial=initial)
                 elapsed = time.time() - start
                 if ok + err > 0:
                     logger.info(

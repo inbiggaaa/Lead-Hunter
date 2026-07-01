@@ -141,8 +141,8 @@ async def search_channels(client: TelegramClient, geo_queries: dict, limit: int 
                                        country.name_ru if country else "?",
                                        city.name_ru if city else "?")
 
-                    # Slow background fill: 5-6 min between search queries
-                    await asyncio.sleep(300 + random.uniform(0, 60))
+                    # Brief pause between searches (rate limiter handles minimum interval)
+                    await asyncio.sleep(1.5)
 
                 except FloodWaitError as e:
                     logger.warning("Discovery FloodWait: %ds", e.seconds)

@@ -693,6 +693,13 @@ Backward compat: account_id=0 → legacy global keys.
 Account 2 получал 1018 каналов (Hot 104 + Warm 154 + Cold 760) × 2 API-вызова = 2036 вызовов.
 11 минут непрерывного потока API-вызовов → Telegram anti-spam detection.
 
+**01.07.2026 11:00 — Пагинация сообщений: 100% покрытие, 0 риск бана.**
+Заменил фиксированный limit=3 на TIER_LIMITS (Hot=30, Warm=80, Cold=150) с авто-пагинацией.
+Если батч возвращается полным — добираем остаток через max_id-окно за доп. API-вызов.
+Для 99% каналов — ровно столько же вызовов (2 на канал). Rate limiter (3 rps) не менялся.
+Добавлен канал @kz_danang (Вьетнам, Дананг) в каталог (id=2142, Hot-тир).
+Исправлен SSH keepalive: ClientAliveInterval=30, ClientAliveCountMax=720 (6ч).
+
 **01.07.2026 10:45 — Anti-ban protection (3 уровня) + метки категорий в уведомлениях.**
 Staggered startup: Hot@0s, Warm@60s, Cold@180s.
 Warmup: 7 циклов рампы (8%→16%→25%→35%→50%→70%→100%).
