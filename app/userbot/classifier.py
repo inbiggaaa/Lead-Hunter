@@ -75,12 +75,16 @@ DEMAND_SIGNAL_PATTERNS = [
 OFFER_SIGNAL_PATTERNS = [
     # Price mentions: "Цена от 50к", "цена: 50000", "price $100", "стоимость 1000"
     r"(цена|прайс|стоимость|price|стоит)\b.*?\d+",
+    # Vietnamese currency prices: "9,7 VND", "10tr", "15 triệu", "20к донгов"
+    r"\d+[\d,.]*\s*(vnd|донг|dong|₫|tr|triệu|🍋|к донгов)\b",
     # Phone/contact without @username: "WhatsApp +84...", "тел. 8900...", "звони 123"
     r"(тел|phone|whatsapp|wa|tg|звони|пиши|\+\d)[\s.:\-]*[\d\s\-+()]{7,}",
     # @username with long number (legacy)
     r"@\w+.*\d{7,}",
     # 3+ hashtags (promotional/marketing)
     r"(#[a-zA-Zа-яА-ЯёЁ0-9_]+[\s\n]*){3,}",
+    # Vehicle documents: strongly indicates a sale/purchase listing (not service query)
+    r"\b(blue card|green card|розовая карта|документы|документ|registration)\b",
     # Commercial language: company introductions, self-promotion, service descriptions.
     # These NEVER appear in genuine client demand — purely offer/ads.
     r"\b(добро пожаловать|welcome to)\b",
@@ -155,19 +159,36 @@ def _has_offer_signal(text: str) -> bool:
     return False
 
 
+def _word_in_text(word: str, text: str) -> bool:
+    """Check if word appears in text with word boundary, accounting for negation.
+
+    For multi-word keyword matching: a word preceded by 'не', 'нет', or 'без'
+    (at word boundary) is NOT counted as a match.
+    """
+    pattern = _build_word_pattern(word)
+    if not re.search(pattern, text, re.UNICODE | re.IGNORECASE):
+        return False
+    # Check for negation: "не нужны", "нет прав", "без прав"
+    neg_pattern = r"(?<![а-яёa-z0-9])(не|нет|без)\s+" + _build_word_pattern(word)
+    if re.search(neg_pattern, text, re.UNICODE | re.IGNORECASE):
+        return False
+    return True
+
+
 def _match_keyword(keyword: str, text: str) -> bool:
     """Check if keyword matches text with word boundary, case-insensitive, Unicode.
 
     Multi-word keywords match if ALL individual words appear in text (not
     necessarily adjacent — real messages rarely have words exactly side by side).
+    Negation-aware: words preceded by 'не', 'нет', 'без' are treated as absent.
     """
     words = keyword.split()
     if len(words) == 1:
-        pattern = _build_word_pattern(keyword)
-        return bool(re.search(pattern, text, re.UNICODE | re.IGNORECASE))
-    # Multi-word: all words must be present as word-boundary matches
+        return _word_in_text(keyword, text)
+    # Multi-word: all words must be present as word-boundary matches,
+    # and none may be negated (preceded by 'не', 'нет', 'без').
     return all(
-        bool(re.search(_build_word_pattern(w), text, re.UNICODE | re.IGNORECASE))
+        _word_in_text(w, text)
         for w in words
     )
 
