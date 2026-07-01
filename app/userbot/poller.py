@@ -609,8 +609,8 @@ class ChannelPoller:
             for sub in subscriptions:
                 if sub["country_id"] != channel_country_id:
                     continue
-                if sub.get("city_ids") and channel_city_id:
-                    if channel_city_id not in sub["city_ids"]:
+                if sub.get("city_ids") and effective_city_ids:
+                    if not (effective_city_ids & set(sub["city_ids"])):
                         continue
                 if sub["segment_id"] in matched_segment_ids:
                     interested = True
@@ -621,8 +621,8 @@ class ChannelPoller:
                 for sub in subscriptions:
                     if sub["country_id"] != channel_country_id:
                         continue
-                    if sub.get("city_ids") and channel_city_id:
-                        if channel_city_id not in sub["city_ids"]:
+                    if sub.get("city_ids") and effective_city_ids:
+                        if not (effective_city_ids & set(sub["city_ids"])):
                             continue
                     if personal_kws and any(
                         kw.lower() in message_text.lower() for kw in personal_kws
