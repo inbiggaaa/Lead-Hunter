@@ -569,7 +569,7 @@ class ChannelPoller:
         entries. Already-tagged channels are skipped (idempotent).
         Returns number of newly tagged channels.
         """
-        from app.db.models import Country, City, ChannelCity
+        from app.db.models import Country, City, ChannelCity, CatalogChannel
         from sqlalchemy import select as sa_select, delete as sa_delete, update as sa_update
 
         async with async_session_factory() as session:
