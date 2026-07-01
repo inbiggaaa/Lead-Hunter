@@ -679,6 +679,14 @@ Fallback API-кредов первого аккаунта (api_id=32062916) — 
 Pool: 2 healthy accounts, каналы распределятся round-robin после закрытия circuit breaker.
 Урок: docker compose restart не подхватывает новые env vars — нужен up -d.
 
+**01.07.2026 10:15 — Per-account circuit breaker (FloodWait одного аккаунта не блокирует остальные).**
+Рефакторинг rate_limiter: Redis-ключи per-account (circuit:open:{id}, circuit:expires:{id}).
+Poller: пропускает аккаунты с открытым CB, wait_if_circuit_open per-account.
+Discovery: is_any_circuit_open() вместо глобального wait — пропускает цикл если хоть один заблокирован.
+Backward compat: account_id=0 → legacy global keys.
+Результат: Account 1 (@iraluxme) ещё под баном ~2.5ч, Account 2 (@Sofiya) свободно поллит и приносит матчи.
+33 уведомления всего, 3 пользователя, worker стабилен.
+
 ---
 
 ## 9. Ключевые решения (полный архив — DECISIONS.md)
