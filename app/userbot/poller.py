@@ -500,7 +500,7 @@ class ChannelPoller:
         # Start health check in background
         asyncio.create_task(self.pool.health_check_loop())
 
-        WEEK = 7 * 24 * 3600
+        KEYWORD_RELOAD = 300  # Reload keywords from DB every 5 minutes (live admin changes)
         TIER_REBUILD = 3600  # Rebuild tiers every hour
         _last_reload = time.time()
         _last_tier_rebuild = time.time()
@@ -510,7 +510,7 @@ class ChannelPoller:
             self._run_tier_loop("Hot", self._hot_channels, HOT_INTERVAL, startup_delay=HOT_STARTUP_DELAY),
             self._run_tier_loop("Warm", self._warm_channels, WARM_INTERVAL, startup_delay=WARM_STARTUP_DELAY),
             self._run_tier_loop("Cold", self._cold_channels, COLD_INTERVAL, startup_delay=COLD_STARTUP_DELAY),
-            self._maintenance_loop(WEEK, TIER_REBUILD, _last_reload, _last_tier_rebuild),
+            self._maintenance_loop(KEYWORD_RELOAD, TIER_REBUILD, _last_reload, _last_tier_rebuild),
         )
 
     async def _maintenance_loop(
