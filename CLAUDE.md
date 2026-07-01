@@ -622,18 +622,19 @@ show_last_leads → done
 - `OPERATIONS.md` — правила эксплуатации, защита от бана, чек-лист деплоя
 - `CLAUDE.md §0` — обязательная инструкция: читать OPERATIONS.md перед изменениями в poller/rate-limiter
 
-**Инцидент:**
+**Инциденты:**
 - 30.06.2026 17:42 — FloodWait 18ч (Poller v2 без rate limiter). Исправлено: возвращён `limiter.acquire()`, `PARALLEL_BATCH=3`, `DEFAULT_MIN_INTERVAL=0.3`.
-- Circuit breaker активен до ~11:40 01.07.2026. Worker ждёт, discovery приостановлен.
+- 01.07.2026 10:30 — FloodWait 24ч Account 2 (все 3 тира стартовали одновременно → 2036 вызовов за 11 мин). Исправлено: staggered startup, warmup, jitter.
+- Circuit breaker: Account 1 до ~12:20 MSK, Account 2 до ~10:30 MSK 02.07.2026. Оба заблокированы.
 
 **Текущие цифры:**
 - Каналов: 2035 (100% geo), городов: 120 (из них 23 новых), сегментов: 29
-- Ключевых слов: 2233 (1935 demand + 220 synonym + 102 stop), 96 universal stops
-- Pre-tagged каналов: 31 (по названиям)
+- Ключевых слов: 2234 (1935 demand + 220 synonym + 102 stop), 96 universal stops
+- Pre-tagged каналов: 33 (по названиям)
 - Пользователей: 3, уведомлений всего: 33
 - Hot/Warm/Cold: 208 / 308 / 1519 каналов
-- Userbot-аккаунтов: 2 (@iraluxme, Sofiya)
-- Redis: circuit breaker OPEN (до ~12:20 MSK), stats:unmatched:seen активен
+- Userbot-аккаунтов: 2 (@iraluxme, Sofiya) — ОБА ЗАБЛОКИРОВАНЫ
+- Anti-ban: staggered startup (0/60/180s), warmup 8%→100% за 7 циклов, jitter ±15%
 
 ### Session log
 
@@ -686,6 +687,19 @@ Discovery: is_any_circuit_open() вместо глобального wait — п
 Backward compat: account_id=0 → legacy global keys.
 Результат: Account 1 (@iraluxme) ещё под баном ~2.5ч, Account 2 (@Sofiya) свободно поллит и приносит матчи.
 33 уведомления всего, 3 пользователя, worker стабилен.
+
+**01.07.2026 10:30 — ИНЦИДЕНТ: Account 2 (@Sofiya) тоже получил FloodWait 24ч.**
+Корневая причина: при старте воркера все 3 тира запускались одновременно.
+Account 2 получал 1018 каналов (Hot 104 + Warm 154 + Cold 760) × 2 API-вызова = 2036 вызовов.
+11 минут непрерывного потока API-вызовов → Telegram anti-spam detection.
+
+**01.07.2026 10:45 — Anti-ban protection (3 уровня) + метки категорий в уведомлениях.**
+Staggered startup: Hot@0s, Warm@60s, Cold@180s.
+Warmup: 7 циклов рампы (8%→16%→25%→35%→50%→70%→100%).
+Jitter: ±15% случайной вариации интервалов.
+Уведомления: строка 🏷 с названием категории (или 🔑 для персональных keyword).
+Результат: Hot стартует с 16 каналов вместо 208, плавный выход на полную за 7 мин.
+Оба аккаунта под баном: Acc1 ~2ч, Acc2 ~23.5ч. Уведомления не идут. Ждём снятия.
 
 ---
 
