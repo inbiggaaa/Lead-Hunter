@@ -254,10 +254,13 @@ class ChannelPoller:
         if not all_messages:
             return
 
-        # Update channel title (async, best-effort)
+        # Update channel title and participants (async, best-effort)
         new_title = getattr(entity, "title", None)
-        if new_title:
-            asyncio.create_task(_update_channel_title(channel_username, new_title))
+        new_participants = getattr(entity, "participants_count", None)
+        if new_title or new_participants:
+            asyncio.create_task(
+                _update_channel_info(channel_username, new_title, new_participants)
+            )
 
         # Process messages OLDEST-FIRST so cursor advances correctly
         # all_messages is accumulated newest-first, so iterate reversed
@@ -849,8 +852,10 @@ class ChannelPoller:
 
 # ── Module-level helpers ──
 
-async def _update_channel_title(chat_username: str, new_title: str) -> None:
-    """Update channel title in DB if it changed. Best-effort, never raises."""
+async def _update_channel_info(
+    chat_username: str, new_title: str | None, new_participants: int | None,
+) -> None:
+    """Update channel title and/or participant count in DB. Best-effort."""
     try:
         from app.db.session import async_session_factory
         from app.db.models import CatalogChannel
@@ -858,15 +863,23 @@ async def _update_channel_title(chat_username: str, new_title: str) -> None:
 
         async with async_session_factory() as session:
             ch = (await session.execute(
-                select(CatalogChannel.title).where(
+                select(CatalogChannel).where(
                     CatalogChannel.chat_username == chat_username
                 )
             )).scalar_one_or_none()
-            if ch and ch != new_title:
+
+            updates = {}
+            if new_title and ch and ch.title != new_title:
+                updates["title"] = new_title
+            if new_participants is not None and new_participants > 0:
+                if not ch or (ch.participants or 0) != new_participants:
+                    updates["participants"] = new_participants
+
+            if updates:
                 await session.execute(
                     update(CatalogChannel)
                     .where(CatalogChannel.chat_username == chat_username)
-                    .values(title=new_title)
+                    .values(**updates)
                 )
                 await session.commit()
     except Exception:
