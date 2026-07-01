@@ -9,6 +9,7 @@ Key improvements over v1:
 
 import asyncio
 import logging
+import random
 import time
 
 from telethon.errors import FloodWaitError
@@ -33,6 +34,19 @@ PARALLEL_BATCH = 3       # channels per asyncio.gather batch (1 account)
 INITIAL_HOT_LIMIT = 5
 INITIAL_COLD_LIMIT = 2
 BATCH_PAUSE = 0.3        # seconds between batches
+
+# ── Anti-ban protections ──
+# Staggered startup: tiers don't fire all at once (prevents initial API storm)
+HOT_STARTUP_DELAY = 0     # seconds — Hot starts immediately
+WARM_STARTUP_DELAY = 60   # seconds — Warm waits 1 min
+COLD_STARTUP_DELAY = 180  # seconds — Cold waits 3 min
+
+# Channel warmup: gradual ramp-up to full load (prevents new-account detection)
+# Each step = (channels per cycle as fraction of total)
+WARMUP_STEPS = [0.08, 0.16, 0.25, 0.35, 0.50, 0.70, 1.0]  # 7 cycles to full speed
+
+# Random jitter: adds unpredictability to polling pattern (±15%)
+INTERVAL_JITTER = 0.15
 
 # ── Cursor Redis keys ──
 CURSOR_PREFIX = "cursor:msg:"
@@ -318,18 +332,52 @@ class ChannelPoller:
 
     async def _run_tier_loop(
         self, tier_name: str, channels: list[dict], interval: int,
+        startup_delay: int = 0,
     ):
-        """Run a continuous loop polling a specific tier every `interval` seconds."""
-        logger.info("Tier '%s' loop started: %d channels, every %ds", tier_name, len(channels), interval)
+        """Run a continuous loop polling a specific tier every `interval` seconds.
 
-        # First run: initial catch-up (get last N messages, set cursors)
+        Protections:
+        - startup_delay: stagger tier starts to avoid API storm
+        - warmup: gradual channel ramp-up over WARMUP_STEPS cycles
+        - jitter: +/-15% random variation on interval
+        """
+        total_channels = len(channels)
+
+        # Staggered startup
+        if startup_delay > 0:
+            logger.info(
+                "Tier '%s': staggered start — waiting %ds before first cycle",
+                tier_name, startup_delay,
+            )
+            await asyncio.sleep(startup_delay)
+
+        logger.info(
+            "Tier '%s' loop started: %d channels, every %ds (stagger=%ds, warmup=%d steps)",
+            tier_name, total_channels, interval, startup_delay, len(WARMUP_STEPS),
+        )
+
         initial = True
+        cycle_num = 0
 
         while True:
             start = time.time()
+            cycle_num += 1
+
+            # Warmup: limit channels during first N cycles
+            if cycle_num <= len(WARMUP_STEPS):
+                fraction = WARMUP_STEPS[cycle_num - 1]
+                limit = max(1, int(total_channels * fraction))
+                tier_channels = channels[:limit]
+                logger.info(
+                    "Tier '%s' warmup %d/%d: %d/%d channels (%.0f%%)",
+                    tier_name, cycle_num, len(WARMUP_STEPS),
+                    len(tier_channels), total_channels, fraction * 100,
+                )
+            else:
+                tier_channels = channels
 
             # Distribute channels across healthy accounts
-            account_chunks = self._distribute(channels)
+            account_chunks = self._distribute(tier_channels)
 
             for account, chunk in account_chunks:
                 if not account.is_healthy:
@@ -349,11 +397,13 @@ class ChannelPoller:
                         tier_name, ok, err, elapsed, limit_tag,
                     )
 
-            initial = False  # After first pass, switch to incremental
+            initial = False
 
-            # Sleep until next interval
+            # Random jitter: break predictable patterns
+            jitter = interval * INTERVAL_JITTER
+            jittered = interval + random.uniform(-jitter, jitter)
             elapsed = time.time() - start
-            await asyncio.sleep(max(0, interval - elapsed))
+            await asyncio.sleep(max(0, jittered - elapsed))
 
     def _distribute(self, channels: list[dict]) -> list[tuple]:
         """Distribute channels across healthy accounts evenly."""
@@ -382,11 +432,11 @@ class ChannelPoller:
         _last_reload = time.time()
         _last_tier_rebuild = time.time()
 
-        # Launch all three tier loops in parallel
+        # Launch all three tier loops with staggered startup to prevent API storm
         await asyncio.gather(
-            self._run_tier_loop("Hot", self._hot_channels, HOT_INTERVAL),
-            self._run_tier_loop("Warm", self._warm_channels, WARM_INTERVAL),
-            self._run_tier_loop("Cold", self._cold_channels, COLD_INTERVAL),
+            self._run_tier_loop("Hot", self._hot_channels, HOT_INTERVAL, startup_delay=HOT_STARTUP_DELAY),
+            self._run_tier_loop("Warm", self._warm_channels, WARM_INTERVAL, startup_delay=WARM_STARTUP_DELAY),
+            self._run_tier_loop("Cold", self._cold_channels, COLD_INTERVAL, startup_delay=COLD_STARTUP_DELAY),
             self._maintenance_loop(WEEK, TIER_REBUILD, _last_reload, _last_tier_rebuild),
         )
 
@@ -448,14 +498,24 @@ class ChannelPoller:
         async with async_session_factory() as session:
             segs = (await session.execute(sa_select(Segment))).scalars().all()
         seg_by_slug = {s.slug: s.id for s in segs}
+        seg_info = {
+            s.slug: {
+                "emoji": (s.emoji or ""),
+                "ru": (s.title_ru or s.slug),
+                "en": (s.title_en or s.slug),
+            }
+            for s in segs
+        }
         matched_segment_ids = {seg_by_slug.get(s) for s in matched_segments}
         matched_segment_ids.discard(None)
 
         for user in users:
             subscriptions = user.get("subscriptions", [])
             personal_kws = user.get("keyword_texts", [])
+            lang = user.get("lang", "ru")
 
             interested = False
+            match_type = None  # "segment" or "keyword"
             for sub in subscriptions:
                 if sub["country_id"] != channel_country_id:
                     continue
@@ -464,6 +524,7 @@ class ChannelPoller:
                         continue
                 if sub["segment_id"] in matched_segment_ids:
                     interested = True
+                    match_type = "segment"
                     break
 
             if not interested:
@@ -477,15 +538,29 @@ class ChannelPoller:
                         kw.lower() in message_text.lower() for kw in personal_kws
                     ):
                         interested = True
+                        match_type = "keyword"
                         break
 
             if not interested:
                 continue
 
+            # Build human-readable segment names for the notification footer
+            if match_type == "segment":
+                matched_names = [
+                    {"emoji": seg_info[s]["emoji"], "title": seg_info[s][lang]}
+                    for s in matched_segments
+                    if s in seg_info
+                ]
+            else:
+                # Personal keyword match — generic label
+                matched_names = [
+                    {"emoji": "🔑", "title": "Персональное ключевое слово" if lang == "ru" else "Personal keyword"}
+                ]
+
             await push_notification({
                 "user_id": user["user_id"],
                 "telegram_id": user["telegram_id"],
-                "lang": user.get("lang", "ru"),
+                "lang": lang,
                 "plan": user.get("plan", "free"),
                 "chat_username": chat_username,
                 "text": message_text,
@@ -493,6 +568,7 @@ class ChannelPoller:
                 "message_id": message_id,
                 "message_hash": message_hash,
                 "is_urgent": is_urgent,
+                "matched_segments": matched_names,
             })
 
     # ═══════════════ KEYWORD LOADING ═══════════════

@@ -107,6 +107,15 @@ class NotificationSender:
         if is_free:
             msg += "\n\n🔒 Контакты скрыты на Free-тарифе.\n💰 Активируй подписку чтобы видеть отправителя."
 
+        # Add category label(s)
+        matched = payload.get("matched_segments", [])
+        if matched:
+            labels = ", ".join(
+                f"{m['emoji']} {m['title']}" if m["emoji"] else m["title"]
+                for m in matched
+            )
+            msg += f"\n\n🏷 {labels}"
+
         return msg
 
     def _build_keyboard(self, payload: dict) -> InlineKeyboardMarkup:
