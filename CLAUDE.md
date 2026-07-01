@@ -693,6 +693,11 @@ Backward compat: account_id=0 → legacy global keys.
 Account 2 получал 1018 каналов (Hot 104 + Warm 154 + Cold 760) × 2 API-вызова = 2036 вызовов.
 11 минут непрерывного потока API-вызовов → Telegram anti-spam detection.
 
+**01.07.2026 11:30 — Discovery v2: выделенный аккаунт + защита от бана.**
+Исправлен discovery_v2: выделенный userbot2, per-account circuit breaker, 30-сек пауза.
+23K запросов за 8.3 дня, 0.033 rps — в 908 раз ниже лимита Telegram.
+Бан discovery не заденет поллер (разные аккаунты + per-account CB).
+
 **01.07.2026 11:00 — Пагинация сообщений: 100% покрытие, 0 риск бана.**
 Заменил фиксированный limit=3 на TIER_LIMITS (Hot=30, Warm=80, Cold=150) с авто-пагинацией.
 Если батч возвращается полным — добираем остаток через max_id-окно за доп. API-вызов.
