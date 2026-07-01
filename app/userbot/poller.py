@@ -92,6 +92,7 @@ class ChannelPoller:
             self._keyword_map, self._universal_stops = await self._load_keywords()
             await self._load_channel_segments()
             await self._rebuild_tiers()
+            await self._tag_new_channels()  # tag any new channels from discovery
 
     async def _rebuild_tiers(self):
         """Recompute channel tiers: Hot/Warm/Cold/Dormant based on subscriptions.
@@ -549,11 +550,96 @@ class ChannelPoller:
             if now - last_tier_rebuild > tier_rebuild_interval:
                 try:
                     await self._rebuild_tiers()
+                    await self._tag_new_channels()  # tag channels added by discovery
                     last_tier_rebuild = now
                 except Exception as e:
                     logger.warning("Tier rebuild failed: %s", e)
 
             await asyncio.sleep(300)  # Check every 5 minutes
+
+    # ═══════════════ GEO AUTO-TAGGING ═══════════════
+
+    async def _tag_new_channels(self) -> int:
+        """Auto-detect city from title for channels without geo tags.
+
+        Only processes channels that have NO city_id and NO channel_cities
+        entries. Already-tagged channels are skipped (idempotent).
+        Returns number of newly tagged channels.
+        """
+        from app.db.models import Country, City, ChannelCity
+        from sqlalchemy import select as sa_select, delete as sa_delete, update as sa_update
+
+        async with async_session_factory() as session:
+            cities = (await session.execute(
+                sa_select(City).where(
+                    City.is_active == True, City.name_ru != "🌐 Вся страна"
+                )
+            )).scalars().all()
+            # Only channels with NO city tag and NOT in channel_cities
+            existing_cc = (await session.execute(
+                sa_select(ChannelCity.channel_id).distinct()
+            )).scalars().all()
+            channels_with_entries = set(existing_cc)
+
+            channels = (await session.execute(
+                sa_select(CatalogChannel).where(
+                    CatalogChannel.auto_matched_country_id.isnot(None),
+                    CatalogChannel.auto_matched_city_id.is_(None),
+                    CatalogChannel.title.isnot(None),
+                )
+            )).scalars().all()
+
+        country_cities: dict[int, list[tuple[int, str]]] = {}
+        for c in cities:
+            name = (c.name_ru or "").lower()
+            if len(name) >= 4:
+                country_cities.setdefault(c.country_id, []).append((c.id, name))
+
+        tagged = 0
+        for ch in channels:
+            if ch.id in channels_with_entries:
+                continue
+            if ch.auto_matched_country_id not in country_cities:
+                continue
+
+            title_lower = ch.title.lower()
+            city_hits: list[int] = []
+            for city_id, city_name in country_cities[ch.auto_matched_country_id]:
+                if city_name in title_lower:
+                    city_hits.append(city_id)
+
+            unique = list(dict.fromkeys(city_hits))
+            if not unique:
+                continue
+
+            if len(unique) == 1:
+                async with async_session_factory() as s:
+                    await s.execute(
+                        sa_update(CatalogChannel)
+                        .where(CatalogChannel.id == ch.id)
+                        .values(auto_matched_city_id=unique[0])
+                    )
+                    await s.commit()
+                tagged += 1
+            else:
+                async with async_session_factory() as s:
+                    await s.execute(
+                        sa_delete(ChannelCity).where(ChannelCity.channel_id == ch.id)
+                    )
+                    for city_id in unique:
+                        s.add(ChannelCity(channel_id=ch.id, city_id=city_id))
+                    if not ch.auto_matched_city_id:
+                        await s.execute(
+                            sa_update(CatalogChannel)
+                            .where(CatalogChannel.id == ch.id)
+                            .values(auto_matched_city_id=unique[0])
+                        )
+                    await s.commit()
+                tagged += 1
+
+        if tagged:
+            logger.info("Geo auto-tag: %d new channels tagged", tagged)
+        return tagged
 
     # ═══════════════ DISPATCH ═══════════════
 

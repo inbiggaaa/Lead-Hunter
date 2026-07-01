@@ -37,8 +37,24 @@ async def main():
     single_tagged = 0
     multi_tagged = 0
     channels_processed = 0
+    skipped_existing = 0
+
+    # Pre-load channels that already have city entries (to skip them)
+    async with async_session_factory() as session:
+        existing_cc = (await session.execute(
+            select(ChannelCity.channel_id).distinct()
+        )).scalars().all()
+    channels_with_city_entries = set(existing_cc)
 
     for ch in channels:
+        # Skip channels already tagged with a city OR already in channel_cities
+        if ch.auto_matched_city_id is not None:
+            skipped_existing += 1
+            continue
+        if ch.id in channels_with_city_entries:
+            skipped_existing += 1
+            continue
+
         if ch.auto_matched_country_id not in country_cities:
             continue
 
@@ -89,7 +105,8 @@ async def main():
             multi_tagged += 1
             print(f"  Multi: @{ch.chat_username} → {unique_hits} cities")
 
-    print(f"\nChannels processed: {channels_processed}")
+    print(f"\nChannels skipped (already tagged): {skipped_existing}")
+    print(f"Channels processed: {channels_processed}")
     print(f"Single-city tagged: {single_tagged}")
     print(f"Multi-city (channel_cities): {multi_tagged}")
 
