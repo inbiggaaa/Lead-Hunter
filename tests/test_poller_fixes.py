@@ -249,3 +249,77 @@ def test_should_poll_warm_active_ignores_unhealthy():
         _make_account(3, is_healthy=False),
     ]
     assert poller._should_poll_tier("Warm") is False
+
+
+# ── Parked countries tests (Task 0.3) ──
+
+
+@patch("app.userbot.poller.settings")
+async def test_parked_countries_excluded(mock_settings):
+    """Каталожные каналы неактивных стран → parked, не в расписании."""
+    mock_settings.poll_parked_countries = False
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+
+    channels = [
+        {"chat_username": "ch_active", "country_id": 1, "participants": 500},
+        {"chat_username": "ch_watched", "country_id": None, "participants": 500},
+        {"chat_username": "ch_inactive", "country_id": 99, "participants": 500},
+    ]
+
+    with patch.object(poller, '_get_all_channels', return_value=channels), \
+         patch.object(poller, '_get_active_countries', return_value={1}):
+        await poller._rebuild_tiers()
+
+    assert len(poller._hot_channels) == 1
+    assert poller._hot_channels[0]["chat_username"] == "ch_active"
+    assert len(poller._warm_channels) == 0
+    assert len(poller._cold_channels) == 1
+    assert poller._cold_channels[0]["chat_username"] == "ch_watched"
+    assert len(poller._dormant_channels) == 0
+    assert poller._parked_count == 1
+
+
+@patch("app.userbot.poller.settings")
+async def test_watched_channels_never_parked(mock_settings):
+    """Watched-каналы (country_id=None) не parked, даже при 0 активных стран."""
+    mock_settings.poll_parked_countries = False
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+
+    channels = [
+        {"chat_username": "ch_watched", "country_id": None, "participants": 500},
+        {"chat_username": "ch_inactive", "country_id": 99, "participants": 500},
+    ]
+
+    with patch.object(poller, '_get_all_channels', return_value=channels), \
+         patch.object(poller, '_get_active_countries', return_value=set()):
+        await poller._rebuild_tiers()
+
+    assert len(poller._cold_channels) == 1
+    assert poller._cold_channels[0]["chat_username"] == "ch_watched"
+    assert len(poller._hot_channels) == 0
+    assert len(poller._dormant_channels) == 0
+    assert poller._parked_count == 1
+
+
+@patch("app.userbot.poller.settings")
+async def test_poll_parked_when_flag_true(mock_settings):
+    """При poll_parked_countries=True — inactive → dormant, parked=0."""
+    mock_settings.poll_parked_countries = True
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+
+    channels = [
+        {"chat_username": "ch_active", "country_id": 1, "participants": 500},
+        {"chat_username": "ch_inactive", "country_id": 99, "participants": 500},
+    ]
+
+    with patch.object(poller, '_get_all_channels', return_value=channels), \
+         patch.object(poller, '_get_active_countries', return_value={1}):
+        await poller._rebuild_tiers()
+
+    assert len(poller._hot_channels) == 1
+    assert len(poller._dormant_channels) == 1
+    assert poller._dormant_channels[0]["chat_username"] == "ch_inactive"
+    assert poller._parked_count == 0
