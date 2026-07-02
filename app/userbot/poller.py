@@ -11,6 +11,7 @@ import asyncio
 import logging
 import random
 import time
+from datetime import datetime, timedelta, timezone
 
 from telethon.errors import FloodWaitError, ChannelInvalidError
 from telethon.tl.types import Message, InputPeerChannel
@@ -19,6 +20,7 @@ from app.userbot.classifier import classify_message, _has_demand_signal, _match_
 from app.userbot.pool import UserbotPool
 from app.userbot.rate_limiter import limiter, BudgetExceeded
 from app.config import settings
+from app.cache import get_redis
 from app.db.session import async_session_factory
 from app.db.models import SegmentKeyword, Segment
 from sqlalchemy import select
@@ -588,6 +590,15 @@ class ChannelPoller:
                     )
                     continue
 
+                # Session check: skip if account is not in active window
+                state = await self._get_session_state(account.account_id)
+                if state != "ACTIVE":
+                    logger.debug(
+                        "Account %d: %s — skipping %s tier",
+                        account.account_id, state, tier_name,
+                    )
+                    continue
+
                 async with lock:
                     limit_tag = "(initial)" if initial else "(incremental + pagination)"
                     ok, err = await self._poll_batch(account, chunk, tier_name=tier_name, initial=initial)
@@ -643,6 +654,123 @@ class ChannelPoller:
             self._account_locks[account_id] = asyncio.Lock()
         return self._account_locks[account_id]
 
+    # ═══════════════ SESSION MANAGEMENT ═══════════════
+
+    async def _session_ticker(self, account_id: int):
+        """Sole owner of session state transitions for one account.
+
+        Sleeps until session:until, then transitions ACTIVE↔PAUSED↔SLEEPING.
+        Survives worker restart via Redis keys (AOF from Task 0.6).
+        """
+        while True:
+            redis = await get_redis()
+            state = await redis.get(f"session:state:{account_id}")
+            until_raw = await redis.get(f"session:until:{account_id}")
+            await redis.aclose()
+
+            now = time.time()
+
+            if state and until_raw:
+                until = float(until_raw)
+                if now < until:
+                    remaining = until - now
+                    logger.info(
+                        "Account %d: %s — sleeping %.0fs until transition",
+                        account_id, state, remaining,
+                    )
+                    await asyncio.sleep(remaining)
+                    continue
+
+            # State expired or missing — transition
+            new_state, new_until = self._next_session_state(
+                account_id, prev_state=state, now=now,
+            )
+
+            redis = await get_redis()
+            await redis.set(f"session:state:{account_id}", new_state)
+            await redis.set(f"session:until:{account_id}", str(new_until))
+            await redis.aclose()
+
+            logger.info(
+                "Account %d: transitioned to %s (until %s UTC)",
+                account_id, new_state,
+                time.strftime("%H:%M:%S", time.gmtime(new_until)),
+            )
+
+    async def _get_session_state(self, account_id: int) -> str:
+        """Read current session state. Tiers call this — no side effects."""
+        redis = await get_redis()
+        state = await redis.get(f"session:state:{account_id}")
+        await redis.aclose()
+        return state if state else "ACTIVE"  # decode_responses=True → already str
+
+    def _next_session_state(
+        self, account_id: int, prev_state: str | None, now: float,
+    ) -> tuple[str, float]:
+        """Compute next session state and its expiry. Pure logic, no I/O."""
+        sleep_start = self._get_sleep_start_hour(account_id)
+
+        # 1. SLEEPING always wakes to ACTIVE — no re-sleep loop
+        if prev_state == "SLEEPING":
+            until = now + random.uniform(20 * 60, 60 * 60)
+            # Extend past current sleep window to avoid immediate re-sleep
+            sleep_end = self._sleep_window_end_ts(now, sleep_start)
+            if sleep_end is not None and until < sleep_end:
+                until = sleep_end + random.uniform(15 * 60, 30 * 60)
+            return ("ACTIVE", until)
+
+        # 2. Enter SLEEPING if now falls in sleep window (any prev_state)
+        if self._is_in_sleep_window(now, sleep_start):
+            duration = random.uniform(4 * 3600, 6 * 3600)
+            return ("SLEEPING", now + duration)
+
+        # 3. ACTIVE ↔ PAUSED outside sleep window
+        if prev_state == "PAUSED" or prev_state is None:
+            return ("ACTIVE", now + random.uniform(20 * 60, 60 * 60))
+
+        return ("PAUSED", now + random.uniform(15 * 60, 60 * 60))
+
+    def _is_in_sleep_window(self, now_ts: float, sleep_start_hour: int) -> bool:
+        """Check if now falls in the 6h sleep window. Handles wraparound."""
+        now = time.gmtime(now_ts)
+        hour = now.tm_hour + now.tm_min / 60.0
+        end = (sleep_start_hour + 6) % 24
+
+        if sleep_start_hour < end:
+            return sleep_start_hour <= hour < end
+        else:
+            return hour >= sleep_start_hour or hour < end
+
+    def _sleep_window_end_ts(
+        self, now_ts: float, sleep_start_hour: int,
+    ) -> float | None:
+        """Return UTC timestamp of the sleep window end containing now_ts, or None."""
+        if not self._is_in_sleep_window(now_ts, sleep_start_hour):
+            return None
+
+        now = time.gmtime(now_ts)
+        hour = now.tm_hour + now.tm_min / 60.0
+        end_hour = (sleep_start_hour + 6) % 24
+
+        end_dt = datetime(
+            now.tm_year, now.tm_mon, now.tm_mday,
+            int(end_hour), 0, 0, tzinfo=timezone.utc,
+        )
+
+        if sleep_start_hour < end_hour:
+            return end_dt.timestamp()
+        else:
+            if hour >= sleep_start_hour:
+                end_dt += timedelta(days=1)
+            return end_dt.timestamp()
+
+    def _get_sleep_start_hour(self, account_id: int) -> int:
+        """Return UTC hour when this account's sleep window starts.
+
+        Hardcoded to 2 UTC for now. Task 1.2 will make this per-account.
+        """
+        return 2
+
     def _get_available_account_count(self) -> int:
         """Count accounts that are healthy.
 
@@ -687,6 +815,10 @@ class ChannelPoller:
 
         # Start health check in background
         asyncio.create_task(self.pool.health_check_loop())
+
+        # Launch session tickers — one per account (sole owner of state transitions)
+        for acc in self.pool.accounts:
+            asyncio.create_task(self._session_ticker(acc.account_id))
 
         KEYWORD_RELOAD = 300  # Reload keywords from DB every 5 minutes (live admin changes)
         TIER_REBUILD = 3600  # Rebuild tiers every hour
