@@ -200,3 +200,52 @@ def test_effective_interval_doubles_with_three_accounts_one_healthy():
 
     result = poller._get_effective_interval("Hot", 30)
     assert result == 60  # 1 healthy → ×2
+
+
+# ── _should_poll_tier tests ──
+
+
+def test_should_poll_hot_always_true():
+    """Hot всегда активен, даже при 1 аккаунте."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    assert poller._should_poll_tier("Hot") is True
+
+
+def test_should_poll_warm_paused_with_one_account():
+    """Warm на паузе при 1 healthy."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    assert poller._should_poll_tier("Warm") is False
+
+
+def test_should_poll_cold_paused_with_one_account():
+    """Cold на паузе при 1 healthy."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    assert poller._should_poll_tier("Cold") is False
+
+
+def test_should_poll_dormant_paused_with_one_account():
+    """Dormant на паузе при 1 healthy."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    assert poller._should_poll_tier("Dormant") is False
+
+
+def test_should_poll_warm_active_with_two_accounts():
+    """Warm активен при 2+ healthy."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    assert poller._should_poll_tier("Warm") is True
+
+
+def test_should_poll_warm_active_ignores_unhealthy():
+    """Warm НЕ активен: 3 аккаунта, но 2 unhealthy → только 1 healthy."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [
+        _make_account(1, is_healthy=True),
+        _make_account(2, is_healthy=False),
+        _make_account(3, is_healthy=False),
+    ]
+    assert poller._should_poll_tier("Warm") is False

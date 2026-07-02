@@ -27,7 +27,6 @@ class UserbotAccount:
             api_id,
             api_hash,
         )
-        self.channel_count = 0
         self.is_healthy = True
         self.last_error: str | None = None
 
@@ -67,11 +66,10 @@ class UserbotAccount:
 
 
 class UserbotPool:
-    """Manages multiple userbot accounts with automatic failover."""
+    """Manages multiple userbot accounts."""
 
     def __init__(self):
         self.accounts: list[UserbotAccount] = []
-        self._channel_assignments: dict[str, int] = {}  # channel_username -> account_id
         self._lock = asyncio.Lock()
 
     @staticmethod
@@ -104,66 +102,17 @@ class UserbotPool:
         if not self.accounts:
             raise RuntimeError("No healthy userbot accounts available. Run auth.py to create sessions.")
 
-    async def redistribute_channels(self, channels: list[str]):
-        """Distribute channels across accounts evenly."""
-        async with self._lock:
-            # Reset counts
-            for acc in self.accounts:
-                acc.channel_count = 0
-            self._channel_assignments.clear()
-
-            healthy = [a for a in self.accounts if a.is_healthy]
-            if not healthy:
-                logger.error("No healthy accounts to distribute channels")
-                return
-
-            # Round-robin distribution across healthy accounts
-            for i, channel in enumerate(channels):
-                acc = healthy[i % len(healthy)]
-                self._channel_assignments[channel] = acc.account_id
-                acc.channel_count += 1
-
-            logger.info(
-                "Distributed %d channels across %d accounts: %s",
-                len(channels),
-                len(healthy),
-                {a.account_id: a.channel_count for a in healthy},
-            )
-
-    def get_account_for_channel(self, channel_username: str) -> UserbotAccount | None:
-        """Get the assigned account for a channel."""
-        acc_id = self._channel_assignments.get(channel_username)
-        if acc_id is None:
-            return None
-        for acc in self.accounts:
-            if acc.account_id == acc_id and acc.is_healthy:
-                return acc
-        return None
-
     async def handle_account_failure(self, failed_account: UserbotAccount):
-        """Redistribute channels from a failed account to healthy ones."""
-        async with self._lock:
-            failed_channels = [
-                ch for ch, aid in self._channel_assignments.items()
-                if aid == failed_account.account_id
-            ]
+        """Alert on account failure — NO channel redistribution.
 
-            healthy = [a for a in self.accounts if a.is_healthy and a.account_id != failed_account.account_id]
-
-            if not healthy:
-                logger.error("No healthy accounts to take over channels from account %d", failed_account.account_id)
-                return
-
-            for channel in failed_channels:
-                # Assign to least loaded healthy account
-                target = min(healthy, key=lambda a: a.channel_count)
-                self._channel_assignments[channel] = target.account_id
-                target.channel_count += 1
-
-            logger.info(
-                "Redistributed %d channels from failed account %d to %d healthy accounts",
-                len(failed_channels), failed_account.account_id, len(healthy),
-            )
+        Redistribution caused incidents #2 and #3: the surviving account
+        took over ALL channels and was banned too. _distribute() in poller.py
+        handles account-level skipping correctly at the tier loop level.
+        """
+        logger.error(
+            "Account %d failed — channels handled by _distribute(), no redistribution",
+            failed_account.account_id,
+        )
 
     async def health_check_loop(self):
         """Periodically check health of all accounts."""
@@ -173,12 +122,13 @@ class UserbotPool:
                 is_ok = await acc.check_health()
 
                 if was_healthy and not is_ok:
-                    logger.warning("Account %d became unhealthy — redistributing channels", acc.account_id)
+                    logger.warning("Account %d became unhealthy", acc.account_id)
                     await self.handle_account_failure(acc)
                     from app.worker.notify_admin import notify_admin
                     await notify_admin(
-                        f"⚠️ Аккаунт #{acc.account_id} перестал отвечать\n\n"
-                        f"Каналы перераспределены на оставшиеся."
+                        f"⚠️ Аккаунт #{acc.account_id} перестал отвечать.\n\n"
+                        f"Поллинг остановлен для этого аккаунта. Каналы НЕ перераспределяются "
+                        f"(защита от повторного бана)."
                     )
                 elif not was_healthy and is_ok:
                     logger.info("Account %d recovered", acc.account_id)
@@ -201,7 +151,3 @@ class UserbotPool:
     @property
     def healthy_count(self) -> int:
         return sum(1 for a in self.accounts if a.is_healthy)
-
-    @property
-    def total_channels(self) -> int:
-        return len(self._channel_assignments)

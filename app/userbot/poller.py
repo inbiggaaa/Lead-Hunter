@@ -489,6 +489,21 @@ class ChannelPoller:
             # Distribute channels across available accounts (healthy + not blocked)
             account_chunks = await self._distribute(tier_channels)
 
+            # Guard: pause Warm/Cold/Dormant when only 1 account is healthy.
+            # Prevents a single account from bearing all-tier load (incident #3 root cause).
+            if not self._should_poll_tier(tier_name):
+                logger.debug(
+                    "%s tier: paused (only %d healthy account(s) — need 2+)",
+                    tier_name, self._get_available_account_count(),
+                )
+                # Skip polling this cycle, go to sleep
+                effective_interval = self._get_effective_interval(tier_name, interval)
+                jitter = effective_interval * INTERVAL_JITTER
+                jittered = effective_interval + random.uniform(-jitter, jitter)
+                elapsed = time.time() - start
+                await asyncio.sleep(max(0, jittered - elapsed))
+                continue
+
             for account, chunk in account_chunks:
                 if not chunk:
                     continue
@@ -564,6 +579,17 @@ class ChannelPoller:
         This is a fast synchronous estimate for interval calculation.
         """
         return sum(1 for a in self.pool.accounts if a.is_healthy)
+
+    def _should_poll_tier(self, tier_name: str) -> bool:
+        """Check if this tier should be polled given current account availability.
+
+        Hot tier always runs. Warm/Cold/Dormant require 2+ healthy accounts —
+        a single account must not bear the full load to avoid repeat bans.
+        """
+        if tier_name == "Hot":
+            return True
+        available = self._get_available_account_count()
+        return available >= 2
 
     def _get_effective_interval(self, tier_name: str, base_interval: int) -> int:
         """Calculate effective interval based on available accounts.
