@@ -1,31 +1,108 @@
 #!/bin/bash
-# LeadHunter database backup script
+# LeadHunter backup script — database + session files
 # Run via cron: 0 3 * * * /opt/LeadHunter/backup.sh
+#
+# Requires .env with: POSTGRES_DB, POSTGRES_USER, SESSION_BACKUP_PASSPHRASE
+# Optional .env: S3_BUCKET, S3_ACCESS_KEY, S3_ENDPOINT (NOT YET TESTED)
 
 set -e
+
+# ── Load .env for cron (cron does not source it automatically) ──
+set -a
+[ -f /opt/LeadHunter/.env ] && . /opt/LeadHunter/.env
+set +a
 
 BACKUP_DIR="/opt/LeadHunter/backups"
 RETENTION_DAYS=7
 DB_CONTAINER="leadhunter-db-1"
 DB_NAME="${POSTGRES_DB:-leadhunter}"
 DB_USER="${POSTGRES_USER:-leadhunter}"
+SESSION_DIR="/opt/LeadHunter/sessions"
 
 mkdir -p "$BACKUP_DIR"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="$BACKUP_DIR/leadhunter_${TIMESTAMP}.sql.gz"
 
-echo "[$(date)] Starting backup to $BACKUP_FILE"
+# ══════════════════════════════════════════════════
+# 1. Database backup (pg_dump)
+# ══════════════════════════════════════════════════
 
-# Dump and compress
-docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" | gzip > "$BACKUP_FILE"
+DB_BACKUP="$BACKUP_DIR/leadhunter_${TIMESTAMP}.sql.gz"
 
-echo "[$(date)] Backup complete: $(du -h "$BACKUP_FILE" | cut -f1)"
+echo "[$(date)] Starting database backup to $DB_BACKUP"
 
-# Rotate old backups
+docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" | gzip > "$DB_BACKUP"
+
+echo "[$(date)] Database backup complete: $(du -h "$DB_BACKUP" | cut -f1)"
+
 find "$BACKUP_DIR" -name "leadhunter_*.sql.gz" -mtime +$RETENTION_DAYS -delete
-echo "[$(date)] Cleaned backups older than $RETENTION_DAYS days"
+ln -sf "$DB_BACKUP" "$BACKUP_DIR/latest.sql.gz"
 
-# Keep last backup symlink for easy restore
-ln -sf "$BACKUP_FILE" "$BACKUP_DIR/latest.sql.gz"
-echo "[$(date)] Updated latest symlink"
+echo "[$(date)] Database rotation done"
+
+# ══════════════════════════════════════════════════
+# 2. Session backup (encrypted, local only)
+# ══════════════════════════════════════════════════
+#
+# LIMITATIONS (known, accepted until S3 is set up):
+#  - Backup is on the same disk as sessions.  If the disk dies,
+#    both original .session files and this backup are lost.
+#  - S3 upload placeholder below is NOT tested against real B2/S3.
+#    curl with Bearer token does NOT work with Backblaze B2 native API
+#    (B2 requires two-step auth: b2_authorize_account → upload_url).
+#    Replace with awscli --endpoint-url or b2 CLI when bucket is ready.
+#
+# Failure in this section does NOT roll back the DB backup above —
+# pg_dump is already saved.  We disable set -e temporarily.
+
+SESSION_BACKUP_DIR="$BACKUP_DIR/sessions"
+mkdir -p "$SESSION_BACKUP_DIR"
+
+# ls inside if-condition: set -e is active but `if !` safely absorbs the
+# non-zero exit code of `ls` when no .session files exist — script does
+# NOT abort, falls through to the "skipping" message.
+if ! ls "$SESSION_DIR"/*.session >/dev/null 2>&1; then
+    echo "[$(date)] No session files found — skipping session backup"
+else
+    SESSION_ARCHIVE="$SESSION_BACKUP_DIR/sessions_${TIMESTAMP}.tar.gz.gpg"
+
+    set +e  # session backup failures must not abort the whole script
+
+    if [ -z "${SESSION_BACKUP_PASSPHRASE:-}" ]; then
+        echo "[$(date)] ERROR: SESSION_BACKUP_PASSPHRASE not set in .env — skipping session backup"
+    else
+        echo "[$(date)] Encrypting session files to $SESSION_ARCHIVE"
+
+        tar czf - -C "$SESSION_DIR" *.session 2>/dev/null | \
+            gpg --symmetric --batch --yes \
+                --passphrase "$SESSION_BACKUP_PASSPHRASE" \
+                --cipher-algo AES256 \
+                -o "$SESSION_ARCHIVE" 2>&1
+
+        if [ $? -eq 0 ] && [ -f "$SESSION_ARCHIVE" ]; then
+            echo "[$(date)] Session backup encrypted: $(du -h "$SESSION_ARCHIVE" | cut -f1)"
+
+            # ── S3 upload (PLACEHOLDER — NOT TESTED against real B2/S3) ──
+            # Backblaze B2 requires either:
+            #   awscli:  aws s3 cp --endpoint-url "$S3_ENDPOINT" ... (S3-compatible API)
+            #   b2 CLI:  b2 upload-file ... (native API with key + application key)
+            # Current curl approach is NOT functional — DO NOT rely on it.
+            if [ -n "${S3_BUCKET:-}" ] && [ -n "${S3_ACCESS_KEY:-}" ]; then
+                echo "[$(date)] WARNING: S3 upload not implemented — use awscli or b2 CLI"
+                echo "[$(date)] Session backup is LOCAL ONLY: $SESSION_ARCHIVE"
+            else
+                echo "[$(date)] S3 not configured — local backup only"
+            fi
+
+            # Rotation
+            find "$SESSION_BACKUP_DIR" -name "sessions_*.tar.gz.gpg" -mtime +$RETENTION_DAYS -delete
+            echo "[$(date)] Session rotation done"
+        else
+            echo "[$(date)] ERROR: Session encryption failed — check SESSION_BACKUP_PASSPHRASE"
+        fi
+    fi
+
+    set -e  # restore
+fi
+
+echo "[$(date)] Backup finished"

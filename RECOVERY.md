@@ -186,6 +186,33 @@ docker compose run --rm -it worker python -m app.userbot.auth
 # 8. Восстановить БД из бэкапа (см. раздел 3)
 ```
 
+### Восстановление сессий userbot из бэкапа
+
+```bash
+# 1. Найти последний шифрованный архив
+ls -lt /opt/LeadHunter/backups/sessions/ | head -3
+
+# 2. Расшифровать (потребуется SESSION_BACKUP_PASSPHRASE из .env)
+ARCHIVE=$(ls -t /opt/LeadHunter/backups/sessions/sessions_*.tar.gz.gpg | head -1)
+gpg --decrypt --batch --passphrase "$SESSION_BACKUP_PASSPHRASE" "$ARCHIVE" > /tmp/sessions.tar.gz
+
+# 3. Распаковать в sessions/
+tar xzf /tmp/sessions.tar.gz -C /opt/LeadHunter/sessions/
+
+# 4. Проверить права (userbot контейнер работает от root)
+sudo chown root:root /opt/LeadHunter/sessions/*.session
+
+# 5. Проверить
+ls -la /opt/LeadHunter/sessions/*.session
+
+# 6. Перезапустить worker
+docker compose restart worker
+```
+
+> ⚠️ **Ограничение.** До настройки offsite-хранилища (S3/Backblaze B2) бэкап сессий —
+> локальный, на том же диске. При смерти диска теряются и оригиналы, и бэкап.
+> Это известный риск, устраняется в задаче S3-выгрузки.
+
 ---
 
 ## 6. Контакты и внешние сервисы
