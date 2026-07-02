@@ -17,7 +17,7 @@ from telethon.tl.types import Message
 
 from app.userbot.classifier import classify_message, _has_demand_signal, _match_keyword
 from app.userbot.pool import UserbotPool
-from app.userbot.rate_limiter import limiter
+from app.userbot.rate_limiter import limiter, BudgetExceeded
 from app.db.session import async_session_factory
 from app.db.models import SegmentKeyword, Segment
 from sqlalchemy import select
@@ -237,7 +237,7 @@ class ChannelPoller:
             initial: True on first-ever poll (get last N messages, set cursor, no pagination)
         """
         try:
-            await limiter.acquire()
+            await limiter.acquire(account.account_id)
             entity = await account.get_entity(channel_username)
         except FloodWaitError:
             raise
@@ -327,7 +327,7 @@ class ChannelPoller:
         rounds = 0
 
         while rounds < (MAX_PAGINATION_ROUNDS if paginate else 1):
-            await limiter.acquire()
+            await limiter.acquire(account.account_id)
             try:
                 if fetch_min_id > 0 and rounds > 0:
                     # Pagination: narrow the window to messages between
@@ -409,6 +409,17 @@ class ChannelPoller:
                     account_id=account.account_id,
                 )
                 await asyncio.sleep(e.seconds)
+                return False
+            except BudgetExceeded:
+                logger.warning(
+                    "Budget exceeded for account %d — stopping batch",
+                    account.account_id,
+                )
+                from app.worker.notify_admin import notify_admin
+                await notify_admin(
+                    f"📊 Аккаунт #{account.account_id} исчерпал суточный бюджет "
+                    f"API-запросов. Поллинг остановлен до следующих суток."
+                )
                 return False
             except Exception as e:
                 logger.debug("Poll error @%s: %s", ch.get('chat_username', '?'), e)

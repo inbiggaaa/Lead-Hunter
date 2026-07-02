@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     max_referrals_per_month: int = 10
     heartbeat_interval_minutes: int = 15
     sender_throttle_per_second: int = 25
+
+    # Userbot rate limiter (per-account)
+    userbot_min_interval: float = 1.5   # seconds between API calls per account
+    daily_request_budget: int = 10000    # max API calls per account per day
     daily_report_hour: int = 19
     business_hidden_cap_channels: int = 60
     business_hidden_cap_keywords: int = 60
