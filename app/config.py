@@ -88,6 +88,13 @@ class Settings(BaseSettings):
     userbot_min_interval: float = 1.5   # seconds between API calls per account
     daily_request_budget: int = 10000    # max API calls per account per day
     poll_parked_countries: bool = False  # poll channels from countries with no subscriptions
+
+    # Hot tier interval tuning (Task 1.3)
+    hot_interval_base: int = 600          # seconds, base Hot interval (2 healthy accounts)
+    hot_interval_3plus: int = 600         # seconds, for 3+ healthy accounts
+    hot_degraded_multiplier: float = 2.0  # ×2 when only 1 healthy account
+    post_ban_interval_multiplier: float = 1.5  # ×1.5 during post-ban mode
+    hot_interval_cap: int = 1200          # seconds, effective interval ceiling
     daily_report_hour: int = 19
     business_hidden_cap_channels: int = 60
     business_hidden_cap_keywords: int = 60

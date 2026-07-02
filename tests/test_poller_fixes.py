@@ -812,6 +812,62 @@ def test_post_ban_interval_single_account():
     assert result == 180  # 60 × 2 × 1.5
 
 
+# ── Task 1.3: adaptive Hot interval with cap ──
+
+
+def test_effective_interval_3plus_accounts():
+    """3+ healthy аккаунта → hot_interval_3plus (600s by default)."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [
+        _make_account(1, is_healthy=True),
+        _make_account(2, is_healthy=True),
+        _make_account(3, is_healthy=True),
+    ]
+    # 3 healthy → uses settings.hot_interval_3plus (600), not passed base
+    result = poller._get_effective_interval("Hot", 60)
+    assert result == 600
+
+
+def test_effective_interval_cap_applied():
+    """1 account + post_ban with large base → capped at hot_interval_cap (1200s)."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    # 1 account degraded (×2) × post_ban (×1.5) on base 900:
+    #    900 × 2 × 1.5 = 2700 → cap 1200
+    result = poller._get_effective_interval("Hot", 900, post_ban_multiplier=1.5)
+    assert result == 1200  # capped, not 2700
+
+
+def test_effective_interval_cap_not_hit_when_under():
+    """Normal case: 2 accounts, no post_ban — well under cap."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    # 2 accounts, base 600, no post_ban → 600, cap 1200 → 600 (no truncation)
+    result = poller._get_effective_interval("Hot", 600)
+    assert result == 600
+
+
+def test_effective_interval_degradation_uses_config_multiplier():
+    """1 account uses settings.hot_degraded_multiplier (2.0) not hardcoded ×2."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    # base 500 × degraded (2.0) × no post_ban = 1000
+    result = poller._get_effective_interval("Hot", 500)
+    assert result == 1000
+
+
+def test_effective_interval_all_unhealthy_counts_as_zero():
+    """All accounts unhealthy → treated as 0 available → degraded."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [
+        _make_account(1, is_healthy=False),
+        _make_account(2, is_healthy=False),
+    ]
+    # 0 healthy → degraded (×2) on base 300 = 600
+    result = poller._get_effective_interval("Hot", 300)
+    assert result == 600
+
+
 # ── Alert loop tests (Task 1.4) ──
 
 
