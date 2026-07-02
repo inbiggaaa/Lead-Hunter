@@ -63,7 +63,9 @@ class TelegramRateLimiter:
 
         Raises BudgetExceeded if the account has used all its daily API calls.
         """
-        # 1. Check daily budget BEFORE waiting on interval
+        # 1. Check daily budget BEFORE waiting on interval.
+        #    account_id=0 is legacy (discovery v1 on pause) — gets its own key,
+        #    harmless since v1 is not actively running.
         if self.daily_budget > 0:
             redis = await get_redis()
             try:

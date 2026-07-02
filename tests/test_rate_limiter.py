@@ -117,12 +117,19 @@ async def test_budget_per_account_independent(mock_get_redis):
 
 
 @patch("app.userbot.rate_limiter.get_redis")
-async def test_budget_resets_on_date_change(mock_get_redis):
-    """Смена даты в имени ключа обнуляет счётчик."""
+@patch("app.userbot.rate_limiter._budget_key")
+async def test_budget_resets_on_date_change(mock_budget_key, mock_get_redis):
+    """Смена даты в имени ключа обнуляет счётчик — завтра новый ключ."""
     fake_redis = AsyncMock()
-
-    # Начинаем с бюджета, близкого к исчерпанию
     call_count = {"count": 0}
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+    today_key = f"budget:used:1:{today}"
+    tomorrow_key = f"budget:used:1:{tomorrow}"
+
+    # Сегодня: _budget_key возвращает today_key
+    mock_budget_key.return_value = today_key
 
     async def incr_side_effect(key):
         call_count["count"] += 1
@@ -130,27 +137,31 @@ async def test_budget_resets_on_date_change(mock_get_redis):
 
     fake_redis.incr = AsyncMock(side_effect=incr_side_effect)
     fake_redis.expire = AsyncMock()
-    fake_redis.close = AsyncMock()
+    fake_redis.aclose = AsyncMock()
     mock_get_redis.return_value = fake_redis
 
     lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
-
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
 
     # Исчерпываем бюджет сегодня
     for _ in range(100):
         await lim.acquire(account_id=1)
     with pytest.raises(BudgetExceeded):
         await lim.acquire(account_id=1)
+    assert call_count["count"] == 101  # 100 OK + 1 превышение
 
-    # Проверяем, что ключ содержит сегодняшнюю дату
-    today_key = f"budget:used:1:{today}"
-    tomorrow_key = f"budget:used:1:{tomorrow}"
+    # «Наступило завтра»: _budget_key возвращает tomorrow_key
+    mock_budget_key.return_value = tomorrow_key
 
-    # Сбрасываем мок и проверяем — завтрашний ключ НЕ равен сегодняшнему
-    assert today_key != tomorrow_key
-    # Ключи с разными датами — разные ключи Redis, счётчик для tomorrow_key начнётся с 0
+    # Сбрасываем счётчик и проверяем — новый ключ, счётчик с 1
+    captured_keys = []
+    async def record_and_return(key):
+        captured_keys.append(key)
+        return 1
+    fake_redis.incr = AsyncMock(side_effect=record_and_return)
+
+    await lim.acquire(account_id=1)
+    assert len(captured_keys) == 1
+    assert captured_keys[0] == tomorrow_key, f"Expected {tomorrow_key}, got {captured_keys[0]}"
 
 
 async def test_budget_exceeded_message_contains_account_id():
