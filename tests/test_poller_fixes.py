@@ -6,6 +6,7 @@ Logic is NOT modified — only verifying existing behaviour.
 
 import asyncio
 import time
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
@@ -439,6 +440,186 @@ def test_stale_hash_invalidates_only_that_account():
     assert 1 not in poller._entity_cache.get("ch1", {})
     assert 2 in poller._entity_cache.get("ch1", {})
     assert poller._entity_cache["ch1"][2] == (100, 999)
+
+
+# ── Session model tests (Task 1.1) ──
+
+
+def test_get_session_state_read_only():
+    """_get_session_state читает Redis, не меняет состояние."""
+    poller = ChannelPoller()
+    poller._keyword_map = {"test": {}}
+    poller._entity_cache = {}
+    # Мокаем Redis — возвращает "PAUSED"
+    fake_redis = AsyncMock()
+    fake_redis.get = AsyncMock(return_value="PAUSED")
+    fake_redis.aclose = AsyncMock()
+
+    async def run():
+        with patch("app.userbot.poller.get_redis", return_value=fake_redis):
+            state = await poller._get_session_state(1)
+            assert state == "PAUSED"
+    asyncio.get_event_loop().run_until_complete(run())
+
+
+def test_next_session_state_initial_no_key():
+    """prev_state=None → ACTIVE (вне sleep-окна)."""
+    poller = ChannelPoller()
+    # 14:00 UTC — вне sleep-окна 02:00–08:00
+    now = datetime(2026, 7, 2, 14, 0, 0, tzinfo=timezone.utc).timestamp()
+    state, until = poller._next_session_state(1, None, now)
+    assert state == "ACTIVE"
+
+
+def test_next_session_state_active_to_paused():
+    """ACTIVE → PAUSED вне sleep-окна."""
+    poller = ChannelPoller()
+    # 14:00 UTC — вне sleep-окна (02:00–08:00)
+    now = datetime(2026, 7, 2, 14, 0, 0, tzinfo=timezone.utc).timestamp()
+    state, until = poller._next_session_state(1, "ACTIVE", now)
+    assert state == "PAUSED"
+    assert 15 * 60 <= (until - now) <= 60 * 60
+
+
+def test_next_session_state_paused_to_active():
+    """PAUSED → ACTIVE вне sleep-окна."""
+    poller = ChannelPoller()
+    now = datetime(2026, 7, 2, 14, 0, 0, tzinfo=timezone.utc).timestamp()
+    state, until = poller._next_session_state(1, "PAUSED", now)
+    assert state == "ACTIVE"
+    assert 20 * 60 <= (until - now) <= 60 * 60
+
+
+def test_next_session_state_enters_sleeping():
+    """В sleep-окне → SLEEPING (независимо от prev_state)."""
+    poller = ChannelPoller()
+    # 03:00 UTC — внутри окна 02:00–08:00
+    now = datetime(2026, 7, 2, 3, 0, 0, tzinfo=timezone.utc).timestamp()
+    state, until = poller._next_session_state(1, "ACTIVE", now)
+    assert state == "SLEEPING"
+    assert 4 * 3600 <= (until - now) <= 6 * 3600
+
+
+def test_sleeping_always_wakes_to_active():
+    """SLEEPING → ACTIVE, даже внутри sleep-окна. Без зацикливания."""
+    poller = ChannelPoller()
+    # 07:00 UTC — внутри окна 02:00–08:00, аккаунт проснулся
+    now = datetime(2026, 7, 2, 7, 0, 0, tzinfo=timezone.utc).timestamp()
+    state, until = poller._next_session_state(1, "SLEEPING", now)
+    assert state == "ACTIVE", "SLEEPING must wake to ACTIVE, not re-sleep"
+    # until должен быть за пределами окна (08:00 + 15-30 min buffer)
+    sleep_end = datetime(2026, 7, 2, 8, 0, 0, tzinfo=timezone.utc).timestamp()
+    assert until >= sleep_end + 15 * 60
+
+
+def test_sleep_window_normal():
+    """sleep_start=2 → окно 02:00–08:00."""
+    poller = ChannelPoller()
+    t = lambda h, m: datetime(2026, 7, 2, h, m, 0, tzinfo=timezone.utc).timestamp()
+    assert poller._is_in_sleep_window(t(3, 0), 2) is True
+    assert poller._is_in_sleep_window(t(1, 0), 2) is False
+    assert poller._is_in_sleep_window(t(9, 0), 2) is False
+
+
+def test_sleep_window_wraparound():
+    """sleep_start=22 → окно 22:00–04:00 через полночь."""
+    poller = ChannelPoller()
+    t = lambda h, m: datetime(2026, 7, 2, h, m, 0, tzinfo=timezone.utc).timestamp()
+    assert poller._is_in_sleep_window(t(23, 30), 22) is True
+    assert poller._is_in_sleep_window(t(2, 0), 22) is True
+    assert poller._is_in_sleep_window(t(10, 0), 22) is False
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_session_state_paused_skips_polling(mock_get_redis):
+    """При PAUSED _run_tier_once НЕ вызывает _poll_batch.
+
+    Реальный прогон _run_tier_once (не обход цикла).
+    Это главный тест задачи 1.1 — доказывает, что сессионная модель
+    реально ломает непрерывность поллинга.
+    """
+    fake_redis = AsyncMock()
+    fake_redis.get = AsyncMock(return_value="PAUSED")
+    fake_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = fake_redis
+
+    poller = ChannelPoller()
+    acc1 = _make_account(1)
+    poller.pool.accounts = [acc1]
+
+    # Мокаем _distribute: возвращает acc1 с 3 каналами
+    channels = [{"chat_username": f"ch_{i}"} for i in range(3)]
+    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
+
+    # Мокаем _poll_batch — счётчик вызовов
+    mock_poll = AsyncMock(return_value=(3, 0))
+    poller._poll_batch = mock_poll
+
+    # Прогоняем РЕАЛЬНЫЙ _run_tier_once
+    await poller._run_tier_once("Hot", channels, initial=False)
+
+    # PAUSED → _poll_batch НЕ вызван
+    mock_poll.assert_not_called()
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_run_tier_once_active_calls_poll_batch(mock_get_redis):
+    """При ACTIVE _run_tier_once вызывает _poll_batch."""
+    fake_redis = AsyncMock()
+    fake_redis.get = AsyncMock(return_value="ACTIVE")
+    fake_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = fake_redis
+
+    poller = ChannelPoller()
+    acc1 = _make_account(1)
+    poller.pool.accounts = [acc1]
+
+    channels = [{"chat_username": f"ch_{i}"} for i in range(2)]
+    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
+
+    mock_poll = AsyncMock(return_value=(2, 0))
+    poller._poll_batch = mock_poll
+
+    await poller._run_tier_once("Hot", channels, initial=False)
+
+    # ACTIVE → _poll_batch вызван ровно 1 раз
+    mock_poll.assert_called_once()
+
+
+async def test_run_tier_once_try_lock_skips_polling():
+    """Занятый lock → _run_tier_once НЕ вызывает _poll_batch."""
+    poller = ChannelPoller()
+    acc1 = _make_account(1)
+    poller.pool.accounts = [acc1]
+    poller._get_session_state = AsyncMock(return_value="ACTIVE")
+
+    channels = [{"chat_username": f"ch_{i}"} for i in range(2)]
+    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
+    mock_poll = AsyncMock(return_value=(2, 0))
+    poller._poll_batch = mock_poll
+
+    # Захватываем lock
+    lock = poller._get_account_lock(1)
+    await lock.acquire()
+
+    await poller._run_tier_once("Hot", channels, initial=False)
+    mock_poll.assert_not_called()
+
+
+async def test_run_tier_once_unlocked_calls_poll_batch():
+    """Свободный lock + ACTIVE → _poll_batch вызван."""
+    poller = ChannelPoller()
+    acc1 = _make_account(1)
+    poller.pool.accounts = [acc1]
+    poller._get_session_state = AsyncMock(return_value="ACTIVE")
+
+    channels = [{"chat_username": f"ch_{i}"} for i in range(2)]
+    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
+    mock_poll = AsyncMock(return_value=(2, 0))
+    poller._poll_batch = mock_poll
+
+    await poller._run_tier_once("Hot", channels, initial=False)
+    mock_poll.assert_called_once()
 
 
 @patch("app.userbot.poller.limiter.is_circuit_open")
