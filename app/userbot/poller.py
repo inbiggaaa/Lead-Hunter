@@ -1372,6 +1372,9 @@ class ChannelPoller:
                     llm_reason=llm_result.reason,
                     certainty=llm_result.certainty,
                     llm_mode=settings.llm_mode,
+                    prompt_tokens=llm_result.prompt_tokens or None,
+                    completion_tokens=llm_result.completion_tokens or None,
+                    total_tokens=llm_result.total_tokens or None,
                 )
                 sess.add(decision)
                 await sess.commit()

@@ -210,6 +210,9 @@ class LLMResult:
     certainty: str = "low"
     error: str | None = None  # set on API failure → fail-open
     raw_response: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -276,7 +279,10 @@ class LLMValidator:
 
                     data = await resp.json()
                     content = data["choices"][0]["message"]["content"]
-                    tokens = data.get("usage", {}).get("total_tokens", 0)
+                    usage = data.get("usage", {})
+                    tokens_total = usage.get("total_tokens", 0)
+                    tokens_prompt = usage.get("prompt_tokens", 0)
+                    tokens_completion = usage.get("completion_tokens", 0)
 
                     try:
                         parsed = json.loads(content)
@@ -293,7 +299,7 @@ class LLMValidator:
                         "LLM: %s cert=%s (%.1fs %dt) — %s",
                         parsed.get("category", "?"),
                         parsed.get("certainty", "?"),
-                        elapsed, tokens,
+                        elapsed, tokens_total,
                         parsed.get("reason", "")[:100],
                     )
                     return LLMResult(
@@ -302,6 +308,9 @@ class LLMValidator:
                         reason=parsed.get("reason", ""),
                         certainty=parsed.get("certainty", "low"),
                         raw_response=content,
+                        prompt_tokens=tokens_prompt,
+                        completion_tokens=tokens_completion,
+                        total_tokens=tokens_total,
                     )
 
         except asyncio.TimeoutError:
