@@ -17,7 +17,7 @@ def _get_admin_ids() -> list[int]:
     _admins = []
     if settings.admin_channel_id:
         _admins.append(settings.admin_channel_id)
-    if settings.owner_telegram_id and settings.owner_telegram_id not in _admins:
+    elif settings.owner_telegram_id:
         _admins.append(settings.owner_telegram_id)
     return _admins
 
