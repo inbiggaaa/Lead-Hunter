@@ -119,25 +119,39 @@ class NotificationSender:
         return msg
 
     def _build_keyboard(self, payload: dict) -> InlineKeyboardMarkup:
-        """Build notification keyboard."""
+        """Build notification keyboard with feedback buttons."""
         is_free = payload.get("plan", "free") == "free"
         chat = payload.get("chat_username", "")
         msg_id = payload.get("message_id", 0)
         sender = payload.get("sender", None)
 
-        if is_free:
-            return InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💰 Активировать подписку", callback_data="menu:plan")],
-                [InlineKeyboardButton(text="💬 Чат", url=f"https://t.me/{chat}/{msg_id}")] if chat else None,
-            ])
+        rows = []
 
-        buttons = []
-        if chat:
-            buttons.append(InlineKeyboardButton(text="💬 Чат", url=f"https://t.me/{chat}/{msg_id}"))
-        if sender:
-            buttons.append(InlineKeyboardButton(text="💬 Написать", url=f"https://t.me/{sender}"))
-        kb_rows = [b for b in [buttons] if b]
-        return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+        # Feedback row — always present
+        fb_data = f"fb:{chat}:{msg_id}"
+        rows.append([
+            InlineKeyboardButton(text="👍", callback_data=f"{fb_data}:relevant"),
+            InlineKeyboardButton(text="👎", callback_data=f"{fb_data}:not_relevant"),
+        ])
+
+        if is_free:
+            rows.append([
+                InlineKeyboardButton(text="💰 Активировать подписку", callback_data="menu:plan"),
+            ])
+            if chat:
+                rows.append([
+                    InlineKeyboardButton(text="💬 Чат", url=f"https://t.me/{chat}/{msg_id}"),
+                ])
+        else:
+            buttons = []
+            if chat:
+                buttons.append(InlineKeyboardButton(text="💬 Чат", url=f"https://t.me/{chat}/{msg_id}"))
+            if sender:
+                buttons.append(InlineKeyboardButton(text="💬 Написать", url=f"https://t.me/{sender}"))
+            if buttons:
+                rows.append(buttons)
+
+        return InlineKeyboardMarkup(inline_keyboard=rows)
 
     async def _send_limit_warning(self, telegram_id: int, lang: str):
         """Send daily limit reached warning."""

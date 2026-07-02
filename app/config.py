@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     # LLM
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"
+    llm_enabled: bool = False           # master switch for LLM validator
+    llm_mode: str = "shadow"            # "shadow" (log only) | "blocking" (filter)
 
     # Monitoring
     sentry_dsn: str = ""
