@@ -752,6 +752,18 @@ segment_seed.md (первые 100 строк), DECISIONS.md, ROADMAP.md.
 - `_get_effective_interval`: 4 теста — ×2 при 1 healthy, без изменений при 2+, не-Hot тиры не меняются, unhealthy не считаются.
 Результат: 9/9 зелёные локально и в Docker, 49 существующих unit-тестов без регрессий.
 
+**02.07.2026 06:00 — Задача 0.2: развести конфликт деградации (_distribute vs handle_account_failure).**
+Корень инцидентов #2/#3: `handle_account_failure()` перекидывал каналы упавшего аккаунта на выжившего через `min(healthy, key=channel_count)`.
+Что сделано:
+- `handle_account_failure` → только `logger.error`, без перераспределения.
+- `health_check_loop` → алерт без вызова переброски.
+- `_should_poll_tier()`: Hot всегда, Warm/Cold/Dormant — только при 2+ healthy.
+- Guard clause в `_run_tier_loop`: пауза не-Hot тиров при 1 аккаунте.
+- Удалён мёртвый код: `redistribute_channels`, `get_account_for_channel`, `_channel_assignments`, `channel_count`, `total_channels`. Grep-подтверждение: 0 внешних вызовов для каждой сущности.
+- 17 новых тестов (2 pool + 6 `_should_poll_tier` + 9 из 0.1).
+Результат: 56 тестов в Docker, 0 регрессий. Переброска каналов исключена на уровне кода.
+Уроки: два противоречащих механизма (`_distribute` исключает blocked, `handle_account_failure` перекидывает) — классический race condition в архитектуре. Пул не должен управлять распределением — это зона ответственности поллера.
+
 ---
 
 ## 9. Ключевые решения (полный архив — DECISIONS.md)
