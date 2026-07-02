@@ -18,6 +18,7 @@ from telethon.tl.types import Message
 from app.userbot.classifier import classify_message, _has_demand_signal, _match_keyword
 from app.userbot.pool import UserbotPool
 from app.userbot.rate_limiter import limiter, BudgetExceeded
+from app.config import settings
 from app.db.session import async_session_factory
 from app.db.models import SegmentKeyword, Segment
 from sqlalchemy import select
@@ -81,6 +82,7 @@ class ChannelPoller:
         self._warm_channels: list[dict] = []
         self._cold_channels: list[dict] = []
         self._dormant_channels: list[dict] = []
+        self._parked_count: int = 0  # channels from inactive countries (not polled)
         # Per-account locks — prevent multiple tiers from polling same account simultaneously
         self._account_locks: dict[int, asyncio.Lock] = {}
 
@@ -106,7 +108,7 @@ class ChannelPoller:
         self._active_countries = await self._get_active_countries()
         channels = await self._get_all_channels()
 
-        hot, warm, cold, dormant = [], [], [], []
+        hot, warm, cold, dormant, parked = [], [], [], [], 0
         for ch in channels:
             country_id = ch.get("country_id")
             participants = ch.get("participants", 0) or 0
@@ -121,20 +123,25 @@ class ChannelPoller:
                     warm.append(ch)
                 else:
                     cold.append(ch)
-            else:
-                # Catalog channel from inactive country — lazy poll
+            elif settings.poll_parked_countries:
+                # Legacy behaviour: poll inactive-country channels lazily
                 dormant.append(ch)
+            else:
+                # Inactive country, catalog channel — skip entirely (parked)
+                parked += 1
 
         self._hot_channels = hot
         self._warm_channels = warm
         self._cold_channels = cold
         self._dormant_channels = dormant
+        self._parked_count = parked
 
         logger.info(
             "Tiers rebuilt: %d hot (active countries), %d warm (watched ≥1K), "
-            "%d cold (watched <1K), %d dormant (inactive, 12h). "
+            "%d cold (watched <1K), %d dormant (inactive, 12h), "
+            "%d parked (inactive countries, not polled). "
             "Active countries: %s",
-            len(hot), len(warm), len(cold), len(dormant),
+            len(hot), len(warm), len(cold), len(dormant), parked,
             sorted(self._active_countries) if len(self._active_countries) < 20
             else f"{len(self._active_countries)} countries",
         )

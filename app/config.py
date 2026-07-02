@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     # Userbot rate limiter (per-account)
     userbot_min_interval: float = 1.5   # seconds between API calls per account
     daily_request_budget: int = 10000    # max API calls per account per day
+    poll_parked_countries: bool = False  # poll channels from countries with no subscriptions
     daily_report_hour: int = 19
     business_hidden_cap_channels: int = 60
     business_hidden_cap_keywords: int = 60
