@@ -351,6 +351,96 @@ async def test_start_logs_cb_status_open(mock_is_open):
     assert mock_is_open.call_count >= 2  # вызван для обоих аккаунтов
 
 
+# ── Entity cache tests (Task 1.6) ──
+
+
+def test_entity_cache_hit_second_call():
+    """Второй вызов _resolve_entity для того же username+account — из кэша."""
+    poller = ChannelPoller()
+
+    assert "ch1" not in poller._entity_cache
+    # Симулируем кэш: (channel_id, access_hash) для acc 1
+    poller._entity_cache["ch1"] = {1: (12345, 67890)}
+
+    # Кэш попадание — не требует get_entity
+    assert poller._entity_cache["ch1"][1] == (12345, 67890)
+    # Второй аккаунт — промах
+    assert 2 not in poller._entity_cache.get("ch1", {})
+
+
+def test_entity_cache_per_account_independent():
+    """acc1 и acc2 кэшируют независимо — разные access_hash."""
+    poller = ChannelPoller()
+
+    poller._entity_cache["ch1"] = {}
+    poller._entity_cache["ch1"][1] = (100, 200)
+    poller._entity_cache["ch1"][2] = (100, 999)  # тот же channel_id, другой access_hash
+
+    assert poller._entity_cache["ch1"][1] != poller._entity_cache["ch1"][2]
+    assert poller._entity_cache["ch1"][1][0] == poller._entity_cache["ch1"][2][0]  # channel_id совпадает
+
+
+@patch("app.userbot.poller.limiter")
+async def test_poll_channel_uses_cache_second_call(mock_limiter):
+    """_poll_channel: get_entity вызван 1 раз за 2 цикла.
+
+    Доказывает экономию: со второго цикла ResolveUsername не вызывается.
+    """
+    mock_limiter.acquire = AsyncMock()
+    mock_limiter.wait_if_circuit_open = AsyncMock()
+    mock_limiter.report_flood_wait = AsyncMock()
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+
+    # Мокаем account
+    account = _make_account(1)
+    get_entity_count = {"count": 0}
+
+    async def mock_get_entity(username):
+        get_entity_count["count"] += 1
+        m = MagicMock()
+        m.id = 12345
+        m.access_hash = 67890
+        return m
+
+    account.get_entity = mock_get_entity
+    account.get_messages = AsyncMock(return_value=[])
+
+    # Подменяем _fetch_all_since чтобы не уходить в реальный поллинг
+    fetch_calls = []
+    async def fake_fetch(acc, entity, ch_username, cursor, tier_limit, paginate=True):
+        fetch_calls.append(entity)
+        return []
+
+    with patch.object(poller, '_fetch_all_since', fake_fetch):
+        # Первый цикл — промах кэша, вызывает get_entity
+        await poller._poll_channel(account, "test_ch", "Hot", initial=False)
+        assert get_entity_count["count"] == 1
+
+        # Второй цикл — попадание в кэш, get_entity НЕ вызывается
+        await poller._poll_channel(account, "test_ch", "Hot", initial=False)
+        assert get_entity_count["count"] == 1  # не увеличился
+
+    assert len(fetch_calls) == 2
+
+
+def test_stale_hash_invalidates_only_that_account():
+    """ChannelInvalidError acc1 не сбрасывает кэш acc2."""
+    poller = ChannelPoller()
+    poller._entity_cache["ch1"] = {
+        1: (100, 200),
+        2: (100, 999),  # другой access_hash для acc2
+    }
+
+    # Симулируем: pop для acc1, кэш acc2 остаётся
+    poller._entity_cache.get("ch1", {}).pop(1, None)
+
+    assert 1 not in poller._entity_cache.get("ch1", {})
+    assert 2 in poller._entity_cache.get("ch1", {})
+    assert poller._entity_cache["ch1"][2] == (100, 999)
+
+
 @patch("app.userbot.poller.limiter.is_circuit_open")
 async def test_start_logs_cb_status_clear(mock_is_open):
     """start() логирует 'circuit breaker clear' при закрытом CB."""

@@ -12,8 +12,8 @@ import logging
 import random
 import time
 
-from telethon.errors import FloodWaitError
-from telethon.tl.types import Message
+from telethon.errors import FloodWaitError, ChannelInvalidError
+from telethon.tl.types import Message, InputPeerChannel
 
 from app.userbot.classifier import classify_message, _has_demand_signal, _match_keyword
 from app.userbot.pool import UserbotPool
@@ -92,6 +92,9 @@ class ChannelPoller:
         self._parked_count: int = 0  # channels from inactive countries (not polled)
         # Per-account locks — prevent multiple tiers from polling same account simultaneously
         self._account_locks: dict[int, asyncio.Lock] = {}
+        # Entity cache: {chat_username: {account_id: (channel_id, access_hash)}}
+        # access_hash is per-account — avoids ResolveUsername on every poll cycle
+        self._entity_cache: dict[str, dict[int, tuple[int, int]]] = {}
 
     # ═══════════════ INIT ═══════════════
 
@@ -258,6 +261,24 @@ class ChannelPoller:
 
     # ═══════════════ CHANNEL POLLING ═══════════════
 
+    async def _resolve_entity(self, account, channel_username: str):
+        """Return entity for channel_username — from cache or via ResolveUsername.
+
+        Caches (channel_id, access_hash) per account since access_hash differs
+        between accounts. On cache hit, constructs InputPeerChannel directly —
+        no API call, no limiter.acquire().
+        """
+        per_account = self._entity_cache.setdefault(channel_username, {})
+        cached = per_account.get(account.account_id)
+        if cached is not None:
+            return InputPeerChannel(*cached)
+
+        # Cache miss — resolve once per account lifetime
+        await limiter.acquire(account.account_id)
+        entity = await account.get_entity(channel_username)
+        per_account[account.account_id] = (entity.id, entity.access_hash)
+        return entity
+
     async def _poll_channel(
         self, account, channel_username: str, tier_name: str, initial: bool = False,
     ) -> None:
@@ -274,8 +295,7 @@ class ChannelPoller:
             initial: True on first-ever poll (get last N messages, set cursor, no pagination)
         """
         try:
-            await limiter.acquire(account.account_id)
-            entity = await account.get_entity(channel_username)
+            entity = await self._resolve_entity(account, channel_username)
         except FloodWaitError:
             raise
         except Exception:
@@ -285,7 +305,7 @@ class ChannelPoller:
 
         # Fetch ALL messages since cursor, paginating if needed
         all_messages = await self._fetch_all_since(
-            account, entity, cursor,
+            account, entity, channel_username, cursor,
             tier_limit=INITIAL_LIMIT if initial else TIER_LIMITS[tier_name],
             paginate=not initial,  # initial poll is just to set cursor
         )
@@ -349,7 +369,7 @@ class ChannelPoller:
             await self._set_cursor(channel_username, max_msg_id)
 
     async def _fetch_all_since(
-        self, account, entity, cursor: int, tier_limit: int, paginate: bool = True,
+        self, account, entity, channel_username: str, cursor: int, tier_limit: int, paginate: bool = True,
     ) -> list:
         """Fetch all messages since `cursor`, paginating if a batch is full.
 
@@ -384,6 +404,10 @@ class ChannelPoller:
                 else:
                     batch = await account.get_messages(entity, limit=tier_limit)
             except FloodWaitError:
+                raise
+            except ChannelInvalidError:
+                # access_hash is stale for this account — invalidate only this account's cache
+                self._entity_cache.get(channel_username, {}).pop(account.account_id, None)
                 raise
             except Exception:
                 break  # Channel became inaccessible
