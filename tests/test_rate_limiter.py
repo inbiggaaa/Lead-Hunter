@@ -69,12 +69,12 @@ async def test_internal_locks_are_per_account():
 async def test_budget_blocks_after_limit(mock_get_redis):
     """При budget=100 101-й запрос аккаунта → BudgetExceeded."""
     fake_redis = AsyncMock()
-    # Настраиваем мок: первые 100 вызовов incr возвращают ≤100, 101-й > 100
     incr_values = list(range(1, 102))  # 1, 2, ..., 101
     fake_redis.incr = AsyncMock(side_effect=incr_values)
     fake_redis.expire = AsyncMock()
-    fake_redis.close = AsyncMock()
-    mock_get_redis.return_value = fake_redis
+    fake_redis.aclose = AsyncMock()
+    # _is_post_ban (1) + acquire ×101 = 102 calls
+    mock_get_redis.side_effect = [fake_redis] * 102
 
     lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
 
@@ -100,9 +100,13 @@ async def test_budget_per_account_independent(mock_get_redis):
     fake_redis_2.incr = AsyncMock(side_effect=[1, 2])  # всегда ≤100
     fake_redis_2.expire = AsyncMock()
 
-    # Разные Redis-инстансы для разных аккаунтов (каждый вызов get_redis() — новый)
-    mock_get_redis.side_effect = [fake_redis_1, fake_redis_1, fake_redis_1,
-                                   fake_redis_2, fake_redis_2]
+    # _is_post_ban calls get_redis once per first acquire per account (cached 60s)
+    mock_get_redis.side_effect = [
+        fake_redis_1,  # _is_post_ban acc1
+        fake_redis_1, fake_redis_1, fake_redis_1,  # acc1 acquire ×3
+        fake_redis_2,  # _is_post_ban acc2
+        fake_redis_2, fake_redis_2,  # acc2 acquire ×2
+    ]
 
     lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
 

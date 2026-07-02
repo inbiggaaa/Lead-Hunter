@@ -127,6 +127,8 @@ class ChannelPoller:
                     logger.warning("Account %d: circuit breaker OPEN", acc.account_id)
             else:
                 logger.info("Account %d: circuit breaker clear — ready to poll", acc.account_id)
+            # Activate post-ban if recently unbanned while worker was down (layer 3)
+            await limiter.activate_post_ban_if_recent(acc.account_id)
         if not self._keyword_map:
             self._keyword_map, self._universal_stops = await self._load_keywords()
             await self._load_channel_segments()
@@ -562,8 +564,19 @@ class ChannelPoller:
                 tier_name, tier_channels, initial,
             )
 
+            # Post-ban multiplier for interval scaling (read from limiter cache)
+            pb_mult = 1.0
+            for acc in self.pool.accounts:
+                if acc.is_healthy:
+                    try:
+                        if await limiter._is_post_ban(acc.account_id):
+                            pb_mult = 1.5
+                    except Exception:
+                        pass
+                    break
+
             # Dynamic interval + jitter + sleep
-            effective_interval = self._get_effective_interval(tier_name, interval)
+            effective_interval = self._get_effective_interval(tier_name, interval, pb_mult)
             jitter = effective_interval * INTERVAL_JITTER
             jittered = effective_interval + random.uniform(-jitter, jitter)
             elapsed = time.time() - start
@@ -959,22 +972,16 @@ class ChannelPoller:
         available = self._get_available_account_count()
         return available >= 2
 
-    def _get_effective_interval(self, tier_name: str, base_interval: int) -> int:
-        """Calculate effective interval based on available accounts.
-
-        With fewer accounts, increase interval to reduce sustained API load:
-        - 2+ accounts: base interval (60s Hot, 300s Warm, etc.)
-        - 1 account:  2x base interval (120s Hot, 600s Warm, etc.)
-
-        Only Hot tier is affected — Warm/Cold/Dormant are low-frequency anyway.
-        """
+    def _get_effective_interval(
+        self, tier_name: str, base_interval: int, post_ban_multiplier: float = 1.0,
+    ) -> int:
+        """Calculate effective interval based on available accounts and post-ban."""
         if tier_name != "Hot":
-            return base_interval
+            return int(base_interval * post_ban_multiplier)
         available = self._get_available_account_count()
         if available >= 2:
-            return base_interval
-        # Single account — double the interval to reduce sustained load
-        return base_interval * 2
+            return int(base_interval * post_ban_multiplier)
+        return int(base_interval * 2 * post_ban_multiplier)
 
     # ═══════════════ MAIN LOOP ═══════════════
 
