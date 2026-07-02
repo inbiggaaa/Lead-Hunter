@@ -401,6 +401,9 @@ class LLMDecision(Base):
     llm_reason: Mapped[str | None] = mapped_column(Text)
     certainty: Mapped[str | None] = mapped_column(String(10))
     llm_mode: Mapped[str] = mapped_column(String(10), default="shadow")
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    total_tokens: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

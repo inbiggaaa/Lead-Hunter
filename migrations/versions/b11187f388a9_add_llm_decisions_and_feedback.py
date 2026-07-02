@@ -29,6 +29,9 @@ def upgrade() -> None:
         sa.Column("llm_reason", sa.Text(), nullable=True),
         sa.Column("certainty", sa.String(length=10), nullable=True),
         sa.Column("llm_mode", sa.String(length=10), server_default="shadow"),
+        sa.Column("prompt_tokens", sa.Integer(), nullable=True),
+        sa.Column("completion_tokens", sa.Integer(), nullable=True),
+        sa.Column("total_tokens", sa.Integer(), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
