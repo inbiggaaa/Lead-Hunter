@@ -532,32 +532,94 @@ def test_sleep_window_wraparound():
 
 @patch("app.userbot.poller.get_redis")
 async def test_session_state_paused_skips_polling(mock_get_redis):
-    """При PAUSED _poll_batch НЕ вызывается — главная цель задачи."""
+    """При PAUSED _run_tier_once НЕ вызывает _poll_batch.
+
+    Реальный прогон _run_tier_once (не обход цикла).
+    Это главный тест задачи 1.1 — доказывает, что сессионная модель
+    реально ломает непрерывность поллинга.
+    """
     fake_redis = AsyncMock()
     fake_redis.get = AsyncMock(return_value="PAUSED")
     fake_redis.aclose = AsyncMock()
     mock_get_redis.return_value = fake_redis
 
     poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-    poller._keyword_map = {"test": {}}
-    poller._entity_cache = {}
+    acc1 = _make_account(1)
+    poller.pool.accounts = [acc1]
 
-    # Мокаем _poll_batch чтобы проверить, что он НЕ вызван
-    mock_poll = AsyncMock()
+    # Мокаем _distribute: возвращает acc1 с 3 каналами
+    channels = [{"chat_username": f"ch_{i}"} for i in range(3)]
+    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
+
+    # Мокаем _poll_batch — счётчик вызовов
+    mock_poll = AsyncMock(return_value=(3, 0))
     poller._poll_batch = mock_poll
 
-    # Запускаем _run_tier_loop на один цикл через хитрый мок
-    # (используем тот факт, что PAUSED → continue до _poll_batch)
-    state = await poller._get_session_state(1)
-    assert state == "PAUSED"
-    # Имитируем то, что делает _run_tier_loop: если state != ACTIVE → skip
-    if state != "ACTIVE":
-        pass  # skipped — _poll_batch не вызван
-    else:
-        await poller._poll_batch(None, [], "Hot")
+    # Прогоняем РЕАЛЬНЫЙ _run_tier_once
+    await poller._run_tier_once("Hot", channels, initial=False)
 
+    # PAUSED → _poll_batch НЕ вызван
     mock_poll.assert_not_called()
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_run_tier_once_active_calls_poll_batch(mock_get_redis):
+    """При ACTIVE _run_tier_once вызывает _poll_batch."""
+    fake_redis = AsyncMock()
+    fake_redis.get = AsyncMock(return_value="ACTIVE")
+    fake_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = fake_redis
+
+    poller = ChannelPoller()
+    acc1 = _make_account(1)
+    poller.pool.accounts = [acc1]
+
+    channels = [{"chat_username": f"ch_{i}"} for i in range(2)]
+    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
+
+    mock_poll = AsyncMock(return_value=(2, 0))
+    poller._poll_batch = mock_poll
+
+    await poller._run_tier_once("Hot", channels, initial=False)
+
+    # ACTIVE → _poll_batch вызван ровно 1 раз
+    mock_poll.assert_called_once()
+
+
+async def test_run_tier_once_try_lock_skips_polling():
+    """Занятый lock → _run_tier_once НЕ вызывает _poll_batch."""
+    poller = ChannelPoller()
+    acc1 = _make_account(1)
+    poller.pool.accounts = [acc1]
+    poller._get_session_state = AsyncMock(return_value="ACTIVE")
+
+    channels = [{"chat_username": f"ch_{i}"} for i in range(2)]
+    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
+    mock_poll = AsyncMock(return_value=(2, 0))
+    poller._poll_batch = mock_poll
+
+    # Захватываем lock
+    lock = poller._get_account_lock(1)
+    await lock.acquire()
+
+    await poller._run_tier_once("Hot", channels, initial=False)
+    mock_poll.assert_not_called()
+
+
+async def test_run_tier_once_unlocked_calls_poll_batch():
+    """Свободный lock + ACTIVE → _poll_batch вызван."""
+    poller = ChannelPoller()
+    acc1 = _make_account(1)
+    poller.pool.accounts = [acc1]
+    poller._get_session_state = AsyncMock(return_value="ACTIVE")
+
+    channels = [{"chat_username": f"ch_{i}"} for i in range(2)]
+    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
+    mock_poll = AsyncMock(return_value=(2, 0))
+    poller._poll_batch = mock_poll
+
+    await poller._run_tier_once("Hot", channels, initial=False)
+    mock_poll.assert_called_once()
 
 
 @patch("app.userbot.poller.limiter.is_circuit_open")

@@ -515,18 +515,9 @@ class ChannelPoller:
         self, tier_name: str, channels: list[dict], interval: int,
         startup_delay: int = 0,
     ):
-        """Run a continuous loop polling a specific tier every `interval` seconds.
-
-        Protections:
-        - startup_delay: stagger tier starts to avoid API storm
-        - warmup: gradual channel ramp-up over WARMUP_STEPS cycles
-        - jitter: +/-15% random variation on interval
-        - per-account lock: prevents multiple tiers from polling same account simultaneously
-        - dynamic interval: scales with available accounts to avoid overload
-        """
+        """Continuous loop — thin wrapper around _run_tier_once + timing."""
         total_channels = len(channels)
 
-        # Staggered startup
         if startup_delay > 0:
             logger.info(
                 "Tier '%s': staggered start — waiting %ds before first cycle",
@@ -559,66 +550,72 @@ class ChannelPoller:
             else:
                 tier_channels = channels
 
-            # Distribute channels across available accounts (healthy + not blocked)
-            account_chunks = await self._distribute(tier_channels)
+            # Delegate to testable once()-method
+            initial = await self._run_tier_once(
+                tier_name, tier_channels, initial,
+            )
 
-            # Guard: pause Warm/Cold/Dormant when only 1 account is healthy.
-            # Prevents a single account from bearing all-tier load (incident #3 root cause).
-            if not self._should_poll_tier(tier_name):
-                logger.debug(
-                    "%s tier: paused (only %d healthy account(s) — need 2+)",
-                    tier_name, self._get_available_account_count(),
-                )
-                # Skip polling this cycle, go to sleep
-                effective_interval = self._get_effective_interval(tier_name, interval)
-                jitter = effective_interval * INTERVAL_JITTER
-                jittered = effective_interval + random.uniform(-jitter, jitter)
-                elapsed = time.time() - start
-                await asyncio.sleep(max(0, jittered - elapsed))
-                continue
-
-            for account, chunk in account_chunks:
-                if not chunk:
-                    continue
-
-                # Per-account try-lock: skip if another tier is already polling this account
-                lock = self._get_account_lock(account.account_id)
-                if lock.locked():
-                    logger.debug(
-                        "Account %d busy — skipping %s tier this cycle (%d channels)",
-                        account.account_id, tier_name, len(chunk),
-                    )
-                    continue
-
-                # Session check: skip if account is not in active window
-                state = await self._get_session_state(account.account_id)
-                if state != "ACTIVE":
-                    logger.debug(
-                        "Account %d: %s — skipping %s tier",
-                        account.account_id, state, tier_name,
-                    )
-                    continue
-
-                async with lock:
-                    limit_tag = "(initial)" if initial else "(incremental + pagination)"
-                    ok, err = await self._poll_batch(account, chunk, tier_name=tier_name, initial=initial)
-                    elapsed = time.time() - start
-                    if ok + err > 0:
-                        logger.info(
-                            "%s tier: %d ok, %d errors in %.1fs %s",
-                            tier_name, ok, err, elapsed, limit_tag,
-                        )
-
-            initial = False
-
-            # Dynamic interval: scale with available account count
+            # Dynamic interval + jitter + sleep
             effective_interval = self._get_effective_interval(tier_name, interval)
-
-            # Random jitter: break predictable patterns
             jitter = effective_interval * INTERVAL_JITTER
             jittered = effective_interval + random.uniform(-jitter, jitter)
             elapsed = time.time() - start
             await asyncio.sleep(max(0, jittered - elapsed))
+
+    async def _run_tier_once(
+        self, tier_name: str, tier_channels: list[dict], initial: bool,
+    ) -> bool:
+        """One polling cycle: distribute → guards → poll. Returns new `initial`.
+
+        Extracted for testability — real _run_tier_once is the integration
+        test target for session skip, try-lock skip, and degradation.
+        """
+        start = time.time()
+
+        # Distribute channels across available accounts
+        account_chunks = await self._distribute(tier_channels)
+
+        # Guard: pause Warm/Cold/Dormant when only 1 account is healthy
+        if not self._should_poll_tier(tier_name):
+            logger.debug(
+                "%s tier: paused (only %d healthy account(s) — need 2+)",
+                tier_name, self._get_available_account_count(),
+            )
+            return initial  # skip this cycle, initial unchanged
+
+        for account, chunk in account_chunks:
+            if not chunk:
+                continue
+
+            # Per-account try-lock: skip if another tier is already polling
+            lock = self._get_account_lock(account.account_id)
+            if lock.locked():
+                logger.debug(
+                    "Account %d busy — skipping %s tier this cycle (%d channels)",
+                    account.account_id, tier_name, len(chunk),
+                )
+                continue
+
+            # Session check: skip if account is not in active window
+            state = await self._get_session_state(account.account_id)
+            if state != "ACTIVE":
+                logger.debug(
+                    "Account %d: %s — skipping %s tier",
+                    account.account_id, state, tier_name,
+                )
+                continue
+
+            async with lock:
+                limit_tag = "(initial)" if initial else "(incremental + pagination)"
+                ok, err = await self._poll_batch(account, chunk, tier_name=tier_name, initial=initial)
+                elapsed = time.time() - start
+                if ok + err > 0:
+                    logger.info(
+                        "%s tier: %d ok, %d errors in %.1fs %s",
+                        tier_name, ok, err, elapsed, limit_tag,
+                    )
+
+        return False  # after first real cycle, initial becomes False
 
     async def _distribute(self, channels: list[dict]) -> list[tuple]:
         """Distribute channels across available accounts (healthy + circuit breaker closed).
