@@ -1,9 +1,9 @@
-"""Telethon-based channel poller v2 — incremental, tiered, batched.
+"""Telethon-based channel poller v2 — incremental, tiered, sequential.
 
 Key improvements over v1:
 - Incremental: uses Redis cursor (min_id) — only fetches new messages
 - Tiered: Hot (60s) / Warm (5min) / Cold (15min) based on demand
-- Batched: asyncio.gather up to 50 channels per parallel batch
+- Sequential: channels polled one-by-one with log-normal pauses (human-like)
 - Scales: N userbot accounts with per-account channel assignment
 """
 
@@ -31,8 +31,6 @@ HOT_INTERVAL = 60       # seconds — channels in active-subscription countries
 WARM_INTERVAL = 300     # 5 minutes — channels > 1000 participants
 COLD_INTERVAL = 900     # 15 minutes — everything else
 DORMANT_INTERVAL = 43200  # 12 hours — channels from countries with no subscriptions
-PARALLEL_BATCH = 3       # channels per asyncio.gather batch (1 account)
-# With 3 rps: 195 hot channels = ~65 sec initial sync, then incremental (fast)
 # Tier-specific message fetch limits — per API call.
 # Pagination auto-triggers if a full batch is returned (rare in practice).
 TIER_LIMITS = {
@@ -43,7 +41,6 @@ TIER_LIMITS = {
 }
 MAX_PAGINATION_ROUNDS = 5  # absolute safety cap for pagination
 INITIAL_LIMIT = 5           # first-ever poll: just set cursor (no pagination)
-BATCH_PAUSE = 0.3        # seconds between batches
 
 # ── Anti-ban protections ──
 # Staggered startup: tiers don't fire all at once (prevents initial API storm)
@@ -60,6 +57,16 @@ INTERVAL_JITTER = 0.15
 
 # ── Cursor Redis keys ──
 CURSOR_PREFIX = "cursor:msg:"
+
+
+def next_delay() -> float:
+    """Log-normal delay between channel polls — human-like rhythm.
+
+    median ≈ e^0.7 ≈ 2.0s, range clamped to [0.8, 6.0]s.
+    Heavy right tail prevents uniform-periodicity detection.
+    """
+    d = random.lognormvariate(0.7, 0.5)
+    return min(max(d, 0.8), 6.0)
 
 
 class ChannelPoller:
@@ -391,7 +398,12 @@ class ChannelPoller:
     async def _poll_batch(
         self, account, channels: list[dict], tier_name: str, initial: bool = False,
     ) -> tuple[int, int]:
-        """Poll a batch of channels in parallel. Returns (ok_count, error_count)."""
+        """Poll channels sequentially with log-normal pauses — human-like rhythm.
+
+        Channels are shuffled each cycle to break predictable order.
+        Log-normal delay between channels (median ~2s) is the primary pacing;
+        rate limiter (min_interval=1.5s) acts as a safety floor.
+        """
         if not channels:
             return 0, 0
 
@@ -432,16 +444,21 @@ class ChannelPoller:
                 logger.debug("Poll error @%s: %s", ch.get('chat_username', '?'), e)
                 return False
 
+        # Shuffle channel order to break predictable patterns
+        shuffled = list(channels)
+        random.shuffle(shuffled)
+
         ok, errors = 0, 0
-        for i in range(0, len(channels), PARALLEL_BATCH):
-            batch = channels[i:i + PARALLEL_BATCH]
-            results = await asyncio.gather(*[_poll_one(ch) for ch in batch])
-            ok += sum(1 for r in results if r)
-            errors += sum(1 for r in results if not r)
-            # Jittered pause between batches — breaks predictable rhythm
-            jitter = BATCH_PAUSE * 0.3  # ±30% around BATCH_PAUSE
-            jittered = BATCH_PAUSE + random.uniform(-jitter, jitter)
-            await asyncio.sleep(max(0.05, jittered))
+        for i, ch in enumerate(shuffled):
+            result = await _poll_one(ch)
+            if result:
+                ok += 1
+            else:
+                errors += 1
+            # Log-normal pause between channels (skip after last)
+            if i < len(shuffled) - 1:
+                delay = next_delay()
+                await asyncio.sleep(delay)
 
         return ok, errors
 

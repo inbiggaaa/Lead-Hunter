@@ -323,3 +323,37 @@ async def test_poll_parked_when_flag_true(mock_settings):
     assert len(poller._dormant_channels) == 1
     assert poller._dormant_channels[0]["chat_username"] == "ch_inactive"
     assert poller._parked_count == 0
+
+
+# ── Sequential polling tests (Task 0.4) ──
+
+
+def test_next_delay_range():
+    """next_delay() возвращает значения в [0.8, 6.0]."""
+    from app.userbot.poller import next_delay
+
+    samples = [next_delay() for _ in range(1000)]
+    assert all(0.8 <= s <= 6.0 for s in samples), (
+        f"All samples must be in [0.8, 6.0]. "
+        f"Min: {min(samples):.2f}, Max: {max(samples):.2f}"
+    )
+
+
+def test_next_delay_median():
+    """Медиана next_delay() в районе 1.8–2.2 (log-normal с mu=0.7)."""
+    from app.userbot.poller import next_delay
+
+    samples = sorted(next_delay() for _ in range(1000))
+    median = samples[500]
+    assert 1.8 <= median <= 2.2, f"Median should be ~2.0s, got {median:.2f}s"
+
+
+def test_next_delay_has_spread():
+    """Распределение не вырожденное: есть значения и <1.5, и >3.0."""
+    from app.userbot.poller import next_delay
+
+    samples = [next_delay() for _ in range(1000)]
+    below_15 = sum(1 for s in samples if s < 1.5)
+    above_30 = sum(1 for s in samples if s > 3.0)
+    assert below_15 > 0, "Should have some fast samples (<1.5s)"
+    assert above_30 > 0, "Should have some slow samples (>3.0s)"
