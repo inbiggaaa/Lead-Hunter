@@ -817,6 +817,7 @@ class ChannelPoller:
             )).scalar_one_or_none()
         channel_country_id = ch.auto_matched_country_id if ch else None
         channel_city_id = ch.auto_matched_city_id if ch else None
+        effective_city_ids = {channel_city_id} if channel_city_id else set()
 
         async with async_session_factory() as session:
             segs = (await session.execute(sa_select(Segment))).scalars().all()

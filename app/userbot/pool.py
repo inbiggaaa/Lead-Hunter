@@ -60,9 +60,9 @@ class UserbotAccount:
             raise ValueError(f"Account {self.account_id} is unhealthy")
         return await self.client.get_entity(username)
 
-    async def get_messages(self, entity, limit: int = 10):
-        """Get messages from a channel."""
-        return await self.client.get_messages(entity, limit=limit)
+    async def get_messages(self, entity, limit: int = 10, **kwargs):
+        """Get messages from a channel. Passes through all Telethon kwargs."""
+        return await self.client.get_messages(entity, limit=limit, **kwargs)
 
 
 class UserbotPool:
