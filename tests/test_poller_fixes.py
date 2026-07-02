@@ -859,7 +859,7 @@ async def test_alert_flood_wait_critical(mock_get_redis):
     fake.aclose = AsyncMock()
     mock_get_redis.return_value = fake
 
-    level, text = await poller._check_flood_wait_critical()
+    level, text = await poller._check_flood_wait()
     assert level == "CRITICAL"
 
 
