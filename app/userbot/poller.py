@@ -808,8 +808,7 @@ class ChannelPoller:
         checks = [
             self._check_queue_backlog,
             self._check_dlq,
-            self._check_flood_wait_critical,
-            self._check_flood_wait_any,
+            self._check_flood_wait,
             self._check_budget_exceeded,
             self._check_poller_stuck,
         ]
@@ -857,26 +856,11 @@ class ChannelPoller:
             return ("WARNING", f"Dead-letter очередь: {length} неотправленных уведомлений")
         return (None, None)
 
-    async def _check_flood_wait_critical(self) -> tuple[str | None, str | None]:
-        for acc in self.pool.accounts:
-            if not acc.is_healthy:
-                continue
-            redis = await get_redis()
-            expires_raw = await redis.get(f"circuit:expires:{acc.account_id}")
-            await redis.aclose()
-            if expires_raw:
-                remaining = int(expires_raw) - int(time.time())
-                if remaining > 30 * 60:
-                    hours = remaining // 3600
-                    mins = (remaining % 3600) // 60
-                    return (
-                        "CRITICAL",
-                        f"Аккаунт #{acc.account_id}: FloodWait > 30 мин "
-                        f"(осталось {hours}ч {mins}м)",
-                    )
-        return (None, None)
+    async def _check_flood_wait(self) -> tuple[str | None, str | None]:
+        """Escalated FloodWait check: >30min CRITICAL, else any WARNING.
 
-    async def _check_flood_wait_any(self) -> tuple[str | None, str | None]:
+        Replaces two independent checks that caused duplicate alerts.
+        """
         for acc in self.pool.accounts:
             if not acc.is_healthy:
                 continue
@@ -888,11 +872,18 @@ class ChannelPoller:
                 if remaining > 0:
                     hours = remaining // 3600
                     mins = (remaining % 3600) // 60
-                    return (
-                        "WARNING",
-                        f"Аккаунт #{acc.account_id}: FloodWait "
-                        f"(осталось {hours}ч {mins}м)",
-                    )
+                    if remaining > 30 * 60:
+                        return (
+                            "CRITICAL",
+                            f"Аккаунт #{acc.account_id}: FloodWait > 30 мин "
+                            f"(осталось {hours}ч {mins}м)",
+                        )
+                    else:
+                        return (
+                            "WARNING",
+                            f"Аккаунт #{acc.account_id}: FloodWait "
+                            f"(осталось {hours}ч {mins}м)",
+                        )
         return (None, None)
 
     async def _check_budget_exceeded(self) -> tuple[str | None, str | None]:
