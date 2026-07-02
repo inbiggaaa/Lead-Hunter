@@ -28,11 +28,8 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 # ── Tier configuration ──
-# Intervals scale with number of accounts to avoid API abuse
-# HOT_INTERVAL — now in config.py (settings.hot_interval_base, defaults to 600s/10min)
-WARM_INTERVAL = 300     # 5 minutes — channels > 1000 participants
-COLD_INTERVAL = 900     # 15 minutes — everything else
-DORMANT_INTERVAL = 43200  # 12 hours — channels from countries with no subscriptions
+# All intervals moved to config.py (settings.hot_interval_base, warm_interval, etc.)
+# Module-level constants below are only for non-tier defaults (limits, jitter, delays)
 # Tier-specific message fetch limits — per API call.
 # Pagination auto-triggers if a full batch is returned (rare in practice).
 TIER_LIMITS = {
@@ -965,7 +962,8 @@ class ChannelPoller:
         """Calculate effective interval with degradation and cap.
 
         Hot tier only — non-Hot tiers pass through unchanged.
-        Multipliers stack: degradation (×2 at 1 account) × post_ban (×1.5).
+        Multipliers: degradation (×2 at 1 acc) and post_ban (×1.5) —
+        max() wins (they don't multiply — distinct risk factors).
         Hard cap prevents excessive sparseness regardless of conditions.
         """
         if tier_name != "Hot":
@@ -973,13 +971,14 @@ class ChannelPoller:
 
         available = self._get_available_account_count()
         if available >= 3:
-            effective_base = settings.hot_interval_3plus
-        elif available >= 2:
-            effective_base = base_interval
+            base = settings.hot_interval_3plus
         else:
-            effective_base = base_interval * settings.hot_degraded_multiplier
+            base = base_interval  # settings.hot_interval_base for 1 or 2 accounts
 
-        effective = effective_base * post_ban_multiplier
+        degraded = settings.hot_degraded_multiplier if available < 2 else 1.0
+        multiplier = max(degraded, post_ban_multiplier)
+
+        effective = base * multiplier
         return min(int(effective), settings.hot_interval_cap)
 
     # ═══════════════ MAIN LOOP ═══════════════
@@ -1006,9 +1005,9 @@ class ChannelPoller:
         # Launch all tier loops with staggered startup
         await asyncio.gather(
             self._run_tier_loop("Hot", self._hot_channels, settings.hot_interval_base, startup_delay=HOT_STARTUP_DELAY),
-            self._run_tier_loop("Warm", self._warm_channels, WARM_INTERVAL, startup_delay=WARM_STARTUP_DELAY),
-            self._run_tier_loop("Cold", self._cold_channels, COLD_INTERVAL, startup_delay=COLD_STARTUP_DELAY),
-            self._run_tier_loop("Dormant", self._dormant_channels, DORMANT_INTERVAL, startup_delay=COLD_STARTUP_DELAY),
+            self._run_tier_loop("Warm", self._warm_channels, settings.warm_interval, startup_delay=WARM_STARTUP_DELAY),
+            self._run_tier_loop("Cold", self._cold_channels, settings.cold_interval, startup_delay=COLD_STARTUP_DELAY),
+            self._run_tier_loop("Dormant", self._dormant_channels, settings.dormant_interval, startup_delay=COLD_STARTUP_DELAY),
             self._maintenance_loop(KEYWORD_RELOAD, TIER_REBUILD, _last_reload, _last_tier_rebuild),
         )
 

@@ -89,12 +89,15 @@ class Settings(BaseSettings):
     daily_request_budget: int = 10000    # max API calls per account per day
     poll_parked_countries: bool = False  # poll channels from countries with no subscriptions
 
-    # Hot tier interval tuning (Task 1.3)
-    hot_interval_base: int = 600          # seconds, base Hot interval (2 healthy accounts)
-    hot_interval_3plus: int = 600         # seconds, for 3+ healthy accounts
+    # Tier intervals (Task 1.3 — all configurable, no hardcoded constants)
+    hot_interval_base: int = 600          # seconds, Hot base (2 healthy accounts)
+    hot_interval_3plus: int = 420         # seconds, Hot for 3+ accounts (7 min)
+    warm_interval: int = 3000             # seconds, Warm tier (50 min)
+    cold_interval: int = 9000             # seconds, Cold tier (2.5 h)
+    dormant_interval: int = 43200         # seconds, Dormant tier (12 h)
     hot_degraded_multiplier: float = 2.0  # ×2 when only 1 healthy account
     post_ban_interval_multiplier: float = 1.5  # ×1.5 during post-ban mode
-    hot_interval_cap: int = 1200          # seconds, effective interval ceiling
+    hot_interval_cap: int = 1200          # seconds, effective interval ceiling (20 min)
     daily_report_hour: int = 19
     business_hidden_cap_channels: int = 60
     business_hidden_cap_keywords: int = 60

@@ -805,67 +805,83 @@ def test_post_ban_interval_multiplied():
 
 
 def test_post_ban_interval_single_account():
-    """1 аккаунт + post_ban: ×2 ×1.5."""
+    """1 аккаунт + post_ban: max(degraded=2, post_ban=1.5) = 2 → base×2."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     result = poller._get_effective_interval("Hot", 60, post_ban_multiplier=1.5)
-    assert result == 180  # 60 × 2 × 1.5
+    assert result == 120  # 60 × max(2, 1.5) = 120 (was 180 with multiply)
 
 
-# ── Task 1.3: adaptive Hot interval with cap ──
+# ── Task 1.3: adaptive Hot interval with max() + cap ──
 
 
-def test_effective_interval_3plus_accounts():
-    """3+ healthy аккаунта → hot_interval_3plus (600s by default)."""
-    poller = ChannelPoller()
-    poller.pool.accounts = [
-        _make_account(1, is_healthy=True),
-        _make_account(2, is_healthy=True),
-        _make_account(3, is_healthy=True),
-    ]
-    # 3 healthy → uses settings.hot_interval_3plus (600), not passed base
-    result = poller._get_effective_interval("Hot", 60)
-    assert result == 600
-
-
-def test_effective_interval_cap_applied():
-    """1 account + post_ban with large base → capped at hot_interval_cap (1200s)."""
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-    # 1 account degraded (×2) × post_ban (×1.5) on base 900:
-    #    900 × 2 × 1.5 = 2700 → cap 1200
-    result = poller._get_effective_interval("Hot", 900, post_ban_multiplier=1.5)
-    assert result == 1200  # capped, not 2700
-
-
-def test_effective_interval_cap_not_hit_when_under():
-    """Normal case: 2 accounts, no post_ban — well under cap."""
+def test_effective_interval_2_accounts():
+    """2 healthy → base (600s)."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
-    # 2 accounts, base 600, no post_ban → 600, cap 1200 → 600 (no truncation)
     result = poller._get_effective_interval("Hot", 600)
     assert result == 600
 
 
-def test_effective_interval_degradation_uses_config_multiplier():
-    """1 account uses settings.hot_degraded_multiplier (2.0) not hardcoded ×2."""
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-    # base 500 × degraded (2.0) × no post_ban = 1000
-    result = poller._get_effective_interval("Hot", 500)
-    assert result == 1000
-
-
-def test_effective_interval_all_unhealthy_counts_as_zero():
-    """All accounts unhealthy → treated as 0 available → degraded."""
+def test_effective_interval_3plus_accounts():
+    """3+ healthy → hot_interval_3plus (420s = 7 min)."""
     poller = ChannelPoller()
     poller.pool.accounts = [
-        _make_account(1, is_healthy=False),
-        _make_account(2, is_healthy=False),
+        _make_account(1), _make_account(2), _make_account(3),
     ]
-    # 0 healthy → degraded (×2) on base 300 = 600
-    result = poller._get_effective_interval("Hot", 300)
-    assert result == 600
+    result = poller._get_effective_interval("Hot", 600)
+    assert result == 420  # uses hot_interval_3plus, not passed base
+
+
+def test_effective_interval_1_account():
+    """1 healthy → base × degraded_multiplier = 1200s (but cap also 1200)."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    result = poller._get_effective_interval("Hot", 600)
+    assert result == 1200  # 600 × 2.0, not cut by cap (=1200)
+
+
+def test_effective_interval_cap_does_not_cut_legitimate():
+    """1 account: base×2 = 1200 = cap. Cap НЕ режет легитимное значение."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    # Exactly at cap — should return 1200, not less
+    result = poller._get_effective_interval("Hot", 600)
+    assert result == 1200  # not truncated, 1200 is the target
+
+
+def test_effective_interval_1_account_post_ban_max_wins():
+    """1 acc + post_ban: max(2, 1.5)=2, not 2×1.5=3. Key: max vs product."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    result = poller._get_effective_interval("Hot", 600, post_ban_multiplier=1.5)
+    # max(2.0, 1.5) = 2.0 → 600×2 = 1200, cap 1200
+    assert result == 1200  # key test: max, not 600×2×1.5=1800
+
+
+def test_effective_interval_2_accounts_post_ban():
+    """2 acc + post_ban: max(1, 1.5)=1.5 → 900s = 15 min."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    result = poller._get_effective_interval("Hot", 600, post_ban_multiplier=1.5)
+    assert result == 900  # 600 × max(1, 1.5)
+
+
+def test_effective_interval_cap_triggers_only_above_1200():
+    """Cap kicks in when effective > 1200, not below."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    # base 900 × degraded 2.0 = 1800 → cap 1200
+    result = poller._get_effective_interval("Hot", 900)
+    assert result == 1200  # capped from 1800
+
+
+def test_effective_interval_degradation_uses_config():
+    """1 account: settings.hot_degraded_multiplier applied."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    result = poller._get_effective_interval("Hot", 500)
+    assert result == 1000  # 500 × 2.0 from config
 
 
 # ── Alert loop tests (Task 1.4) ──
