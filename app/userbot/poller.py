@@ -17,12 +17,13 @@ from telethon.errors import FloodWaitError, ChannelInvalidError
 from telethon.tl.types import Message, InputPeerChannel
 
 from app.userbot.classifier import classify_message, _has_demand_signal, _match_keyword
+from app.userbot.llm_validator import llm_validator, sanitize_text
 from app.userbot.pool import UserbotPool
 from app.userbot.rate_limiter import limiter, BudgetExceeded
 from app.config import settings
 from app.cache import get_redis
 from app.db.session import async_session_factory
-from app.db.models import SegmentKeyword, Segment
+from app.db.models import LLMDecision, SegmentKeyword, Segment
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -348,11 +349,34 @@ class ChannelPoller:
                     )
 
             if result.matched_segments:
+                # ── LLM validation (shadow or blocking) ──
+                llm_result = await llm_validator.validate(
+                    msg.message, result.matched_segments,
+                )
+                await self._log_llm_decision(
+                    chat_username, msg_id, msg.message,
+                    result.matched_segments, llm_result,
+                )
+
+                blocked = (
+                    settings.llm_mode == "blocking"
+                    and llm_validator.should_block(llm_result)
+                )
+
                 urgency = "🔥 " if result.is_urgent else ""
+                llm_tag = f" [LLM: {llm_result.verdict}]"
+                if blocked:
+                    logger.info(
+                        "%s[Acc %d] BLOCKED by LLM in @%s (msg %d): %s",
+                        urgency, account.account_id, channel_username, msg_id,
+                        llm_result.reason[:120],
+                    )
+                    continue  # skip dispatch
+
                 logger.info(
-                    "%s[Acc %d] Match in @%s (msg %d): segments=%s",
+                    "%s[Acc %d] Match in @%s (msg %d): segments=%s%s",
                     urgency, account.account_id, channel_username, msg_id,
-                    result.matched_segments,
+                    result.matched_segments, llm_tag,
                 )
                 await self._dispatch(
                     chat_username=channel_username,
@@ -1326,6 +1350,33 @@ class ChannelPoller:
             await redis.aclose()
         except Exception:
             pass
+
+    @staticmethod
+    async def _log_llm_decision(
+        chat_username: str, message_id: int, message_text: str,
+        rule_segments: list[str], llm_result,
+    ) -> None:
+        """Log LLM decision to DB for shadow monitoring and fine-tune dataset."""
+        try:
+            from app.db.session import async_session_factory
+
+            masked = sanitize_text(message_text)
+            async with async_session_factory() as sess:
+                decision = LLMDecision(
+                    chat_username=chat_username,
+                    message_id=message_id,
+                    message_text_masked=masked,
+                    rule_segments=rule_segments,
+                    llm_verdict=llm_result.verdict,
+                    llm_segments=llm_result.relevant_segments or [],
+                    llm_reason=llm_result.reason,
+                    certainty=llm_result.certainty,
+                    llm_mode=settings.llm_mode,
+                )
+                sess.add(decision)
+                await sess.commit()
+        except Exception as e:
+            logger.warning("Failed to log LLM decision: %s", e)
 
 
 # ── Module-level helpers ──

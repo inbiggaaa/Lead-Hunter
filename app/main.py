@@ -17,6 +17,7 @@ from app.bot.handlers.catalog_nav import router as catalog_router
 from app.bot.handlers.discover import router as discover_router
 from app.bot.handlers.support import router as support_router
 from app.bot.handlers.plan import router as plan_router
+from app.bot.handlers.feedback import router as feedback_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -81,6 +82,7 @@ async def main():
     dp.include_router(channels_router)
     dp.include_router(discover_router)
     dp.include_router(plan_router)
+    dp.include_router(feedback_router)
     dp.include_router(support_router)
     dp.include_router(start_router)
 

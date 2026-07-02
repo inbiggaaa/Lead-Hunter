@@ -1,10 +1,12 @@
 import datetime
 
 from sqlalchemy import (
+    ARRAY,
     BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -381,3 +383,51 @@ class PeriodicPref(Base):
     msg_type: Mapped[str] = mapped_column(String(30), primary_key=True, nullable=False)
     is_disabled: Mapped[bool] = mapped_column(Boolean, default=False)
     last_sent_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ── llm_decisions ──
+
+class LLMDecision(Base):
+    """Every LLM validation call — for shadow monitoring and future fine-tune dataset."""
+    __tablename__ = "llm_decisions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    chat_username: Mapped[str] = mapped_column(String(64), nullable=False)
+    message_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    message_text_masked: Mapped[str] = mapped_column(Text, nullable=False)
+    rule_segments: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
+    llm_verdict: Mapped[str] = mapped_column(String(20), nullable=False)
+    llm_segments: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    llm_reason: Mapped[str | None] = mapped_column(Text)
+    certainty: Mapped[str | None] = mapped_column(String(10))
+    llm_mode: Mapped[str] = mapped_column(String(10), default="shadow")
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_llm_decisions_created", "created_at"),
+        Index("idx_llm_decisions_chat_msg", "chat_username", "message_id"),
+    )
+
+
+# ── feedback ──
+
+class Feedback(Base):
+    """User feedback on notifications — gold labels for fine-tune."""
+    __tablename__ = "feedback"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    chat_username: Mapped[str] = mapped_column(String(64), nullable=False)
+    message_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    verdict: Mapped[str] = mapped_column(String(15), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_feedback_chat_msg", "chat_username", "message_id"),
+    )
