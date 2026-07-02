@@ -34,8 +34,8 @@ async def main():
         reminders_loop(),
         end_of_day_loop(),
         payment_checker_loop(),
-        # discovery_loop(client=discovery_client),  # DISABLED: shares acc1 client, risks FloodWait
-        discovery_v2_loop(client=discovery_client),  # shares userbot1 with poller
+        # discovery_loop(client=discovery_client),  # DISABLED: shares acc1 client, FloodWait risk
+        # discovery_v2_loop(client=discovery_client),  # DISABLED: shares acc1 client, FloodWait risk (17h ban on 'malaga kids')
     )
 
 
