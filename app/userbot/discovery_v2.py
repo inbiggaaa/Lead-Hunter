@@ -227,7 +227,7 @@ async def _search_and_store(
             )
 
         try:
-            await limiter.acquire()
+            await limiter.acquire(account_id=DISCOVERY_ACCOUNT_ID)
             result = await client(SearchRequest(q=q["query"], limit=SEARCH_LIMIT))
         except FloodWaitError as e:
             logger.warning("Discovery v2 FloodWait: %ds on '%s'", e.seconds, q["query"])

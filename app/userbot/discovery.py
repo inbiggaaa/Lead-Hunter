@@ -111,7 +111,7 @@ async def search_channels(client: TelegramClient, geo_queries: dict, limit: int 
             for query in queries:
                 try:
                     # Hard Rule #1: limiter before every API call
-                    await limiter.acquire()
+                    await limiter.acquire(account_id=0)
                     from telethon.tl.functions.contacts import SearchRequest
                     result = await client(SearchRequest(q=query, limit=limit))
                     for chat in result.chats:

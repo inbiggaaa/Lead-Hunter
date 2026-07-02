@@ -3,15 +3,18 @@
 Ensures a single account never exceeds safe request rates, regardless of how
 many concurrent consumers (poller, discovery) are active.
 
-Token bucket: ~3 rps per account.
+Per-account token bucket + daily budget.
 Circuit breaker: per-account — opens on FloodWait for one account,
 blocks only that account's API calls until expiry.
-Keys: circuit:open:{account_id}, circuit:expires:{account_id}
+Keys:
+  circuit:open:{account_id}, circuit:expires:{account_id}
+  budget:used:{account_id}:{YYYY-MM-DD}
 """
 
 import asyncio
 import logging
 import time
+from datetime import datetime, timezone
 
 from app.cache import get_redis
 
@@ -23,11 +26,22 @@ def _circuit_key(account_id: int) -> str:
 
 def _circuit_expires_key(account_id: int) -> str:
     return f"circuit:expires:{account_id}"
-RATE_LIMIT_KEY = "rate:last_request_at"
 
-# ── Defaults (override via .env) ──
-DEFAULT_MIN_INTERVAL = 0.3   # seconds between API calls (~3 rps, safe for Telegram)
-DEFAULT_MAX_BURST = 2        # max consecutive calls before enforced wait
+def _budget_key(account_id: int) -> str:
+    """Daily budget key — date in the key name, reset by date change."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return f"budget:used:{account_id}:{today}"
+
+class BudgetExceeded(Exception):
+    """Raised when an account exceeds its daily API request budget."""
+
+    def __init__(self, account_id: int, used: int, limit: int):
+        self.account_id = account_id
+        self.used = used
+        self.limit = limit
+        super().__init__(
+            f"Account {account_id}: daily budget exceeded ({used}/{limit})"
+        )
 
 
 async def _now() -> float:
@@ -35,22 +49,67 @@ async def _now() -> float:
 
 
 class TelegramRateLimiter:
-    """Token-bucket rate limiter shared across all userbot consumers."""
+    """Per-account token-bucket rate limiter with daily budget."""
 
-    def __init__(self, min_interval: float = DEFAULT_MIN_INTERVAL):
+    def __init__(self, min_interval: float, daily_budget: int):
         self.min_interval = min_interval
-        self._last_call: float = 0.0
-        self._lock = asyncio.Lock()
+        self.daily_budget = daily_budget
+        # Per-account state — each account gets its own timer and lock
+        self._account_last_call: dict[int, float] = {}
+        self._account_locks: dict[int, asyncio.Lock] = {}
 
-    async def acquire(self) -> None:
-        """Wait until a token is available to make one Telegram API call."""
-        async with self._lock:
-            elapsed = await _now() - self._last_call
+    async def acquire(self, account_id: int) -> None:
+        """Wait for per-account rate limit slot, then check and increment daily budget.
+
+        Raises BudgetExceeded if the account has used all its daily API calls.
+        """
+        # 1. Check daily budget BEFORE waiting on interval.
+        #    account_id=0 is legacy (discovery v1 on pause) — gets its own key,
+        #    harmless since v1 is not actively running.
+        if self.daily_budget > 0:
+            redis = await get_redis()
+            try:
+                key = _budget_key(account_id)
+                used = await redis.incr(key)
+                if used == 1:
+                    # First use today — set TTL for cleanup (2 days)
+                    await redis.expire(key, 172800)
+                if used > self.daily_budget:
+                    raise BudgetExceeded(account_id, used, self.daily_budget)
+            finally:
+                await redis.aclose()
+
+        # 2. Per-account rate limiting
+        lock = self._get_lock(account_id)
+        async with lock:
+            now = await _now()
+            last = self._account_last_call.get(account_id, 0.0)
+            elapsed = now - last
             if elapsed < self.min_interval:
                 wait = self.min_interval - elapsed
-                logger.debug("Rate limiter: waiting %.1fs", wait)
                 await asyncio.sleep(wait)
-            self._last_call = await _now()
+            self._account_last_call[account_id] = await _now()
+
+    async def budget_remaining(self, account_id: int) -> int:
+        """Return remaining budget for this account today, or -1 if budget disabled."""
+        if self.daily_budget <= 0:
+            return -1
+        redis = await get_redis()
+        try:
+            key = _budget_key(account_id)
+            raw = await redis.get(key)
+            used = int(raw) if raw else 0
+            return max(0, self.daily_budget - used)
+        finally:
+            await redis.aclose()
+
+    def _get_lock(self, account_id: int) -> asyncio.Lock:
+        """Get or create a per-account asyncio.Lock."""
+        if account_id not in self._account_locks:
+            self._account_locks[account_id] = asyncio.Lock()
+        return self._account_locks[account_id]
+
+    # ── Circuit breaker (unchanged — already per-account) ──
 
     async def report_flood_wait(self, seconds: int, context: str = "", account_id: int = 0) -> None:
         """Called when FloodWait is received for an account — opens its circuit breaker.
@@ -171,5 +230,10 @@ class TelegramRateLimiter:
         return True
 
 
-# Singleton for the worker process
-limiter = TelegramRateLimiter()
+# Singleton for the worker process — reads config values
+from app.config import settings
+
+limiter = TelegramRateLimiter(
+    min_interval=settings.userbot_min_interval,
+    daily_budget=settings.daily_request_budget,
+)

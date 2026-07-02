@@ -730,6 +730,21 @@ segment_seed.md (первые 100 строк), DECISIONS.md, ROADMAP.md.
 Обнаружена опасная рекомендация от предыдущего ответа: «перезапустить воркер после 10:01» —
 противоречит OPERATIONS.md §4 Шаг 1. Исправлено.
 
+**02.07.2026 04:30 — Задача 0.5: пер-аккаунтный rate limiter + суточный бюджет.**
+Фундаментальный фикс. Первопричина всех банов: `TelegramRateLimiter` был синглтоном с одним `_last_call` и одним `_lock` на все аккаунты. `DEFAULT_MIN_INTERVAL=0.3` ограничивал суммарный темп двух аккаунтов до 3 rps, а не каждого.
+Что сделано:
+- `rate_limiter.py`: `acquire(account_id)` — обязательный параметр, per-account `_last_call` и `_lock` (ленивые dict), `BudgetExceeded` (raise при превышении daily_budget), `budget_remaining()`.
+- Порядок в `acquire()`: проверка бюджета → BudgetExceeded → пер-аккаунтный интервал → инкремент Redis-счётчика.
+- Ключ бюджета: `budget:used:{account_id}:{YYYY-MM-DD}`, TTL 172800, обнуление за счёт смены даты в имени.
+- `config.py`: +`userbot_min_interval=1.5`, +`daily_request_budget=10000`.
+- Обновлены все 4 точки вызова: poller.py (2), discovery_v2.py (1), discovery.py (1).
+- `_poll_batch` ловит `BudgetExceeded` → лог + `notify_admin`.
+- `account_id=0` (legacy discovery v1) получает свой слот — обратная совместимость.
+- 7 новых unit-тестов в `tests/test_rate_limiter.py`: 3 на пер-аккаунтный интервал, 4 на бюджет (fakeredis).
+- `requirements.txt`: +`fakeredis>=2.0`.
+Результат: pytest 7/7 зелёный, 44 существующих unit-теста без регрессий. 0 вызовов `acquire()` без `account_id`.
+Уроки: синглтон-лимитер — антипаттерн для multi-account. Circuit breaker был пер-аккаунтным, а лимитер нет — несоответствие архитектуры.
+
 ---
 
 ## 9. Ключевые решения (полный архив — DECISIONS.md)
