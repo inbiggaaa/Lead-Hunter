@@ -764,9 +764,15 @@ class ChannelPoller:
     def _get_sleep_start_hour(self, account_id: int) -> int:
         """Return UTC hour when this account's sleep window starts.
 
-        Hardcoded to 2 UTC for now. Task 1.2 will make this per-account.
+        Evenly spaces N accounts across 24h so sleep windows (6h each)
+        never overlap. Uses position in pool.accounts list, not account_id,
+        to handle potential gaps if accounts are removed.
         """
-        return 2
+        total = max(1, len(self.pool.accounts))
+        for idx, acc in enumerate(self.pool.accounts):
+            if acc.account_id == account_id:
+                return (idx * (24 // total)) % 24
+        return 2  # fallback: account not found in pool
 
     def _get_available_account_count(self) -> int:
         """Count accounts that are healthy.

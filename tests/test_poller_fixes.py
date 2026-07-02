@@ -667,3 +667,37 @@ def test_next_delay_has_spread():
     above_30 = sum(1 for s in samples if s > 3.0)
     assert below_15 > 0, "Should have some fast samples (<1.5s)"
     assert above_30 > 0, "Should have some slow samples (>3.0s)"
+
+
+# ── Timezone tests (Task 1.2) ──
+
+
+def test_sleep_starts_differ():
+    """Два аккаунта имеют разный sleep_start_hour."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    s1 = poller._get_sleep_start_hour(1)
+    s2 = poller._get_sleep_start_hour(2)
+    assert s1 != s2, f"acc1={s1}, acc2={s2} — must differ"
+
+
+def test_sleep_starts_no_overlap():
+    """При 2 аккаунтах 6ч-окна сна не пересекаются (через _is_in_sleep_window)."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    s1 = poller._get_sleep_start_hour(1)
+    s2 = poller._get_sleep_start_hour(2)
+    for h in range(24):
+        ts = datetime(2026, 7, 2, h, 30, 0, tzinfo=timezone.utc).timestamp()
+        in1 = poller._is_in_sleep_window(ts, s1)
+        in2 = poller._is_in_sleep_window(ts, s2)
+        assert not (in1 and in2), (
+            f"Overlap at {h}:30: acc1(sleep={s1})={in1}, acc2(sleep={s2})={in2}"
+        )
+
+
+def test_sleep_start_fallback():
+    """account_id не в пуле → fallback 2."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    assert poller._get_sleep_start_hour(99) == 2
