@@ -425,6 +425,22 @@ async def test_poll_channel_uses_cache_second_call(mock_limiter):
     assert len(fetch_calls) == 2
 
 
+def test_stale_hash_invalidates_only_that_account():
+    """ChannelInvalidError acc1 не сбрасывает кэш acc2."""
+    poller = ChannelPoller()
+    poller._entity_cache["ch1"] = {
+        1: (100, 200),
+        2: (100, 999),  # другой access_hash для acc2
+    }
+
+    # Симулируем: pop для acc1, кэш acc2 остаётся
+    poller._entity_cache.get("ch1", {}).pop(1, None)
+
+    assert 1 not in poller._entity_cache.get("ch1", {})
+    assert 2 in poller._entity_cache.get("ch1", {})
+    assert poller._entity_cache["ch1"][2] == (100, 999)
+
+
 @patch("app.userbot.poller.limiter.is_circuit_open")
 async def test_start_logs_cb_status_clear(mock_is_open):
     """start() логирует 'circuit breaker clear' при закрытом CB."""

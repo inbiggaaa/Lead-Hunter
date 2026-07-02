@@ -406,8 +406,8 @@ class ChannelPoller:
             except FloodWaitError:
                 raise
             except ChannelInvalidError:
-                # access_hash is stale — invalidate cache, next cycle re-resolves
-                self._entity_cache.pop(channel_username, None)
+                # access_hash is stale for this account — invalidate only this account's cache
+                self._entity_cache.get(channel_username, {}).pop(account.account_id, None)
                 raise
             except Exception:
                 break  # Channel became inaccessible
