@@ -69,12 +69,12 @@ async def test_internal_locks_are_per_account():
 async def test_budget_blocks_after_limit(mock_get_redis):
     """При budget=100 101-й запрос аккаунта → BudgetExceeded."""
     fake_redis = AsyncMock()
-    # Настраиваем мок: первые 100 вызовов incr возвращают ≤100, 101-й > 100
     incr_values = list(range(1, 102))  # 1, 2, ..., 101
     fake_redis.incr = AsyncMock(side_effect=incr_values)
     fake_redis.expire = AsyncMock()
-    fake_redis.close = AsyncMock()
-    mock_get_redis.return_value = fake_redis
+    fake_redis.aclose = AsyncMock()
+    # _is_post_ban (1) + acquire ×101 = 102 calls
+    mock_get_redis.side_effect = [fake_redis] * 102
 
     lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
 
@@ -100,9 +100,13 @@ async def test_budget_per_account_independent(mock_get_redis):
     fake_redis_2.incr = AsyncMock(side_effect=[1, 2])  # всегда ≤100
     fake_redis_2.expire = AsyncMock()
 
-    # Разные Redis-инстансы для разных аккаунтов (каждый вызов get_redis() — новый)
-    mock_get_redis.side_effect = [fake_redis_1, fake_redis_1, fake_redis_1,
-                                   fake_redis_2, fake_redis_2]
+    # _is_post_ban calls get_redis once per first acquire per account (cached 60s)
+    mock_get_redis.side_effect = [
+        fake_redis_1,  # _is_post_ban acc1
+        fake_redis_1, fake_redis_1, fake_redis_1,  # acc1 acquire ×3
+        fake_redis_2,  # _is_post_ban acc2
+        fake_redis_2, fake_redis_2,  # acc2 acquire ×2
+    ]
 
     lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
 
@@ -170,3 +174,116 @@ async def test_budget_exceeded_message_contains_account_id():
     assert "5" in str(exc)
     assert "101" in str(exc)
     assert "100" in str(exc)
+
+
+# ── Post-ban tests (Task 2.2) ──
+
+
+@patch("app.userbot.rate_limiter.get_redis")
+async def test_post_ban_budget_halved(mock_get_redis):
+    """При post_ban бюджет 50 → 51-й вызов BudgetExceeded (не 101-й)."""
+    fake_redis = AsyncMock()
+    fake_redis.incr = AsyncMock(side_effect=list(range(1, 52)))
+    fake_redis.expire = AsyncMock()
+    fake_redis.aclose = AsyncMock()
+    fake_redis.get = AsyncMock(return_value=str(time.time() + 3600))
+    # _is_post_ban (1) + acquire ×51
+    mock_get_redis.side_effect = [fake_redis] * 52
+
+    lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
+
+    for _ in range(50):
+        await lim.acquire(account_id=1)
+    with pytest.raises(BudgetExceeded):
+        await lim.acquire(account_id=1)
+
+
+@patch("app.userbot.rate_limiter.get_redis")
+async def test_post_ban_expired_full_budget(mock_get_redis):
+    """post_ban_until в прошлом → полный бюджет 100."""
+    fake_redis = AsyncMock()
+    fake_redis.incr = AsyncMock(side_effect=list(range(1, 102)))
+    fake_redis.expire = AsyncMock()
+    fake_redis.aclose = AsyncMock()
+    # _is_post_ban: post_ban_until в прошлом → неактивен
+    fake_redis.get = AsyncMock(return_value=str(time.time() - 3600))
+    # _is_post_ban (1, cached) + acquire ×101
+    mock_get_redis.side_effect = [fake_redis] * 102
+
+    lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
+
+    for _ in range(100):
+        await lim.acquire(account_id=1)
+    with pytest.raises(BudgetExceeded):
+        await lim.acquire(account_id=1)
+
+
+@patch("app.userbot.rate_limiter.get_redis")
+async def test_post_ban_set_on_cb_close(mock_get_redis):
+    """wait_if_circuit_open при истечении CB ставит post_ban_until."""
+    fake_redis = AsyncMock()
+    # CB закрыт (ключа нет) → без ожидания
+    fake_redis.get = AsyncMock(return_value=None)
+    fake_redis.set = AsyncMock()
+    fake_redis.expire = AsyncMock()
+    fake_redis.delete = AsyncMock()
+    fake_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = fake_redis
+
+    lim = TelegramRateLimiter(min_interval=0.3, daily_budget=10000)
+    waited = await lim.wait_if_circuit_open(account_id=1)
+    assert not waited  # CB не открыт, не ждали
+
+
+@patch("app.userbot.rate_limiter.get_redis")
+async def test_post_ban_activated_at_startup(mock_get_redis):
+    """Свежий last_ban (< 48ч) → post_ban активируется."""
+    fake_redis = AsyncMock()
+    # post_ban_until нет, last_ban_at = 1ч назад
+    fake_redis.get = AsyncMock(side_effect=[
+        None,  # existing post_ban_until
+        str(time.time() - 3600),  # last_ban_at: 1ч назад
+    ])
+    fake_redis.set = AsyncMock()
+    fake_redis.expire = AsyncMock()
+    fake_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = fake_redis
+
+    lim = TelegramRateLimiter(min_interval=0.3, daily_budget=10000)
+    result = await lim.activate_post_ban_if_recent(account_id=1)
+    assert result is True
+    assert fake_redis.set.called
+
+
+@patch("app.userbot.rate_limiter.get_redis")
+async def test_post_ban_startup_idempotent(mock_get_redis):
+    """Уже активный post_ban → не перезаписывается."""
+    fake_redis = AsyncMock()
+    # post_ban_until уже в будущем
+    fake_redis.get = AsyncMock(return_value=str(time.time() + 3600))
+    fake_redis.set = AsyncMock()
+    fake_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = fake_redis
+
+    lim = TelegramRateLimiter(min_interval=0.3, daily_budget=10000)
+    result = await lim.activate_post_ban_if_recent(account_id=1)
+    assert result is False
+    fake_redis.set.assert_not_called()
+
+
+@patch("app.userbot.rate_limiter.get_redis")
+async def test_post_ban_startup_old_ban_ignored(mock_get_redis):
+    """last_ban старше 48ч → post_ban НЕ активируется."""
+    fake_redis = AsyncMock()
+    fake_redis.get = AsyncMock(side_effect=[
+        None,  # existing post_ban_until
+        str(time.time() - 50 * 3600),  # last_ban_at: 50ч назад
+    ])
+    fake_redis.set = AsyncMock()
+    fake_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = fake_redis
+
+    lim = TelegramRateLimiter(min_interval=0.3, daily_budget=10000)
+    result = await lim.activate_post_ban_if_recent(account_id=1)
+    assert result is False
+    fake_redis.set.assert_not_called()

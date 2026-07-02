@@ -57,6 +57,8 @@ class TelegramRateLimiter:
         # Per-account state — each account gets its own timer and lock
         self._account_last_call: dict[int, float] = {}
         self._account_locks: dict[int, asyncio.Lock] = {}
+        # Post-ban cache: {account_id: (checked_at_ts, is_active)}
+        self._post_ban_cache: dict[int, tuple[float, bool]] = {}
 
     async def acquire(self, account_id: int) -> None:
         """Wait for per-account rate limit slot, then check and increment daily budget.
@@ -67,6 +69,9 @@ class TelegramRateLimiter:
         #    account_id=0 is legacy (discovery v1 on pause) — gets its own key,
         #    harmless since v1 is not actively running.
         if self.daily_budget > 0:
+            effective_budget = self.daily_budget
+            if await self._is_post_ban(account_id):
+                effective_budget = max(1, self.daily_budget // 2)
             redis = await get_redis()
             try:
                 key = _budget_key(account_id)
@@ -74,8 +79,8 @@ class TelegramRateLimiter:
                 if used == 1:
                     # First use today — set TTL for cleanup (2 days)
                     await redis.expire(key, 172800)
-                if used > self.daily_budget:
-                    raise BudgetExceeded(account_id, used, self.daily_budget)
+                if used > effective_budget:
+                    raise BudgetExceeded(account_id, used, effective_budget)
             finally:
                 await redis.aclose()
 
@@ -103,6 +108,53 @@ class TelegramRateLimiter:
         finally:
             await redis.aclose()
 
+    async def _is_post_ban(self, account_id: int) -> bool:
+        """Check if account is in post-ban mode. Cached for 60s to avoid Redis
+        on every API call in hot path."""
+        cached = self._post_ban_cache.get(account_id)
+        now = time.time()
+        if cached and (now - cached[0]) < 60:
+            return cached[1]
+
+        redis = await get_redis()
+        val = await redis.get(f"post_ban_until:{account_id}")
+        await redis.aclose()
+        active = val is not None and now < float(val)
+        self._post_ban_cache[account_id] = (now, active)
+        return active
+
+    async def activate_post_ban_if_recent(self, account_id: int) -> bool:
+        """Activate post-ban if account was banned < 48h ago and post_ban
+        not already active. Idempotent — won't overwrite existing post_ban.
+
+        Layer 3: called at worker startup for accounts whose CB expired
+        while the worker was down.
+        """
+        redis = await get_redis()
+        try:
+            existing = await redis.get(f"post_ban_until:{account_id}")
+            if existing and time.time() < float(existing):
+                return False
+
+            last_ban = await redis.get(f"last_ban_at:{account_id}")
+            if not last_ban:
+                return False
+
+            ban_ago = time.time() - float(last_ban)
+            if ban_ago > 48 * 3600:
+                return False
+
+            until = int(time.time() + 48 * 3600)
+            await redis.set(f"post_ban_until:{account_id}", str(until))
+            await redis.expire(f"post_ban_until:{account_id}", 52 * 3600)
+            logger.info(
+                "Account %d: post-ban activated for 48h (was banned %.1fh ago at startup)",
+                account_id, ban_ago / 3600,
+            )
+            return True
+        finally:
+            await redis.aclose()
+
     def _get_lock(self, account_id: int) -> asyncio.Lock:
         """Get or create a per-account asyncio.Lock."""
         if account_id not in self._account_locks:
@@ -122,6 +174,10 @@ class TelegramRateLimiter:
         await redis.set(_circuit_expires_key(account_id), str(expires_at))
         await redis.expire(_circuit_key(account_id), seconds + 60)
         await redis.expire(_circuit_expires_key(account_id), seconds + 60)
+        # Record last_ban_at for post_ban activation at worker restart (layer 1)
+        last_ban_key = f"last_ban_at:{account_id}"
+        await redis.set(last_ban_key, str(int(time.time())))
+        await redis.expire(last_ban_key, seconds + 48 * 3600)
         await redis.aclose()
 
         hours = seconds // 3600
@@ -220,9 +276,16 @@ class TelegramRateLimiter:
 
         # Circuit breaker just closed — notify recovery
         logger.info("Circuit breaker closed for account %d — resuming API calls", account_id)
+
+        # Activate post-ban mode for 48h (layer 2: worker was running during CB)
+        post_ban_key = f"post_ban_until:{account_id}"
+        await redis.set(post_ban_key, str(int(time.time()) + 48 * 3600))
+        await redis.expire(post_ban_key, 52 * 3600)
+
         from app.worker.notify_admin import notify_admin
         await notify_admin(
-            f"✅ FloodWait истёк для аккаунта #{account_id} — работа возобновлена."
+            f"✅ FloodWait истёк для аккаунта #{account_id} — работа возобновлена.\n\n"
+            f"🛡 Пост-бан режим активирован на 48ч (бюджет 50%, интервалы ×1.5)"
         )
         # Clear keys to prevent duplicate notifications
         await redis.delete(key, expires_key, "circuit:open", "circuit:expires_at")
