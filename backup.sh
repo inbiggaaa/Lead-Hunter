@@ -73,14 +73,22 @@ else
     else
         echo "[$(date)] Encrypting session files to $SESSION_ARCHIVE"
 
-        tar czf - -C "$SESSION_DIR" *.session 2>/dev/null | \
+        # cd into SESSION_DIR so *.session glob expands there, not in CWD
+        ( cd "$SESSION_DIR" && tar czf - *.session ) | \
             gpg --symmetric --batch --yes \
                 --passphrase "$SESSION_BACKUP_PASSPHRASE" \
                 --cipher-algo AES256 \
-                -o "$SESSION_ARCHIVE" 2>&1
+                -o "$SESSION_ARCHIVE"
 
         if [ $? -eq 0 ] && [ -f "$SESSION_ARCHIVE" ]; then
-            echo "[$(date)] Session backup encrypted: $(du -h "$SESSION_ARCHIVE" | cut -f1)"
+            # Verify archive is not empty — decrypt and count .session files inside
+            FILE_COUNT=$(gpg --decrypt --batch --passphrase "$SESSION_BACKUP_PASSPHRASE" \
+                "$SESSION_ARCHIVE" 2>/dev/null | tar tzf - 2>/dev/null | grep -c '\.session$' || true)
+
+            if [ "$FILE_COUNT" -lt 1 ]; then
+                echo "[$(date)] ERROR: Session archive is EMPTY (0 .session files) — backup failed"
+            else
+                echo "[$(date)] Session backup encrypted: $(du -h "$SESSION_ARCHIVE" | cut -f1) ($FILE_COUNT files)"
 
             # ── S3 upload (PLACEHOLDER — NOT TESTED against real B2/S3) ──
             # Backblaze B2 requires either:
@@ -97,6 +105,7 @@ else
             # Rotation
             find "$SESSION_BACKUP_DIR" -name "sessions_*.tar.gz.gpg" -mtime +$RETENTION_DAYS -delete
             echo "[$(date)] Session rotation done"
+            fi   # FILE_COUNT check
         else
             echo "[$(date)] ERROR: Session encryption failed — check SESSION_BACKUP_PASSPHRASE"
         fi
