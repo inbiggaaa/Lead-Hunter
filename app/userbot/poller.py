@@ -81,6 +81,8 @@ class ChannelPoller:
         self._warm_channels: list[dict] = []
         self._cold_channels: list[dict] = []
         self._dormant_channels: list[dict] = []
+        # Per-account locks — prevent multiple tiers from polling same account simultaneously
+        self._account_locks: dict[int, asyncio.Lock] = {}
 
     # ═══════════════ INIT ═══════════════
 
@@ -418,8 +420,10 @@ class ChannelPoller:
             results = await asyncio.gather(*[_poll_one(ch) for ch in batch])
             ok += sum(1 for r in results if r)
             errors += sum(1 for r in results if not r)
-            # Small breath between batches to avoid rate-limit buildup
-            await asyncio.sleep(BATCH_PAUSE)
+            # Jittered pause between batches — breaks predictable rhythm
+            jitter = BATCH_PAUSE * 0.3  # ±30% around BATCH_PAUSE
+            jittered = BATCH_PAUSE + random.uniform(-jitter, jitter)
+            await asyncio.sleep(max(0.05, jittered))
 
         return ok, errors
 
@@ -433,6 +437,8 @@ class ChannelPoller:
         - startup_delay: stagger tier starts to avoid API storm
         - warmup: gradual channel ramp-up over WARMUP_STEPS cycles
         - jitter: +/-15% random variation on interval
+        - per-account lock: prevents multiple tiers from polling same account simultaneously
+        - dynamic interval: scales with available accounts to avoid overload
         """
         total_channels = len(channels)
 
@@ -469,47 +475,101 @@ class ChannelPoller:
             else:
                 tier_channels = channels
 
-            # Distribute channels across healthy accounts
-            account_chunks = self._distribute(tier_channels)
+            # Distribute channels across available accounts (healthy + not blocked)
+            account_chunks = await self._distribute(tier_channels)
 
             for account, chunk in account_chunks:
-                if not account.is_healthy:
+                if not chunk:
                     continue
-                # Skip accounts with open circuit breaker (they'll be polled when ban expires)
-                if await limiter.is_circuit_open(account.account_id):
+
+                # Per-account try-lock: skip if another tier is already polling this account
+                lock = self._get_account_lock(account.account_id)
+                if lock.locked():
                     logger.debug(
-                        "Skipping account %d — circuit breaker open", account.account_id
+                        "Account %d busy — skipping %s tier this cycle (%d channels)",
+                        account.account_id, tier_name, len(chunk),
                     )
                     continue
-                limit_tag = "(initial)" if initial else "(incremental + pagination)"
-                ok, err = await self._poll_batch(account, chunk, tier_name=tier_name, initial=initial)
-                elapsed = time.time() - start
-                if ok + err > 0:
-                    logger.info(
-                        "%s tier: %d ok, %d errors in %.1fs %s",
-                        tier_name, ok, err, elapsed, limit_tag,
-                    )
+
+                async with lock:
+                    limit_tag = "(initial)" if initial else "(incremental + pagination)"
+                    ok, err = await self._poll_batch(account, chunk, tier_name=tier_name, initial=initial)
+                    elapsed = time.time() - start
+                    if ok + err > 0:
+                        logger.info(
+                            "%s tier: %d ok, %d errors in %.1fs %s",
+                            tier_name, ok, err, elapsed, limit_tag,
+                        )
 
             initial = False
 
+            # Dynamic interval: scale with available account count
+            effective_interval = self._get_effective_interval(tier_name, interval)
+
             # Random jitter: break predictable patterns
-            jitter = interval * INTERVAL_JITTER
-            jittered = interval + random.uniform(-jitter, jitter)
+            jitter = effective_interval * INTERVAL_JITTER
+            jittered = effective_interval + random.uniform(-jitter, jitter)
             elapsed = time.time() - start
             await asyncio.sleep(max(0, jittered - elapsed))
 
-    def _distribute(self, channels: list[dict]) -> list[tuple]:
-        """Distribute channels across healthy accounts evenly."""
-        healthy = [a for a in self.pool.accounts if a.is_healthy]
-        if not healthy:
+    async def _distribute(self, channels: list[dict]) -> list[tuple]:
+        """Distribute channels across available accounts (healthy + circuit breaker closed).
+
+        Filters out blocked accounts BEFORE distribution so no channels are lost.
+        """
+        available = []
+        for a in self.pool.accounts:
+            if not a.is_healthy:
+                continue
+            if await limiter.is_circuit_open(a.account_id):
+                logger.debug(
+                    "Account %d excluded from distribution — circuit breaker open",
+                    a.account_id,
+                )
+                continue
+            available.append(a)
+
+        if not available:
+            logger.warning("No available accounts for distribution — all blocked or unhealthy")
             return []
 
         chunks = []
-        n = len(healthy)
-        for i, acc in enumerate(healthy):
+        n = len(available)
+        for i, acc in enumerate(available):
             chunk = channels[i::n]  # Every n-th channel to this account
             chunks.append((acc, chunk))
         return chunks
+
+    def _get_account_lock(self, account_id: int) -> asyncio.Lock:
+        """Get or create a per-account lock for tier serialization."""
+        if account_id not in self._account_locks:
+            self._account_locks[account_id] = asyncio.Lock()
+        return self._account_locks[account_id]
+
+    def _get_available_account_count(self) -> int:
+        """Count accounts that are healthy.
+
+        Note: circuit breaker state is checked async in _distribute.
+        This is a fast synchronous estimate for interval calculation.
+        """
+        return sum(1 for a in self.pool.accounts if a.is_healthy)
+
+    def _get_effective_interval(self, tier_name: str, base_interval: int) -> int:
+        """Calculate effective interval based on available accounts.
+
+        With fewer accounts, increase interval to reduce sustained API load:
+        - 2+ accounts: base interval (60s Hot, 300s Warm, etc.)
+        - 1 account:  2x base interval (120s Hot, 600s Warm, etc.)
+
+        Only Hot tier is affected — Warm/Cold/Dormant are low-frequency anyway.
+        """
+        if tier_name != "Hot":
+            return base_interval
+        available = self._get_available_account_count()
+        if available >= 2:
+            return base_interval
+        # Single account — double the interval to reduce sustained load
+        return base_interval * 2
 
     # ═══════════════ MAIN LOOP ═══════════════
 

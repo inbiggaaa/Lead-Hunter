@@ -44,6 +44,11 @@ def create_app() -> FastAPI:
     # ── REST API ──
     app.include_router(api_router)
 
+    # ── Health check ──
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "service": "admin"}
+
     # ── SPA static files (if built) ──
     if os.path.isdir(STATIC_DIR):
         app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
