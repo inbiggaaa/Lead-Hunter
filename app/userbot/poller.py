@@ -390,18 +390,14 @@ class ChannelPoller:
         while rounds < (MAX_PAGINATION_ROUNDS if paginate else 1):
             await limiter.acquire(account.account_id)
             try:
-                if fetch_min_id > 0 and rounds > 0:
-                    # Pagination: narrow the window to messages between
-                    # the original cursor and just below the oldest message
-                    # we already fetched.
+                if rounds > 0:
+                    # Pagination: go deeper into history using max_id
                     oldest_in_prev = min(m.id for m in all_messages)
                     batch = await account.get_messages(
-                        entity,
-                        min_id=cursor,
-                        max_id=oldest_in_prev - 1,
-                        limit=tier_limit,
+                        entity, max_id=oldest_in_prev - 1, limit=tier_limit,
                     )
                 elif fetch_min_id > 0:
+                    # Incremental: messages since cursor
                     batch = await account.get_messages(
                         entity, min_id=fetch_min_id, limit=tier_limit,
                     )

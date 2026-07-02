@@ -703,6 +703,98 @@ def test_sleep_start_fallback():
     assert poller._get_sleep_start_hour(99) == 2
 
 
+# ── Pagination cursor=0 fix tests ──
+
+
+def _make_msg(msg_id: int):
+    """Create a mock Message with just an id."""
+    m = MagicMock()
+    m.id = msg_id
+    m.message = f"msg_{msg_id}"
+    return m
+
+
+@patch("app.userbot.poller.limiter")
+async def test_pagination_no_duplicates_cursor_zero(mock_limiter):
+    """При cursor=0 пагинация не плодит копии одного сообщения.
+
+    Мок эмулирует Telethon: по умолчанию — новейшие (max id),
+    min_id эксклюзивный, max_id инклюзивный.
+    На старом коде этот тест ПАДАЕТ: 150 сообщений, 30 уникальных.
+    """
+    mock_limiter.acquire = AsyncMock()
+
+    poller = ChannelPoller()
+    acc = _make_account(1)
+
+    all_msg_ids = list(range(9400, 9506))  # 106 messages
+    fetch_log = []
+
+    async def mock_get_messages(entity, **kwargs):
+        min_id = kwargs.get("min_id", 0)
+        max_id = kwargs.get("max_id", float("inf"))
+        limit = kwargs.get("limit", 30)
+        fetch_log.append({"min_id": min_id, "max_id": max_id})
+        # Telethon: min_id exclusive, max_id inclusive, default = newest first
+        matching = sorted(
+            [m for m in all_msg_ids if m > min_id and m <= max_id],
+            reverse=True,
+        )
+        return [_make_msg(mid) for mid in matching[:limit]]
+
+    acc.get_messages = mock_get_messages
+
+    all_messages = await poller._fetch_all_since(
+        acc, MagicMock(), "test_ch", cursor=0, tier_limit=30, paginate=True,
+    )
+
+    msg_ids = [m.id for m in all_messages]
+    assert len(msg_ids) == len(set(msg_ids)), (
+        f"BUG: {len(msg_ids)} messages, {len(set(msg_ids))} unique. "
+        f"Old code would return 150 with only 30 unique."
+    )
+    # Round 0: no bounds → newest 30. Round 1+: max_id → older batches
+    assert fetch_log[0]["max_id"] == float("inf"), "First round: no max_id"
+    assert fetch_log[1]["max_id"] < float("inf"), "Second round: has max_id"
+
+
+@patch("app.userbot.poller.limiter")
+async def test_pagination_stops_at_partial_batch(mock_limiter):
+    """Пагинация останавливается, когда batch < limit."""
+    mock_limiter.acquire = AsyncMock()
+    poller = ChannelPoller()
+    acc = _make_account(1)
+
+    async def mock_get_messages(entity, **kwargs):
+        return [_make_msg(i) for i in range(9500, 9525)]  # 25 < 30
+    acc.get_messages = mock_get_messages
+
+    all_messages = await poller._fetch_all_since(
+        acc, MagicMock(), "test_ch", cursor=0, tier_limit=30, paginate=True,
+    )
+    assert len(all_messages) == 25  # one round, no duplicates
+
+
+@patch("app.userbot.poller.limiter")
+async def test_pagination_respects_cursor(mock_limiter):
+    """При cursor > 0 сообщения <= cursor не читаются."""
+    mock_limiter.acquire = AsyncMock()
+    poller = ChannelPoller()
+    acc = _make_account(1)
+
+    async def mock_get_messages(entity, **kwargs):
+        min_id = kwargs.get("min_id", 0)
+        result = [m for m in range(9400, 9506) if m > min_id]
+        return [_make_msg(mid) for mid in sorted(result, reverse=True)[:30]]
+    acc.get_messages = mock_get_messages
+
+    all_messages = await poller._fetch_all_since(
+        acc, MagicMock(), "test_ch", cursor=9500, tier_limit=30, paginate=False,
+    )
+    assert all(m.id > 9500 for m in all_messages)
+    assert len(all_messages) == 5
+
+
 def test_post_ban_interval_multiplied():
     """_get_effective_interval с post_ban_multiplier=1.5."""
     poller = ChannelPoller()
