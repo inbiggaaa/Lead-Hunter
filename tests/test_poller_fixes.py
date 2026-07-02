@@ -701,3 +701,115 @@ def test_sleep_start_fallback():
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     assert poller._get_sleep_start_hour(99) == 2
+
+
+# ── Alert loop tests (Task 1.4) ──
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_alert_queue_backlog(mock_get_redis):
+    """LLEN queue:notifications > 100 → WARNING."""
+    fake = AsyncMock()
+    fake.llen = AsyncMock(return_value=150)
+    fake.get = AsyncMock(return_value=None)  # no prior alert
+    fake.set = AsyncMock()
+    fake.aclose = AsyncMock()
+    mock_get_redis.return_value = fake
+
+    poller = ChannelPoller()
+    level, text = await poller._check_queue_backlog()
+    assert level == "WARNING"
+    assert "150" in text
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_alert_dlq(mock_get_redis):
+    """LLEN dlq > 0 → WARNING."""
+    fake = AsyncMock()
+    fake.llen = AsyncMock(return_value=5)
+    fake.get = AsyncMock(return_value=None)
+    fake.set = AsyncMock()
+    fake.aclose = AsyncMock()
+    mock_get_redis.return_value = fake
+
+    poller = ChannelPoller()
+    level, text = await poller._check_dlq()
+    assert level == "WARNING"
+    assert "5" in text
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_alert_flood_wait_critical(mock_get_redis):
+    """FloodWait > 30 мин → CRITICAL."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+
+    fake = AsyncMock()
+    fake.get = AsyncMock(return_value=str(int(time.time()) + 3600))  # 1h remaining
+    fake.set = AsyncMock()
+    fake.aclose = AsyncMock()
+    mock_get_redis.return_value = fake
+
+    level, text = await poller._check_flood_wait_critical()
+    assert level == "CRITICAL"
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_alert_poller_stuck(mock_get_redis):
+    """ACTIVE + last_poll > 30 мин → WARNING."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    poller._get_session_state = AsyncMock(return_value="ACTIVE")
+
+    fake = AsyncMock()
+    # last_poll_at = 45 мин назад
+    fake.get = AsyncMock(return_value=str(time.time() - 2700))
+    fake.set = AsyncMock()
+    fake.aclose = AsyncMock()
+    mock_get_redis.return_value = fake
+
+    level, text = await poller._check_poller_stuck()
+    assert level == "WARNING"
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_alert_poller_silent_when_sleeping(mock_get_redis):
+    """Все SLEEPING → НЕТ алерта."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    poller._get_session_state = AsyncMock(return_value="SLEEPING")
+
+    fake = AsyncMock()
+    fake.get = AsyncMock(return_value=str(time.time() - 7200))
+    fake.set = AsyncMock()
+    fake.aclose = AsyncMock()
+    mock_get_redis.return_value = fake
+
+    level, text = await poller._check_poller_stuck()
+    assert level is None  # no alert during sleep
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_alert_throttling(mock_get_redis):
+    """Повтор в течение 15 мин — не дублируется."""
+    poller = ChannelPoller()
+
+    # Первый вызов: last_raw = None → алерт отправляется
+    fake1 = AsyncMock()
+    fake1.get = AsyncMock(return_value=None)
+    fake1.set = AsyncMock()
+    fake1.aclose = AsyncMock()
+    mock_get_redis.return_value = fake1
+
+    # _send_alert должен пройти (нет prior alert)
+    # Второй вызов: last_raw = now-5min (в пределах cooldown) → throttled
+    fake2 = AsyncMock()
+    fake2.get = AsyncMock(return_value=str(time.time() - 300))
+    fake2.set = AsyncMock()
+    fake2.aclose = AsyncMock()
+    mock_get_redis.return_value = fake2
+
+    # Проверяем: _send_alert не вызывает notify_admin при throttling
+    with patch("app.worker.notify_admin.notify_admin") as mock_notify:
+        await poller._send_alert("WARNING", "test", "test_type")
+        mock_notify.assert_not_called()

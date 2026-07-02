@@ -504,10 +504,17 @@ class ChannelPoller:
                 ok += 1
             else:
                 errors += 1
-            # Log-normal pause between channels (skip after last)
             if i < len(shuffled) - 1:
                 delay = next_delay()
                 await asyncio.sleep(delay)
+
+        # Update last_poll_at for alert_loop liveness check
+        try:
+            redis = await get_redis()
+            await redis.set("stats:last_poll_at", str(time.time()))
+            await redis.aclose()
+        except Exception:
+            pass
 
         return ok, errors
 
@@ -774,6 +781,165 @@ class ChannelPoller:
                 return (idx * (24 // total)) % 24
         return 2  # fallback: account not found in pool
 
+    # ═══════════════ ALERT LOOP ═══════════════
+
+    async def _alert_loop(self):
+        """Periodic system health checks → notify_admin with throttling."""
+        CHECK_INTERVAL = 300  # 5 minutes
+
+        while True:
+            try:
+                await self._run_alert_checks()
+            except Exception:
+                logger.exception("Alert loop iteration failed — continuing")
+            await asyncio.sleep(CHECK_INTERVAL)
+
+    async def _run_alert_checks(self):
+        """Run all alert conditions independently — one failure doesn't stop others."""
+        checks = [
+            self._check_queue_backlog,
+            self._check_dlq,
+            self._check_flood_wait_critical,
+            self._check_flood_wait_any,
+            self._check_budget_exceeded,
+            self._check_poller_stuck,
+        ]
+        for check in checks:
+            try:
+                level, text = await check()
+                if level and text:
+                    await self._send_alert(level, text, check.__name__)
+            except Exception:
+                logger.exception("Alert check %s failed", check.__name__)
+
+    async def _send_alert(self, level: str, text: str, alert_type: str):
+        """Send alert with Redis-backed throttling (survives restart via AOF)."""
+        key = f"alert:last:{alert_type}"
+        redis = await get_redis()
+        last_raw = await redis.get(key)
+        await redis.aclose()
+
+        now = time.time()
+        cooldown = 5 * 60 if level == "CRITICAL" else 15 * 60
+        if last_raw and (now - float(last_raw)) < cooldown:
+            return
+
+        emoji = {"CRITICAL": "🚨", "WARNING": "⚠️", "INFO": "ℹ️"}.get(level, "")
+        from app.worker.notify_admin import notify_admin
+        await notify_admin(f"{emoji} {level}\n\n{text}")
+
+        redis = await get_redis()
+        await redis.set(key, str(now))
+        await redis.aclose()
+
+    async def _check_queue_backlog(self) -> tuple[str | None, str | None]:
+        redis = await get_redis()
+        length = await redis.llen("queue:notifications")
+        await redis.aclose()
+        if length > 100:
+            return ("WARNING", f"Очередь уведомлений: {length} шт (порог 100)")
+        return (None, None)
+
+    async def _check_dlq(self) -> tuple[str | None, str | None]:
+        redis = await get_redis()
+        length = await redis.llen("dlq:notifications")
+        await redis.aclose()
+        if length > 0:
+            return ("WARNING", f"Dead-letter очередь: {length} неотправленных уведомлений")
+        return (None, None)
+
+    async def _check_flood_wait_critical(self) -> tuple[str | None, str | None]:
+        for acc in self.pool.accounts:
+            if not acc.is_healthy:
+                continue
+            redis = await get_redis()
+            expires_raw = await redis.get(f"circuit:expires:{acc.account_id}")
+            await redis.aclose()
+            if expires_raw:
+                remaining = int(expires_raw) - int(time.time())
+                if remaining > 30 * 60:
+                    hours = remaining // 3600
+                    mins = (remaining % 3600) // 60
+                    return (
+                        "CRITICAL",
+                        f"Аккаунт #{acc.account_id}: FloodWait > 30 мин "
+                        f"(осталось {hours}ч {mins}м)",
+                    )
+        return (None, None)
+
+    async def _check_flood_wait_any(self) -> tuple[str | None, str | None]:
+        for acc in self.pool.accounts:
+            if not acc.is_healthy:
+                continue
+            redis = await get_redis()
+            expires_raw = await redis.get(f"circuit:expires:{acc.account_id}")
+            await redis.aclose()
+            if expires_raw:
+                remaining = int(expires_raw) - int(time.time())
+                if remaining > 0:
+                    hours = remaining // 3600
+                    mins = (remaining % 3600) // 60
+                    return (
+                        "WARNING",
+                        f"Аккаунт #{acc.account_id}: FloodWait "
+                        f"(осталось {hours}ч {mins}м)",
+                    )
+        return (None, None)
+
+    async def _check_budget_exceeded(self) -> tuple[str | None, str | None]:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        for acc in self.pool.accounts:
+            if not acc.is_healthy:
+                continue
+            redis = await get_redis()
+            used_raw = await redis.get(f"budget:used:{acc.account_id}:{today}")
+            await redis.aclose()
+            if used_raw and int(used_raw) >= settings.daily_request_budget:
+                return (
+                    "WARNING",
+                    f"Аккаунт #{acc.account_id}: суточный бюджет исчерпан "
+                    f"({used_raw}/{settings.daily_request_budget})",
+                )
+        return (None, None)
+
+    async def _check_poller_stuck(self) -> tuple[str | None, str | None]:
+        """Check poller liveness: last_poll_at within healthy bounds.
+
+        Does NOT fire during PAUSED/SLEEPING — legitimate inactivity.
+        """
+        any_active = False
+        for acc in self.pool.accounts:
+            state = await self._get_session_state(acc.account_id)
+            if state == "ACTIVE":
+                any_active = True
+                break
+
+        if not any_active:
+            return (None, None)
+
+        redis = await get_redis()
+        last_raw = await redis.get("stats:last_poll_at")
+        await redis.aclose()
+
+        if not last_raw:
+            return (None, None)  # no polls yet — system just started
+
+        silence = time.time() - float(last_raw)
+
+        if silence > 60 * 60:
+            return (
+                "CRITICAL",
+                f"Поллер не завершил ни одного батча {silence/60:.0f} мин "
+                f"при ACTIVE-сессии — возможная остановка",
+            )
+        elif silence > 30 * 60:
+            return (
+                "WARNING",
+                f"Поллер не завершил батчей {silence/60:.0f} мин "
+                f"при ACTIVE-сессии",
+            )
+        return (None, None)
+
     def _get_available_account_count(self) -> int:
         """Count accounts that are healthy.
 
@@ -822,6 +988,9 @@ class ChannelPoller:
         # Launch session tickers — one per account (sole owner of state transitions)
         for acc in self.pool.accounts:
             asyncio.create_task(self._session_ticker(acc.account_id))
+
+        # Launch alert loop — system health monitoring
+        asyncio.create_task(self._alert_loop())
 
         KEYWORD_RELOAD = 300  # Reload keywords from DB every 5 minutes (live admin changes)
         TIER_REBUILD = 3600  # Rebuild tiers every hour
