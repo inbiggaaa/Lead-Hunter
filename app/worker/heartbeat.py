@@ -15,7 +15,7 @@ async def send_heartbeat():
     redis = await get_redis()
     await redis.set(HEARTBEAT_KEY, str(asyncio.get_event_loop().time()))
     await redis.expire(HEARTBEAT_KEY, settings.heartbeat_interval_minutes * 60 * 2)
-    await redis.close()
+    await redis.aclose()
 
 
 async def heartbeat_loop():
@@ -34,7 +34,7 @@ async def heartbeat_loop():
         from app.cache import get_redis
         redis = await get_redis()
         stored = await redis.get(HEARTBEAT_KEY)
-        await redis.close()
+        await redis.aclose()
 
         if stored:
             stored_time = float(stored)

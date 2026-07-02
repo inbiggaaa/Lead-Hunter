@@ -19,7 +19,7 @@ async def add_pending(invoice_id: str, user_id: int, plan: str, period_key: str,
     await redis.hset(PENDING_KEY, invoice_id, json.dumps({
         "user_id": user_id, "plan": plan, "period_key": period_key, "chat_id": chat_id,
     }))
-    await redis.close()
+    await redis.aclose()
     logger.info("Pending payment added: %s for user %d", invoice_id, user_id)
 
 
@@ -27,14 +27,14 @@ async def remove_pending(invoice_id: str):
     """Remove a processed payment."""
     redis = await get_redis()
     await redis.hdel(PENDING_KEY, invoice_id)
-    await redis.close()
+    await redis.aclose()
 
 
 async def check_pending_payments():
     """Check all pending invoices and activate paid ones."""
     redis = await get_redis()
     pending = await redis.hgetall(PENDING_KEY)
-    await redis.close()
+    await redis.aclose()
 
     if not pending:
         return

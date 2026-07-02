@@ -122,7 +122,7 @@ class TelegramRateLimiter:
         await redis.set(_circuit_expires_key(account_id), str(expires_at))
         await redis.expire(_circuit_key(account_id), seconds + 60)
         await redis.expire(_circuit_expires_key(account_id), seconds + 60)
-        await redis.close()
+        await redis.aclose()
 
         hours = seconds // 3600
         mins = (seconds % 3600) // 60
@@ -151,10 +151,10 @@ class TelegramRateLimiter:
         if account_id == 0:
             val = await redis.get("circuit:open")
             if val:
-                await redis.close()
+                await redis.aclose()
                 return True
         val = await redis.get(_circuit_key(account_id))
-        await redis.close()
+        await redis.aclose()
         return val is not None
 
     async def is_any_circuit_open(self) -> bool:
@@ -163,18 +163,18 @@ class TelegramRateLimiter:
         # Check legacy global key
         val = await redis.get("circuit:open")
         if val:
-            await redis.close()
+            await redis.aclose()
             return True
         # Scan for any per-account keys
         cursor = 0
         while True:
             cursor, keys = await redis.scan(cursor, match="circuit:open:*", count=10)
             if keys:
-                await redis.close()
+                await redis.aclose()
                 return True
             if cursor == 0:
                 break
-        await redis.close()
+        await redis.aclose()
         return False
 
     async def wait_if_circuit_open(self, account_id: int = 0) -> bool:
@@ -192,7 +192,7 @@ class TelegramRateLimiter:
         val = await redis.get(key)
 
         if not val and not global_val:
-            await redis.close()
+            await redis.aclose()
             return False
 
         # Find the longest wait needed
@@ -226,7 +226,7 @@ class TelegramRateLimiter:
         )
         # Clear keys to prevent duplicate notifications
         await redis.delete(key, expires_key, "circuit:open", "circuit:expires_at")
-        await redis.close()
+        await redis.aclose()
         return True
 
 

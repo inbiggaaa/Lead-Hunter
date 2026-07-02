@@ -243,7 +243,7 @@ class ChannelPoller:
             from app.cache import get_redis
             redis = await get_redis()
             val = await redis.get(f"{CURSOR_PREFIX}{chat_username}")
-            await redis.close()
+            await redis.aclose()
             return int(val) if val else 0
         except Exception:
             return 0
@@ -257,7 +257,7 @@ class ChannelPoller:
             await redis.set(f"{CURSOR_PREFIX}{chat_username}", str(msg_id))
             # TTL: 30 days — stale cursors auto-clean
             await redis.expire(f"{CURSOR_PREFIX}{chat_username}", 30 * 86400)
-            await redis.close()
+            await redis.aclose()
         except Exception:
             pass
 
@@ -1128,7 +1128,7 @@ class ChannelPoller:
             redis = await get_redis()
             msg_hash = build_message_hash(chat_username, msg_id)
             if await redis.sadd("stats:unmatched:seen", msg_hash) == 0:
-                await redis.close()
+                await redis.aclose()
                 return
             await redis.expire("stats:unmatched:seen", 7 * 86400)
 
@@ -1143,7 +1143,7 @@ class ChannelPoller:
             }, ensure_ascii=False)
             await redis.lpush("stats:unmatched", entry)
             await redis.ltrim("stats:unmatched", 0, 9999)
-            await redis.close()
+            await redis.aclose()
         except Exception:
             pass
 

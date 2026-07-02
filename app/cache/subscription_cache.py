@@ -87,7 +87,7 @@ async def rebuild_subscription_cache(chat_username: str) -> None:
     await redis.expire(key, 3600)
     logger.info("Rebuilt cache for @%s: %d users (country=%s)",
                 chat_username, len(cache_data), channel_country_id)
-    await redis.close()
+    await redis.aclose()
 
 
 async def get_interested_users(chat_username: str) -> list[dict]:
@@ -95,7 +95,7 @@ async def get_interested_users(chat_username: str) -> list[dict]:
     redis = await get_redis()
     key = CACHE_CHAT_KEY.format(chat_username=chat_username)
     data = await redis.get(key)
-    await redis.close()
+    await redis.aclose()
 
     if data:
         return json.loads(data)
@@ -108,14 +108,14 @@ async def push_notification(payload: dict) -> None:
     """Push a notification to the Redis queue."""
     redis = await get_redis()
     await redis.lpush(QUEUE_NOTIFICATIONS, json.dumps(payload, default=str))
-    await redis.close()
+    await redis.aclose()
 
 
 async def pop_notification(timeout: int = 5) -> dict | None:
     """Pop a notification from the queue (blocking)."""
     redis = await get_redis()
     result = await redis.brpop(QUEUE_NOTIFICATIONS, timeout=timeout)
-    await redis.close()
+    await redis.aclose()
 
     if result:
         _, data = result
@@ -172,7 +172,7 @@ async def increment_daily_stats(user_id: int, date_str: str, field: str) -> int:
         key += ":matched"
     value = await redis.incr(key)
     await redis.expireat(key, await _midnight_timestamp())
-    await redis.close()
+    await redis.aclose()
     return value
 
 
@@ -181,7 +181,7 @@ async def check_daily_limit(user_id: int, date_str: str, max_per_day: int) -> bo
     redis = await get_redis()
     key = STATS_DAILY_KEY.format(user_id=user_id, date=date_str) + ":sent"
     count = int(await redis.get(key) or 0)
-    await redis.close()
+    await redis.aclose()
     return count >= max_per_day
 
 
