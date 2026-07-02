@@ -5,6 +5,7 @@ Logic is NOT modified — only verifying existing behaviour.
 """
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
@@ -323,6 +324,44 @@ async def test_poll_parked_when_flag_true(mock_settings):
     assert len(poller._dormant_channels) == 1
     assert poller._dormant_channels[0]["chat_username"] == "ch_inactive"
     assert poller._parked_count == 0
+
+
+# ── CB restart test (Task 0.8) ──
+
+
+@patch("app.userbot.poller.limiter.is_circuit_open")
+async def test_start_logs_cb_status_open(mock_is_open):
+    """start() логирует 'circuit breaker OPEN' при открытом CB."""
+    mock_is_open.return_value = True
+    poller = ChannelPoller()
+    acc1 = _make_account(1)
+    acc2 = _make_account(2)
+    poller.pool.accounts = [acc1, acc2]
+    poller._keyword_map = {"test": {}}  # skip keyword loading
+
+    # Мокаем Redis для expires
+    fake_redis = AsyncMock()
+    fake_redis.get = AsyncMock(return_value=str(int(time.time()) + 3600))
+    fake_redis.aclose = AsyncMock()
+
+    with patch("app.cache.get_redis", return_value=fake_redis):
+        await poller.start()
+
+    # start() не должен упасть — CB открыт, но это только лог
+    assert mock_is_open.call_count >= 2  # вызван для обоих аккаунтов
+
+
+@patch("app.userbot.poller.limiter.is_circuit_open")
+async def test_start_logs_cb_status_clear(mock_is_open):
+    """start() логирует 'circuit breaker clear' при закрытом CB."""
+    mock_is_open.return_value = False
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    poller._keyword_map = {"test": {}}
+
+    await poller.start()
+    # Успешно завершился, CB закрыт — аккаунт готов к поллингу
+    mock_is_open.assert_called_once()
 
 
 # ── Sequential polling tests (Task 0.4) ──

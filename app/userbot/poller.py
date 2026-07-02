@@ -99,6 +99,29 @@ class ChannelPoller:
         """Initialize pool, load keywords, build tier lists. Idempotent."""
         if not self.pool.accounts:
             await self.pool.initialize()
+
+        # Log circuit breaker status for visibility after worker restart.
+        # CB keys survive Redis restart (AOF from Task 0.6).
+        # Actual blocking happens in _distribute() + _poll_batch() —
+        # this log just makes the state visible at startup.
+        for acc in self.pool.accounts:
+            if await limiter.is_circuit_open(acc.account_id):
+                from app.cache import get_redis
+                redis = await get_redis()
+                expires_raw = await redis.get(f"circuit:expires:{acc.account_id}")
+                await redis.aclose()
+                if expires_raw:
+                    until_ts = int(expires_raw)
+                    remaining = until_ts - int(time.time())
+                    logger.warning(
+                        "Account %d: circuit breaker OPEN — blocked for ~%ds (until %s UTC)",
+                        acc.account_id, max(0, remaining),
+                        time.strftime("%H:%M:%S", time.gmtime(until_ts)),
+                    )
+                else:
+                    logger.warning("Account %d: circuit breaker OPEN", acc.account_id)
+            else:
+                logger.info("Account %d: circuit breaker clear — ready to poll", acc.account_id)
         if not self._keyword_map:
             self._keyword_map, self._universal_stops = await self._load_keywords()
             await self._load_channel_segments()

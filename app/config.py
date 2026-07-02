@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     stars_per_usd: int = 100
     admin_channel_id: int = 0
 
+    # Session backup (used by backup.sh, not Python)
+    session_backup_passphrase: str = ""
+
     # Prices
     price_pro_monthly_usd: int = 5
     price_business_monthly_usd: int = 15
