@@ -703,6 +703,23 @@ def test_sleep_start_fallback():
     assert poller._get_sleep_start_hour(99) == 2
 
 
+def test_post_ban_interval_multiplied():
+    """_get_effective_interval с post_ban_multiplier=1.5."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    # 2 аккаунта → без ×2, только post_ban
+    result = poller._get_effective_interval("Hot", 60, post_ban_multiplier=1.5)
+    assert result == 90  # 60 × 1.5
+
+
+def test_post_ban_interval_single_account():
+    """1 аккаунт + post_ban: ×2 ×1.5."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    result = poller._get_effective_interval("Hot", 60, post_ban_multiplier=1.5)
+    assert result == 180  # 60 × 2 × 1.5
+
+
 # ── Alert loop tests (Task 1.4) ──
 
 
