@@ -495,8 +495,16 @@ class ChannelPoller:
         self, tier_name: str, channels: list[dict], interval: int,
         startup_delay: int = 0,
     ):
-        """Continuous loop — thin wrapper around _run_tier_once + timing."""
+        """Continuous loop — thin wrapper around _run_tier_once + timing.
+
+        Never crashes: a single-cycle failure is caught and logged;
+        the loop continues with the next cycle after a short backoff.
+        """
         total_channels = len(channels)
+
+        if total_channels == 0:
+            logger.info("Tier '%s': 0 channels — loop not started", tier_name)
+            return
 
         if startup_delay > 0:
             logger.info(
@@ -514,44 +522,58 @@ class ChannelPoller:
         cycle_num = 0
 
         while True:
-            start = time.time()
             cycle_num += 1
+            cycle_start = time.time()
 
-            # Warmup: limit channels during first N cycles
-            if cycle_num <= len(WARMUP_STEPS):
-                fraction = WARMUP_STEPS[cycle_num - 1]
-                limit = max(1, int(total_channels * fraction))
-                tier_channels = channels[:limit]
-                logger.info(
-                    "Tier '%s' warmup %d/%d: %d/%d channels (%.0f%%)",
-                    tier_name, cycle_num, len(WARMUP_STEPS),
-                    len(tier_channels), total_channels, fraction * 100,
+            try:
+                # Warmup: limit channels during first N cycles
+                if cycle_num <= len(WARMUP_STEPS):
+                    fraction = WARMUP_STEPS[cycle_num - 1]
+                    limit = max(1, int(total_channels * fraction))
+                    tier_channels = channels[:limit]
+                    logger.info(
+                        "Tier '%s' warmup %d/%d: %d/%d channels (%.0f%%)",
+                        tier_name, cycle_num, len(WARMUP_STEPS),
+                        len(tier_channels), total_channels, fraction * 100,
+                    )
+                else:
+                    tier_channels = channels
+                    logger.debug(
+                        "Tier '%s' cycle %d: %d channels",
+                        tier_name, cycle_num, len(tier_channels),
+                    )
+
+                # Delegate to testable once()-method
+                initial = await self._run_tier_once(
+                    tier_name, tier_channels, initial,
                 )
-            else:
-                tier_channels = channels
 
-            # Delegate to testable once()-method
-            initial = await self._run_tier_once(
-                tier_name, tier_channels, initial,
-            )
+                # Post-ban multiplier for interval scaling (read from limiter cache)
+                pb_mult = 1.0
+                for acc in self.pool.accounts:
+                    if acc.is_healthy:
+                        try:
+                            if await limiter._is_post_ban(acc.account_id):
+                                pb_mult = settings.post_ban_interval_multiplier
+                        except Exception:
+                            pass
+                        break
 
-            # Post-ban multiplier for interval scaling (read from limiter cache)
-            pb_mult = 1.0
-            for acc in self.pool.accounts:
-                if acc.is_healthy:
-                    try:
-                        if await limiter._is_post_ban(acc.account_id):
-                            pb_mult = settings.post_ban_interval_multiplier
-                    except Exception:
-                        pass
-                    break
+                # Dynamic interval + jitter
+                effective_interval = self._get_effective_interval(tier_name, interval, pb_mult)
+                jitter = effective_interval * INTERVAL_JITTER
+                jittered = effective_interval + random.uniform(-jitter, jitter)
+                elapsed = time.time() - cycle_start
+                sleep_time = max(5.0, jittered - elapsed)
 
-            # Dynamic interval + jitter + sleep
-            effective_interval = self._get_effective_interval(tier_name, interval, pb_mult)
-            jitter = effective_interval * INTERVAL_JITTER
-            jittered = effective_interval + random.uniform(-jitter, jitter)
-            elapsed = time.time() - start
-            await asyncio.sleep(max(0, jittered - elapsed))
+            except Exception:
+                logger.exception(
+                    "Tier '%s' cycle %d crashed — retrying in 60s",
+                    tier_name, cycle_num,
+                )
+                sleep_time = 60.0
+
+            await asyncio.sleep(sleep_time)
 
     async def _run_tier_once(
         self, tier_name: str, tier_channels: list[dict], initial: bool,

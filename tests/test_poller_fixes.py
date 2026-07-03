@@ -836,3 +836,46 @@ async def test_alert_throttling(mock_get_redis):
     # Should return None due to throttle
     level, text = await poller._check_queue_backlog()
     assert level is None
+
+
+# ═══════════════════════════════════════════════════════════════════
+# _run_tier_loop resilience
+# ═══════════════════════════════════════════════════════════════════
+
+
+@patch("app.userbot.poller.asyncio.sleep", new_callable=AsyncMock)
+async def test_run_tier_loop_survives_once_crash(mock_sleep):
+    """_run_tier_loop продолжает цикл после исключения в _run_tier_once."""
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+
+    call_count = 0
+
+    async def crash_once(tier_name, channels, initial):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("Redis connection lost")
+        return False
+
+    poller._run_tier_once = crash_once
+    poller._get_available_account_count = lambda: 1
+    poller._get_effective_interval = lambda t, i, pb: 1
+
+    # After 2 sleeps (crash recovery + normal cycle), stop the loop
+    sleep_count = 0
+
+    def stop_after_two(_t):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count >= 2:
+            raise StopAsyncIteration
+
+    mock_sleep.side_effect = stop_after_two
+
+    try:
+        await poller._run_tier_loop("Test", [{"id": 1}], interval=1)
+    except StopAsyncIteration:
+        pass
+
+    assert call_count >= 2, f"_run_tier_once called {call_count} times (expected 2+ after crash)"
