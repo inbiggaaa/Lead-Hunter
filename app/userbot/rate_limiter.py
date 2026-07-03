@@ -178,6 +178,15 @@ class TelegramRateLimiter:
         last_ban_key = f"last_ban_at:{account_id}"
         await redis.set(last_ban_key, str(int(time.time())))
         await redis.expire(last_ban_key, seconds + 48 * 3600)
+
+        # Throttle admin notifications — same account, same ban = one alert per 15min.
+        # Without this, multiple concurrent FloodWait catches (different tiers)
+        # would spam notify_admin before circuit breaker propagates.
+        alert_key = f"alert:last:flood_wait_report:{account_id}"
+        last_alert = await redis.get(alert_key)
+        should_alert = not last_alert or (time.time() - float(last_alert)) >= 900
+        if should_alert:
+            await redis.set(alert_key, str(time.time()))
         await redis.aclose()
 
         hours = seconds // 3600
@@ -189,13 +198,14 @@ class TelegramRateLimiter:
             account_id, seconds, context, seconds + 10,
         )
 
-        from app.worker.notify_admin import notify_admin
-        await notify_admin(
-            f"🚨 FloodWait — аккаунт #{account_id} заблокирован\n\n"
-            f"⏱ Бан на: {duration}\n"
-            f"📍 Источник: {context}\n"
-            f"🛑 API-вызовы аккаунта #{account_id} остановлены до истечения бана."
-        )
+        if should_alert:
+            from app.worker.notify_admin import notify_admin
+            await notify_admin(
+                f"🚨 FloodWait — аккаунт #{account_id} заблокирован\n\n"
+                f"⏱ Бан на: {duration}\n"
+                f"📍 Источник: {context}\n"
+                f"🛑 API-вызовы аккаунта #{account_id} остановлены до истечения бана."
+            )
 
     async def is_circuit_open(self, account_id: int = 0) -> bool:
         """Check if circuit breaker is currently blocking requests for an account.

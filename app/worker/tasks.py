@@ -8,8 +8,6 @@ from app.worker.heartbeat import heartbeat_loop
 from app.worker.reminders import reminders_loop
 from app.worker.end_of_day import end_of_day_loop
 from app.worker.payment_checker import payment_checker_loop
-from app.userbot.discovery import discovery_loop
-from app.userbot.discovery_v2 import discovery_v2_loop
 from app.userbot.poller import ChannelPoller
 
 logging.basicConfig(level=logging.INFO)
@@ -22,11 +20,11 @@ async def main():
     poller = ChannelPoller()
     sender = NotificationSender()
 
-    # Initialize pool first so discovery can share the client
+    # Discovery loops REMOVED — they shared acc1 client, causing FloodWait bans.
+    # DO NOT re-enable without a dedicated discovery account (separate SIM).
+    # See: fix/disable-discovery-fix-throttle, commits 61522a6 + 2fe673a.
     await poller.start()
-    discovery_client = poller.pool.get_healthy_client()
 
-    # Run all loops concurrently
     await asyncio.gather(
         poller.run_forever(),
         sender.run(),
@@ -34,8 +32,6 @@ async def main():
         reminders_loop(),
         end_of_day_loop(),
         payment_checker_loop(),
-        # discovery_loop(client=discovery_client),  # DISABLED: shares acc1 client, FloodWait risk
-        # discovery_v2_loop(client=discovery_client),  # DISABLED: shares acc1 client, FloodWait risk (17h ban on 'malaga kids')
     )
 
 
