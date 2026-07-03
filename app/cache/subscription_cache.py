@@ -129,13 +129,25 @@ import hashlib
 
 
 def build_message_hash(chat_username: str, message_id: int) -> str:
-    """Build a deduplication hash for a message."""
+    """Build a deduplication hash for a message (by identity)."""
     raw = f"{chat_username}:{message_id}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def compute_content_hash(chat_username: str, message_text: str) -> str:
+    """Build a content-based dedup hash — same text → same hash.
+
+    Normalizes whitespace, lowercases, truncates to 500 chars.
+    Used with a 24h time window to suppress reposts while allowing
+    legitimate re-posts after a day.
+    """
+    normalized = " ".join((message_text or "")[:500].lower().split())
+    raw = f"{chat_username}:{normalized}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
 async def is_duplicate(user_id: int, message_hash: str) -> bool:
-    """Check if this notification was already sent to this user."""
+    """Check if this notification was already sent to this user (by message identity)."""
     from app.db.session import async_session_factory
     from sqlalchemy import select
     from app.db.models import SentLog
@@ -150,13 +162,40 @@ async def is_duplicate(user_id: int, message_hash: str) -> bool:
         return result.scalar_one_or_none() is not None
 
 
-async def mark_sent(user_id: int, message_hash: str, is_urgent: bool = False) -> None:
-    """Mark a notification as sent."""
+async def is_content_duplicate(user_id: int, content_hash: str) -> bool:
+    """Check if same content was sent to this user within the last 24 hours.
+
+    Suppresses reposts of identical text while allowing legitimate
+    re-posts after a day.
+    """
+    from datetime import datetime, timedelta, timezone
+    from app.db.session import async_session_factory
+    from sqlalchemy import select
     from app.db.models import SentLog
 
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     async with async_session_factory() as session:
-        log = SentLog(user_id=user_id, message_hash=message_hash, is_urgent=is_urgent)
-        session.add(log)
+        result = await session.execute(
+            select(SentLog).where(
+                SentLog.user_id == user_id,
+                SentLog.content_hash == content_hash,
+                SentLog.sent_at >= cutoff,
+            ).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+
+async def mark_sent(user_id: int, message_hash: str, is_urgent: bool = False, content_hash: str | None = None) -> None:
+    """Mark a notification as sent. Uses ON CONFLICT to avoid IntegrityError."""
+    from app.db.models import SentLog
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    async with async_session_factory() as session:
+        stmt = pg_insert(SentLog).values(
+            user_id=user_id, message_hash=message_hash,
+            is_urgent=is_urgent, content_hash=content_hash,
+        ).on_conflict_do_nothing(index_elements=["user_id", "message_hash"])
+        await session.execute(stmt)
         await session.commit()
 
 

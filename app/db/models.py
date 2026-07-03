@@ -116,6 +116,7 @@ class SentLog(Base):
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     message_hash: Mapped[str] = mapped_column(String(64))
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_urgent: Mapped[bool] = mapped_column(Boolean, default=False)
     sent_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

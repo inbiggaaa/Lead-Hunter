@@ -13,6 +13,7 @@ from app.cache.subscription_cache import (
     pop_notification,
     mark_sent,
     is_duplicate,
+    is_content_duplicate,
     check_daily_limit,
     increment_daily_stats,
 )
@@ -47,8 +48,17 @@ class NotificationSender:
         message_hash = payload["message_hash"]
         plan = payload.get("plan", "free")
 
-        # Deduplication
+        # Deduplication by message identity
         if await is_duplicate(user_id, message_hash):
+            return
+
+        # Content dedup: suppress identical text within 24h
+        content_hash = payload.get("content_hash")
+        if content_hash and await is_content_duplicate(user_id, content_hash):
+            logger.info(
+                "Duplicate content suppressed for user %d in @%s",
+                user_id, payload.get("chat_username", "?"),
+            )
             return
 
         # Daily limit
@@ -84,7 +94,8 @@ class NotificationSender:
 
         try:
             await self.bot.send_message(telegram_id, text, reply_markup=kb)
-            await mark_sent(user_id, message_hash, payload.get("is_urgent", False))
+            await mark_sent(user_id, message_hash, payload.get("is_urgent", False),
+                           content_hash=content_hash)
             await increment_daily_stats(user_id, today, "sent")
         except Exception:
             logger.exception("Failed to send notification to user %d", user_id)

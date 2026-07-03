@@ -1234,7 +1234,7 @@ class ChannelPoller:
         """Find interested users matching BOTH segment AND geo, push to queue."""
         from app.cache.subscription_cache import (
             get_interested_users, push_notification, build_message_hash,
-            rebuild_subscription_cache,
+            compute_content_hash, rebuild_subscription_cache,
         )
         from app.db.models import CatalogChannel, ChannelCity, Segment
         from sqlalchemy import select as sa_select
@@ -1334,6 +1334,7 @@ class ChannelPoller:
                 "sender": sender,
                 "message_id": message_id,
                 "message_hash": message_hash,
+                "content_hash": compute_content_hash(chat_username, message_text),
                 "is_urgent": is_urgent,
                 "matched_segments": matched_names,
             })
