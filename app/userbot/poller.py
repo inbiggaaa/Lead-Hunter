@@ -1151,9 +1151,38 @@ class ChannelPoller:
 
             title_lower = ch.title.lower()
             city_hits: list[int] = []
+            seen_city_ids: set[int] = set()
+
+            # Pass 1: exact substring match (name in title)
             for city_id, city_name in country_cities[ch.auto_matched_country_id]:
+                if city_id in seen_city_ids:
+                    continue
                 if city_name in title_lower:
                     city_hits.append(city_id)
+                    seen_city_ids.add(city_id)
+
+            # Pass 2: fuzzy match (transliteration variants: Анталья/Анталия)
+            if not city_hits:
+                from difflib import SequenceMatcher
+                # Tokenize title into words for granular comparison
+                import re
+                title_words = re.split(r"[\s,./|()\[\]{}«»—–-]+", title_lower)
+                title_words = [w for w in title_words if len(w) >= 3]
+
+                for city_id, city_name in country_cities[ch.auto_matched_country_id]:
+                    if city_id in seen_city_ids:
+                        continue
+                    threshold = 0.95 if len(city_name) < 5 else 0.85
+                    for word in title_words:
+                        score = SequenceMatcher(None, city_name, word).ratio()
+                        if score >= threshold:
+                            city_hits.append(city_id)
+                            seen_city_ids.add(city_id)
+                            logger.info(
+                                "Fuzzy match: '%s' vs '%s' in @%s (score: %.2f)",
+                                city_name, word, ch.chat_username, score,
+                            )
+                            break
 
             unique = list(dict.fromkeys(city_hits))
             if not unique:

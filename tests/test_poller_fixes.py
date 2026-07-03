@@ -1064,3 +1064,31 @@ async def test_effective_city_ids_reads_channel_cities(mock_factory):
     effective.update(cc_rows)
 
     assert effective == {1, 2, 3}, f"Expected {{1,2,3}}, got {effective}"
+
+
+@patch("app.userbot.poller.async_session_factory")
+async def test_city_matching_fuzzy_transliteration(mock_factory):
+    """Fuzzy match: 'Анталия' → 'Анталья' (транслитерационное расхождение)."""
+    from app.userbot.poller import ChannelPoller
+    from app.db.models import City
+
+    city = City(id=49, slug="antalya", name_ru="Анталья", name_en="Antalya",
+                country_id=100, is_active=True)
+    channel = MagicMock(id=99, chat_username="ant_chat", title="Анталия чат",
+                        auto_matched_country_id=100, auto_matched_city_id=None)
+
+    mock_sess = MagicMock()
+    mock_sess.execute = AsyncMock(side_effect=[
+        MagicMock(scalars=lambda: MagicMock(all=lambda: [city])),
+        MagicMock(scalars=lambda: MagicMock(all=lambda: [channel])),
+        MagicMock(),
+    ])
+    mock_sess.commit = AsyncMock()
+    mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+    mock_sess.__aexit__ = AsyncMock(return_value=None)
+    mock_factory.return_value = mock_sess
+
+    poller = ChannelPoller()
+    tagged = await poller._tag_new_channels()
+    # "Анталья" vs "Анталия" — fuzzy match should work (score ~0.86)
+    assert tagged >= 1, f"Expected >=1 tagged via fuzzy, got {tagged}"
