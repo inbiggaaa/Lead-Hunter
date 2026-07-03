@@ -825,7 +825,7 @@ class ChannelPoller:
         await redis.aclose()
 
         now = time.time()
-        cooldown = 5 * 60 if level == "CRITICAL" else 15 * 60
+        cooldown = 15 * 60  # all levels: at most once per 15 min
         if last_raw and (now - float(last_raw)) < cooldown:
             return
 
@@ -834,7 +834,7 @@ class ChannelPoller:
         await notify_admin(f"{emoji} {level}\n\n{text}")
 
         redis = await get_redis()
-        await redis.set(key, str(now))
+        await redis.setex(key, cooldown + 60, str(now))
         await redis.aclose()
 
     async def _check_queue_backlog(self) -> tuple[str | None, str | None]:
