@@ -299,7 +299,8 @@ class ChannelPoller:
             entity = await self._resolve_entity(account, channel_username)
         except FloodWaitError:
             raise
-        except Exception:
+        except Exception as e:
+            logger.warning("poll @%s: %s", channel_username, type(e).__name__)
             return
 
         cursor = await self._get_cursor(channel_username) if not initial else 0
@@ -463,7 +464,7 @@ class ChannelPoller:
                 )
                 return False
             except Exception as e:
-                logger.debug("Poll error @%s: %s", ch.get('chat_username', '?'), e)
+                logger.warning("poll @%s: %s", ch.get('chat_username', '?'), type(e).__name__)
                 return False
 
         # Shuffle channel order to break predictable patterns
