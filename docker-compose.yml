@@ -84,7 +84,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 400M
+          memory: 1G
 
   admin:
     build: .
