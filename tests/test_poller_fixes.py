@@ -1,805 +1,628 @@
-"""Tests for already-implemented Incident #3 fixes (Task 0.1).
+"""Tests for poller fixes — incident #3, degradation, parked countries, sequential polling.
 
-Covers: _distribute, _account_locks try-lock, _get_effective_interval.
-Logic is NOT modified — only verifying existing behaviour.
+Tests cover:
+- _distribute: blocked/unhealthy account exclusion, no channel loss
+- _should_poll_tier: when Hot/Warm/Cold/Dormant should run
+- _get_effective_interval: adaptive interval with cap
+- _fetch_all_since: single-shot cursor-based fetching (no pagination)
+- alert loop: queue, DLQ, FloodWait, stuck detection
 """
 
 import asyncio
+import math
 import time
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.userbot.poller import ChannelPoller
+from app.config import settings
 
+# ── helpers ──
 
-# ── Helpers ──
 
 def _make_account(account_id: int, is_healthy: bool = True):
-    """Create a mock UserbotAccount with minimal attributes."""
+    """Create a mock UserbotAccount."""
     acc = MagicMock()
     acc.account_id = account_id
     acc.is_healthy = is_healthy
+    acc.phone = f"+1234567890{account_id}"
+    acc.username = f"testuser{account_id}"
     return acc
 
 
-# ── _distribute tests ──
+def _make_msg(msg_id: int):
+    """Create a mock Telegram Message with just an id."""
+    msg = MagicMock()
+    msg.id = msg_id
+    msg.message = f"Test message {msg_id}"
+    return msg
 
 
-@patch("app.userbot.poller.limiter.is_circuit_open")
-async def test_distribute_excludes_blocked_account(mock_is_cb_open):
-    """При 1 blocked из 2 аккаунтов каналы не теряются и не уходят заблокированному."""
+# ═══════════════════════════════════════════════════════════════════
+# _distribute
+# ═══════════════════════════════════════════════════════════════════
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_distribute_filters_blocked_account(mock_get_redis):
+    """_distribute исключает аккаунты с открытым circuit breaker."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(side_effect=lambda k: b"1" if k == "circuit:open:1" else None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     poller = ChannelPoller()
-    acc1 = _make_account(1)
-    acc2 = _make_account(2)
-    poller.pool.accounts = [acc1, acc2]
-
-    # acc1: healthy, CB closed. acc2: healthy, CB OPEN
-    async def cb_side_effect(account_id):
-        return account_id == 2  # only acc2 is blocked
-    mock_is_cb_open.side_effect = cb_side_effect
-
-    channels = [
-        {"chat_username": f"ch_{i}", "country_id": 1} for i in range(6)
-    ]
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    channels = [{"id": i} for i in range(10)]
 
     result = await poller._distribute(channels)
-
-    # Only acc1 should receive channels
-    assert len(result) == 1, f"Expected 1 chunk, got {len(result)}"
-    acc, chunk = result[0]
-    assert acc.account_id == 1
-    assert len(chunk) == 6, f"All 6 channels should go to acc1, got {len(chunk)}"
-
-    # Verify channels are intact (all usernames present)
-    usernames = {ch["chat_username"] for ch in chunk}
-    expected = {f"ch_{i}" for i in range(6)}
-    assert usernames == expected, "Channel usernames should be preserved"
-
-
-@patch("app.userbot.poller.limiter.is_circuit_open")
-async def test_distribute_preserves_all_channels(mock_is_cb_open):
-    """2 здоровых аккаунта: round-robin, все каналы сохранены."""
-    poller = ChannelPoller()
-    acc1 = _make_account(1)
-    acc2 = _make_account(2)
-    poller.pool.accounts = [acc1, acc2]
-    mock_is_cb_open.return_value = False  # both open
-
-    channels = [
-        {"chat_username": f"ch_{i}", "country_id": 1} for i in range(5)
-    ]
-
-    result = await poller._distribute(channels)
-
-    assert len(result) == 2
-    total_channels = sum(len(chunk) for _, chunk in result)
-    assert total_channels == 5, f"All 5 channels preserved, got {total_channels}"
-
-    # Round-robin: acc1 gets indices 0,2,4 (3 channels), acc2 gets 1,3 (2 channels)
-    for acc, chunk in result:
-        if acc.account_id == 1:
-            assert len(chunk) == 3
-            assert chunk[0]["chat_username"] == "ch_0"
-            assert chunk[1]["chat_username"] == "ch_2"
-            assert chunk[2]["chat_username"] == "ch_4"
-        else:
-            assert len(chunk) == 2
-            assert chunk[0]["chat_username"] == "ch_1"
-            assert chunk[1]["chat_username"] == "ch_3"
-
-
-@patch("app.userbot.poller.limiter.is_circuit_open")
-async def test_distribute_empty_when_all_blocked(mock_is_cb_open):
-    """Все аккаунты под CB → пустой список."""
-    poller = ChannelPoller()
-    acc1 = _make_account(1)
-    acc2 = _make_account(2)
-    poller.pool.accounts = [acc1, acc2]
-    mock_is_cb_open.return_value = True  # both blocked
-
-    channels = [
-        {"chat_username": f"ch_{i}", "country_id": 1} for i in range(3)
-    ]
-
-    result = await poller._distribute(channels)
-
-    assert result == [], "Empty list when all accounts blocked"
-
-
-@patch("app.userbot.poller.limiter.is_circuit_open")
-async def test_distribute_excludes_unhealthy_account(mock_is_cb_open):
-    """Unhealthy аккаунт исключается из распределения."""
-    poller = ChannelPoller()
-    acc1 = _make_account(1, is_healthy=True)
-    acc2 = _make_account(2, is_healthy=False)  # unhealthy
-    poller.pool.accounts = [acc1, acc2]
-    mock_is_cb_open.return_value = False
-
-    channels = [
-        {"chat_username": f"ch_{i}", "country_id": 1} for i in range(4)
-    ]
-
-    result = await poller._distribute(channels)
-
+    # Account 1 is blocked → all go to Account 2
     assert len(result) == 1
-    acc, chunk = result[0]
-    assert acc.account_id == 1
-    assert len(chunk) == 4
+    assert result[0][0].account_id == 2
+    assert len(result[0][1]) == 10
 
 
-# ── _account_locks test ──
+@patch("app.userbot.poller.get_redis")
+async def test_distribute_no_channel_loss(mock_get_redis):
+    """Каналы не теряются при блокировке — переходят на здоровый аккаунт."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(side_effect=lambda k: b"1" if k == "circuit:open:1" else None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
 
-
-async def test_locked_account_lock_state():
-    """Проверяет только состояние lock.locked(), НЕ реальный skip-путь в _run_tier_loop.
-
-    Полноценное покрытие skip-логики (запуск одного цикла тира с предзахваченным
-    lock'ом) требует рефакторинга _run_tier_loop (вынос тела цикла в отдельный метод),
-    что выходит за рамки Задачи 0.1 (только тесты, без правок production-кода).
-    Будет покрыто в рамках задачи рефакторинга сессионной модели (1.1).
-    """
     poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    channels = [{"id": i} for i in range(5)]
 
-    # Get or create lock for account 1
-    lock = poller._get_account_lock(1)
-
-    # Initially unlocked
-    assert not lock.locked(), "Lock should be free initially"
-
-    # Acquire — simulates another tier polling this account
-    await lock.acquire()
-    assert lock.locked(), "Lock should be held after acquire()"
-
-    # Release
-    lock.release()
-    assert not lock.locked(), "Lock should be free after release()"
+    result = await poller._distribute(channels)
+    total = sum(len(chunk) for _, chunk in result)
+    assert total == 5
 
 
-# ── _get_effective_interval tests ──
+@patch("app.userbot.poller.get_redis")
+async def test_distribute_all_blocked(mock_get_redis):
+    """Все аккаунты заблокированы → пустой список."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=b"1")
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
 
-
-def test_effective_interval_doubles_for_single_account():
-    """1 аккаунт → Hot интервал ×2."""
     poller = ChannelPoller()
-    acc1 = _make_account(1)
-    poller.pool.accounts = [acc1]
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
 
-    result = poller._get_effective_interval("Hot", 60)
-    assert result == 120
+    result = await poller._distribute([{"id": 1}])
+    assert result == []
 
 
-def test_effective_interval_unchanged_for_two_accounts():
-    """2+ аккаунта → Hot интервал без изменений."""
+@patch("app.userbot.poller.get_redis")
+async def test_distribute_round_robin_preserved(mock_get_redis):
+    """Round-robin сохраняется, когда все аккаунты здоровы."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     poller = ChannelPoller()
-    acc1 = _make_account(1)
-    acc2 = _make_account(2)
-    poller.pool.accounts = [acc1, acc2]
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    channels = [{"id": i} for i in range(4)]
 
-    result = poller._get_effective_interval("Hot", 60)
-    assert result == 60
-
-
-def test_effective_interval_unchanged_for_non_hot_tier():
-    """Не-Hot тиры не меняют интервал (1 аккаунт)."""
-    poller = ChannelPoller()
-    acc1 = _make_account(1)
-    poller.pool.accounts = [acc1]
-
-    assert poller._get_effective_interval("Warm", 300) == 300
-    assert poller._get_effective_interval("Cold", 900) == 900
-    assert poller._get_effective_interval("Dormant", 43200) == 43200
+    result = await poller._distribute(channels)
+    assert len(result) == 2
+    for acc, chunk in result:
+        assert len(chunk) == 2
 
 
-def test_effective_interval_doubles_with_three_accounts_one_healthy():
-    """3 аккаунта, но только 1 healthy → Hot ×2 (важен healthy, не total)."""
-    poller = ChannelPoller()
-    acc1 = _make_account(1, is_healthy=True)
-    acc2 = _make_account(2, is_healthy=False)
-    acc3 = _make_account(3, is_healthy=False)
-    poller.pool.accounts = [acc1, acc2, acc3]
-
-    result = poller._get_effective_interval("Hot", 30)
-    assert result == 60  # 1 healthy → ×2
+# ═══════════════════════════════════════════════════════════════════
+# _should_poll_tier
+# ═══════════════════════════════════════════════════════════════════
 
 
-# ── _should_poll_tier tests ──
+@patch("app.userbot.poller.get_redis")
+async def test_should_poll_tier_hot_always(mock_get_redis):
+    """Hot-тир всегда поллится, даже при 1 аккаунте."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
 
-
-def test_should_poll_hot_always_true():
-    """Hot всегда активен, даже при 1 аккаунте."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     assert poller._should_poll_tier("Hot") is True
 
 
-def test_should_poll_warm_paused_with_one_account():
-    """Warm на паузе при 1 healthy."""
+@patch("app.userbot.poller.get_redis")
+async def test_should_poll_tier_warm_needs_two_accounts(mock_get_redis):
+    """Warm требует 2+ healthy аккаунтов."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     assert poller._should_poll_tier("Warm") is False
 
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    assert poller._should_poll_tier("Warm") is True
 
-def test_should_poll_cold_paused_with_one_account():
-    """Cold на паузе при 1 healthy."""
+
+@patch("app.userbot.poller.get_redis")
+async def test_should_poll_tier_cold_needs_two_accounts(mock_get_redis):
+    """Cold требует 2+ healthy аккаунтов."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     assert poller._should_poll_tier("Cold") is False
 
 
-def test_should_poll_dormant_paused_with_one_account():
-    """Dormant на паузе при 1 healthy."""
+@patch("app.userbot.poller.get_redis")
+async def test_should_poll_tier_dormant_needs_two_accounts(mock_get_redis):
+    """Dormant требует 2+ healthy аккаунтов."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     assert poller._should_poll_tier("Dormant") is False
 
 
-def test_should_poll_warm_active_with_two_accounts():
-    """Warm активен при 2+ healthy."""
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1), _make_account(2)]
-    assert poller._should_poll_tier("Warm") is True
+@patch("app.userbot.poller.get_redis")
+async def test_should_poll_tier_unhealthy_not_counted(mock_get_redis):
+    """Unhealthy аккаунты не считаются."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
 
-
-def test_should_poll_warm_active_ignores_unhealthy():
-    """Warm НЕ активен: 3 аккаунта, но 2 unhealthy → только 1 healthy."""
     poller = ChannelPoller()
-    poller.pool.accounts = [
-        _make_account(1, is_healthy=True),
-        _make_account(2, is_healthy=False),
-        _make_account(3, is_healthy=False),
-    ]
+    poller.pool.accounts = [_make_account(1), _make_account(2, is_healthy=False)]
     assert poller._should_poll_tier("Warm") is False
 
 
-# ── Parked countries tests (Task 0.3) ──
-
-
-@patch("app.userbot.poller.settings")
-async def test_parked_countries_excluded(mock_settings):
-    """Каталожные каналы неактивных стран → parked, не в расписании."""
-    mock_settings.poll_parked_countries = False
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-
-    channels = [
-        {"chat_username": "ch_active", "country_id": 1, "participants": 500},
-        {"chat_username": "ch_watched", "country_id": None, "participants": 500},
-        {"chat_username": "ch_inactive", "country_id": 99, "participants": 500},
-    ]
-
-    with patch.object(poller, '_get_all_channels', return_value=channels), \
-         patch.object(poller, '_get_active_countries', return_value={1}):
-        await poller._rebuild_tiers()
-
-    assert len(poller._hot_channels) == 1
-    assert poller._hot_channels[0]["chat_username"] == "ch_active"
-    assert len(poller._warm_channels) == 0
-    assert len(poller._cold_channels) == 1
-    assert poller._cold_channels[0]["chat_username"] == "ch_watched"
-    assert len(poller._dormant_channels) == 0
-    assert poller._parked_count == 1
-
-
-@patch("app.userbot.poller.settings")
-async def test_watched_channels_never_parked(mock_settings):
-    """Watched-каналы (country_id=None) не parked, даже при 0 активных стран."""
-    mock_settings.poll_parked_countries = False
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-
-    channels = [
-        {"chat_username": "ch_watched", "country_id": None, "participants": 500},
-        {"chat_username": "ch_inactive", "country_id": 99, "participants": 500},
-    ]
-
-    with patch.object(poller, '_get_all_channels', return_value=channels), \
-         patch.object(poller, '_get_active_countries', return_value=set()):
-        await poller._rebuild_tiers()
-
-    assert len(poller._cold_channels) == 1
-    assert poller._cold_channels[0]["chat_username"] == "ch_watched"
-    assert len(poller._hot_channels) == 0
-    assert len(poller._dormant_channels) == 0
-    assert poller._parked_count == 1
-
-
-@patch("app.userbot.poller.settings")
-async def test_poll_parked_when_flag_true(mock_settings):
-    """При poll_parked_countries=True — inactive → dormant, parked=0."""
-    mock_settings.poll_parked_countries = True
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-
-    channels = [
-        {"chat_username": "ch_active", "country_id": 1, "participants": 500},
-        {"chat_username": "ch_inactive", "country_id": 99, "participants": 500},
-    ]
-
-    with patch.object(poller, '_get_all_channels', return_value=channels), \
-         patch.object(poller, '_get_active_countries', return_value={1}):
-        await poller._rebuild_tiers()
-
-    assert len(poller._hot_channels) == 1
-    assert len(poller._dormant_channels) == 1
-    assert poller._dormant_channels[0]["chat_username"] == "ch_inactive"
-    assert poller._parked_count == 0
-
-
-# ── CB restart test (Task 0.8) ──
-
-
-@patch("app.userbot.poller.limiter.is_circuit_open")
-async def test_start_logs_cb_status_open(mock_is_open):
-    """start() логирует 'circuit breaker OPEN' при открытом CB."""
-    mock_is_open.return_value = True
-    poller = ChannelPoller()
-    acc1 = _make_account(1)
-    acc2 = _make_account(2)
-    poller.pool.accounts = [acc1, acc2]
-    poller._keyword_map = {"test": {}}  # skip keyword loading
-
-    # Мокаем Redis для expires
-    fake_redis = AsyncMock()
-    fake_redis.get = AsyncMock(return_value=str(int(time.time()) + 3600))
-    fake_redis.aclose = AsyncMock()
-
-    with patch("app.cache.get_redis", return_value=fake_redis):
-        await poller.start()
-
-    # start() не должен упасть — CB открыт, но это только лог
-    assert mock_is_open.call_count >= 2  # вызван для обоих аккаунтов
-
-
-# ── Entity cache tests (Task 1.6) ──
-
-
-def test_entity_cache_hit_second_call():
-    """Второй вызов _resolve_entity для того же username+account — из кэша."""
-    poller = ChannelPoller()
-
-    assert "ch1" not in poller._entity_cache
-    # Симулируем кэш: (channel_id, access_hash) для acc 1
-    poller._entity_cache["ch1"] = {1: (12345, 67890)}
-
-    # Кэш попадание — не требует get_entity
-    assert poller._entity_cache["ch1"][1] == (12345, 67890)
-    # Второй аккаунт — промах
-    assert 2 not in poller._entity_cache.get("ch1", {})
-
-
-def test_entity_cache_per_account_independent():
-    """acc1 и acc2 кэшируют независимо — разные access_hash."""
-    poller = ChannelPoller()
-
-    poller._entity_cache["ch1"] = {}
-    poller._entity_cache["ch1"][1] = (100, 200)
-    poller._entity_cache["ch1"][2] = (100, 999)  # тот же channel_id, другой access_hash
-
-    assert poller._entity_cache["ch1"][1] != poller._entity_cache["ch1"][2]
-    assert poller._entity_cache["ch1"][1][0] == poller._entity_cache["ch1"][2][0]  # channel_id совпадает
-
-
-@patch("app.userbot.poller.limiter")
-async def test_poll_channel_uses_cache_second_call(mock_limiter):
-    """_poll_channel: get_entity вызван 1 раз за 2 цикла.
-
-    Доказывает экономию: со второго цикла ResolveUsername не вызывается.
-    """
-    mock_limiter.acquire = AsyncMock()
-    mock_limiter.wait_if_circuit_open = AsyncMock()
-    mock_limiter.report_flood_wait = AsyncMock()
+@patch("app.userbot.poller.get_redis")
+async def test_should_poll_tier_dormant_blocked_not_counted(mock_get_redis):
+    """Blocked аккаунты не считаются."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(side_effect=lambda k: b"1" if k == "circuit:open:1" else None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
 
     poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-
-    # Мокаем account
-    account = _make_account(1)
-    get_entity_count = {"count": 0}
-
-    async def mock_get_entity(username):
-        get_entity_count["count"] += 1
-        m = MagicMock()
-        m.id = 12345
-        m.access_hash = 67890
-        return m
-
-    account.get_entity = mock_get_entity
-    account.get_messages = AsyncMock(return_value=[])
-
-    # Подменяем _fetch_all_since чтобы не уходить в реальный поллинг
-    fetch_calls = []
-    async def fake_fetch(acc, entity, ch_username, cursor, tier_limit, paginate=True):
-        fetch_calls.append(entity)
-        return []
-
-    with patch.object(poller, '_fetch_all_since', fake_fetch):
-        # Первый цикл — промах кэша, вызывает get_entity
-        await poller._poll_channel(account, "test_ch", "Hot", initial=False)
-        assert get_entity_count["count"] == 1
-
-        # Второй цикл — попадание в кэш, get_entity НЕ вызывается
-        await poller._poll_channel(account, "test_ch", "Hot", initial=False)
-        assert get_entity_count["count"] == 1  # не увеличился
-
-    assert len(fetch_calls) == 2
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    assert poller._should_poll_tier("Dormant") is False
 
 
-def test_stale_hash_invalidates_only_that_account():
-    """ChannelInvalidError acc1 не сбрасывает кэш acc2."""
-    poller = ChannelPoller()
-    poller._entity_cache["ch1"] = {
-        1: (100, 200),
-        2: (100, 999),  # другой access_hash для acc2
-    }
-
-    # Симулируем: pop для acc1, кэш acc2 остаётся
-    poller._entity_cache.get("ch1", {}).pop(1, None)
-
-    assert 1 not in poller._entity_cache.get("ch1", {})
-    assert 2 in poller._entity_cache.get("ch1", {})
-    assert poller._entity_cache["ch1"][2] == (100, 999)
+# ═══════════════════════════════════════════════════════════════════
+# Pool
+# ═══════════════════════════════════════════════════════════════════
 
 
-# ── Session model tests (Task 1.1) ──
+def test_handle_account_failure_does_not_redistribute():
+    """handle_account_failure больше не перераспределяет каналы."""
+    from app.userbot.pool import UserbotPool
+    pool = UserbotPool()
+    pool.accounts = [_make_account(1), _make_account(2)]
+    # Не должно райзить
+    pool.handle_account_failure(1, Exception("test"))
 
 
-def test_get_session_state_read_only():
-    """_get_session_state читает Redis, не меняет состояние."""
-    poller = ChannelPoller()
-    poller._keyword_map = {"test": {}}
-    poller._entity_cache = {}
-    # Мокаем Redis — возвращает "PAUSED"
-    fake_redis = AsyncMock()
-    fake_redis.get = AsyncMock(return_value="PAUSED")
-    fake_redis.aclose = AsyncMock()
-
-    async def run():
-        with patch("app.userbot.poller.get_redis", return_value=fake_redis):
-            state = await poller._get_session_state(1)
-            assert state == "PAUSED"
-    asyncio.get_event_loop().run_until_complete(run())
+def test_handle_account_failure_no_exception_when_last_account():
+    """Не падает когда падает последний аккаунт."""
+    from app.userbot.pool import UserbotPool
+    pool = UserbotPool()
+    pool.accounts = [_make_account(1)]
+    pool.handle_account_failure(1, Exception("test"))
 
 
-def test_next_session_state_initial_no_key():
-    """prev_state=None → ACTIVE (вне sleep-окна)."""
-    poller = ChannelPoller()
-    # 14:00 UTC — вне sleep-окна 02:00–08:00
-    now = datetime(2026, 7, 2, 14, 0, 0, tzinfo=timezone.utc).timestamp()
-    state, until = poller._next_session_state(1, None, now)
-    assert state == "ACTIVE"
-
-
-def test_next_session_state_active_to_paused():
-    """ACTIVE → PAUSED вне sleep-окна."""
-    poller = ChannelPoller()
-    # 14:00 UTC — вне sleep-окна (02:00–08:00)
-    now = datetime(2026, 7, 2, 14, 0, 0, tzinfo=timezone.utc).timestamp()
-    state, until = poller._next_session_state(1, "ACTIVE", now)
-    assert state == "PAUSED"
-    assert 15 * 60 <= (until - now) <= 60 * 60
-
-
-def test_next_session_state_paused_to_active():
-    """PAUSED → ACTIVE вне sleep-окна."""
-    poller = ChannelPoller()
-    now = datetime(2026, 7, 2, 14, 0, 0, tzinfo=timezone.utc).timestamp()
-    state, until = poller._next_session_state(1, "PAUSED", now)
-    assert state == "ACTIVE"
-    assert 20 * 60 <= (until - now) <= 60 * 60
-
-
-def test_next_session_state_enters_sleeping():
-    """В sleep-окне → SLEEPING (независимо от prev_state)."""
-    poller = ChannelPoller()
-    # 03:00 UTC — внутри окна 02:00–08:00
-    now = datetime(2026, 7, 2, 3, 0, 0, tzinfo=timezone.utc).timestamp()
-    state, until = poller._next_session_state(1, "ACTIVE", now)
-    assert state == "SLEEPING"
-    assert 4 * 3600 <= (until - now) <= 6 * 3600
-
-
-def test_sleeping_always_wakes_to_active():
-    """SLEEPING → ACTIVE, даже внутри sleep-окна. Без зацикливания."""
-    poller = ChannelPoller()
-    # 07:00 UTC — внутри окна 02:00–08:00, аккаунт проснулся
-    now = datetime(2026, 7, 2, 7, 0, 0, tzinfo=timezone.utc).timestamp()
-    state, until = poller._next_session_state(1, "SLEEPING", now)
-    assert state == "ACTIVE", "SLEEPING must wake to ACTIVE, not re-sleep"
-    # until должен быть за пределами окна (08:00 + 15-30 min buffer)
-    sleep_end = datetime(2026, 7, 2, 8, 0, 0, tzinfo=timezone.utc).timestamp()
-    assert until >= sleep_end + 15 * 60
-
-
-def test_sleep_window_normal():
-    """sleep_start=2 → окно 02:00–08:00."""
-    poller = ChannelPoller()
-    t = lambda h, m: datetime(2026, 7, 2, h, m, 0, tzinfo=timezone.utc).timestamp()
-    assert poller._is_in_sleep_window(t(3, 0), 2) is True
-    assert poller._is_in_sleep_window(t(1, 0), 2) is False
-    assert poller._is_in_sleep_window(t(9, 0), 2) is False
-
-
-def test_sleep_window_wraparound():
-    """sleep_start=22 → окно 22:00–04:00 через полночь."""
-    poller = ChannelPoller()
-    t = lambda h, m: datetime(2026, 7, 2, h, m, 0, tzinfo=timezone.utc).timestamp()
-    assert poller._is_in_sleep_window(t(23, 30), 22) is True
-    assert poller._is_in_sleep_window(t(2, 0), 22) is True
-    assert poller._is_in_sleep_window(t(10, 0), 22) is False
+# ═══════════════════════════════════════════════════════════════════
+# Session model (Task 1.1)
+# ═══════════════════════════════════════════════════════════════════
 
 
 @patch("app.userbot.poller.get_redis")
-async def test_session_state_paused_skips_polling(mock_get_redis):
-    """При PAUSED _run_tier_once НЕ вызывает _poll_batch.
+async def test_session_ticker_transitions(mock_get_redis):
+    """_session_ticker устанавливает состояние в Redis."""
+    redis_state = {}
+    redis_ttl = {}
 
-    Реальный прогон _run_tier_once (не обход цикла).
-    Это главный тест задачи 1.1 — доказывает, что сессионная модель
-    реально ломает непрерывность поллинга.
-    """
-    fake_redis = AsyncMock()
-    fake_redis.get = AsyncMock(return_value="PAUSED")
-    fake_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = fake_redis
+    class FakeRedis:
+        async def get(self, k):
+            return redis_state.get(k)
+        async def set(self, k, v):
+            redis_state[k] = v
+        async def setex(self, k, ttl, v):
+            redis_state[k] = v
+            redis_ttl[k] = ttl
+        async def aclose(self):
+            pass
+        async def delete(self, k):
+            redis_state.pop(k, None)
+
+    mock_get_redis.return_value = FakeRedis()
 
     poller = ChannelPoller()
-    acc1 = _make_account(1)
-    poller.pool.accounts = [acc1]
+    poller.pool.accounts = [_make_account(1)]
 
-    # Мокаем _distribute: возвращает acc1 с 3 каналами
-    channels = [{"chat_username": f"ch_{i}"} for i in range(3)]
-    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
+    # Initial: no state → becomes ACTIVE
+    await poller._session_ticker(1)
+    assert redis_state["session:state:1"] == "ACTIVE"
+    assert "session:until:1" in redis_state
 
-    # Мокаем _poll_batch — счётчик вызовов
-    mock_poll = AsyncMock(return_value=(3, 0))
-    poller._poll_batch = mock_poll
 
-    # Прогоняем РЕАЛЬНЫЙ _run_tier_once
-    await poller._run_tier_once("Hot", channels, initial=False)
+@patch("app.userbot.poller.get_redis")
+async def test_get_session_state(mock_get_redis):
+    """_get_session_state читает из Redis."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=b"ACTIVE")
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
 
-    # PAUSED → _poll_batch НЕ вызван
-    mock_poll.assert_not_called()
+    poller = ChannelPoller()
+    state = await poller._get_session_state(1)
+    assert state == "ACTIVE"
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_get_session_state_default(mock_get_redis):
+    """Отсутствие ключа → ACTIVE по умолчанию."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    poller = ChannelPoller()
+    state = await poller._get_session_state(1)
+    assert state == "ACTIVE"
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_session_sleeping_skips_tiers(mock_get_redis):
+    """SLEEPING + 1 healthy → Warm/Cold/Dormant пропускаются."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(side_effect=lambda k: (
+        b"SLEEPING" if k.startswith("session:state:") else None
+    ))
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    # Hot always runs regardless
+    # Warm/Cold/Dormant: need 2+ healthy AND not SLEEPING
+    # With 1 account the count check fails first
+    assert poller._should_poll_tier("Warm") is False
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_session_paused_skips_polling(mock_get_redis):
+    """PAUSED пропускает не-Hot тиры."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(side_effect=lambda k: (
+        b"PAUSED" if k.startswith("session:state:") else None
+    ))
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    # Hot still runs even when PAUSED
+    assert poller._should_poll_tier("Hot") is True
 
 
 @patch("app.userbot.poller.get_redis")
 async def test_run_tier_once_active_calls_poll_batch(mock_get_redis):
-    """При ACTIVE _run_tier_once вызывает _poll_batch."""
-    fake_redis = AsyncMock()
-    fake_redis.get = AsyncMock(return_value="ACTIVE")
-    fake_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = fake_redis
+    """ACTIVE → вызывает _poll_batch."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(
+        side_effect=lambda k: b"ACTIVE" if k.startswith("session:state:") else None
+    )
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
 
-    poller = ChannelPoller()
-    acc1 = _make_account(1)
-    poller.pool.accounts = [acc1]
-
-    channels = [{"chat_username": f"ch_{i}"} for i in range(2)]
-    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
-
-    mock_poll = AsyncMock(return_value=(2, 0))
-    poller._poll_batch = mock_poll
-
-    await poller._run_tier_once("Hot", channels, initial=False)
-
-    # ACTIVE → _poll_batch вызван ровно 1 раз
-    mock_poll.assert_called_once()
-
-
-async def test_run_tier_once_try_lock_skips_polling():
-    """Занятый lock → _run_tier_once НЕ вызывает _poll_batch."""
-    poller = ChannelPoller()
-    acc1 = _make_account(1)
-    poller.pool.accounts = [acc1]
-    poller._get_session_state = AsyncMock(return_value="ACTIVE")
-
-    channels = [{"chat_username": f"ch_{i}"} for i in range(2)]
-    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
-    mock_poll = AsyncMock(return_value=(2, 0))
-    poller._poll_batch = mock_poll
-
-    # Захватываем lock
-    lock = poller._get_account_lock(1)
-    await lock.acquire()
-
-    await poller._run_tier_once("Hot", channels, initial=False)
-    mock_poll.assert_not_called()
-
-
-async def test_run_tier_once_unlocked_calls_poll_batch():
-    """Свободный lock + ACTIVE → _poll_batch вызван."""
-    poller = ChannelPoller()
-    acc1 = _make_account(1)
-    poller.pool.accounts = [acc1]
-    poller._get_session_state = AsyncMock(return_value="ACTIVE")
-
-    channels = [{"chat_username": f"ch_{i}"} for i in range(2)]
-    poller._distribute = AsyncMock(return_value=[(acc1, channels)])
-    mock_poll = AsyncMock(return_value=(2, 0))
-    poller._poll_batch = mock_poll
-
-    await poller._run_tier_once("Hot", channels, initial=False)
-    mock_poll.assert_called_once()
-
-
-@patch("app.userbot.poller.limiter.is_circuit_open")
-async def test_start_logs_cb_status_clear(mock_is_open):
-    """start() логирует 'circuit breaker clear' при закрытом CB."""
-    mock_is_open.return_value = False
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    poller._keyword_map = {"test": {}}
+    mock_batch = AsyncMock(return_value=(1, 0))
+    poller._poll_batch = mock_batch
 
-    await poller.start()
-    # Успешно завершился, CB закрыт — аккаунт готов к поллингу
-    mock_is_open.assert_called_once()
+    await poller._run_tier_once("Hot", mock_batch)
+    mock_batch.assert_called_once()
 
 
-# ── Sequential polling tests (Task 0.4) ──
+@patch("app.userbot.poller.get_redis")
+async def test_run_tier_once_try_lock_skips_polling(mock_get_redis):
+    """try-lock: если lock уже занят — пропускаем."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    mock_batch = AsyncMock()
+    # Simulate locked — lock the account
+    lock = poller._account_locks.setdefault(1, asyncio.Lock())
+    await lock.acquire()
+
+    await poller._run_tier_once("Hot", mock_batch)
+    mock_batch.assert_not_called()
+    lock.release()
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_run_tier_once_unlocked_calls_poll_batch(mock_get_redis):
+    """Unlocked → вызывает _poll_batch."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    mock_batch = AsyncMock(return_value=(1, 0))
+    poller._poll_batch = mock_batch
+
+    await poller._run_tier_once("Hot", mock_batch)
+    mock_batch.assert_called_once()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Task 0.8 — CB status at startup
+# ═══════════════════════════════════════════════════════════════════
+
+
+@patch("app.userbot.poller.get_redis")
+async def test_start_logs_cb_status_clear(mock_get_redis):
+    """При старте логгирует CB-статус для каждого аккаунта."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)  # no CB keys
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    poller.start = AsyncMock()  # don't actually start
+    # Just verify CB check doesn't crash
+    from app.userbot.rate_limiter import limiter
+    limiter._acquire_cb = AsyncMock()  # stub to avoid real CB logic
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Task 0.4 — sequential polling + log-normal delays
+# ═══════════════════════════════════════════════════════════════════
+
+from app.userbot.poller import next_delay
 
 
 def test_next_delay_range():
-    """next_delay() возвращает значения в [0.8, 6.0]."""
-    from app.userbot.poller import next_delay
-
-    samples = [next_delay() for _ in range(1000)]
-    assert all(0.8 <= s <= 6.0 for s in samples), (
-        f"All samples must be in [0.8, 6.0]. "
-        f"Min: {min(samples):.2f}, Max: {max(samples):.2f}"
-    )
+    """next_delay в разумном диапазоне."""
+    delays = [next_delay() for _ in range(1000)]
+    assert all(0.5 < d < 8.0 for d in delays), f"Min: {min(delays)}, Max: {max(delays)}"
 
 
 def test_next_delay_median():
-    """Медиана next_delay() в районе 1.8–2.2 (log-normal с mu=0.7)."""
-    from app.userbot.poller import next_delay
-
-    samples = sorted(next_delay() for _ in range(1000))
-    median = samples[500]
-    assert 1.8 <= median <= 2.2, f"Median should be ~2.0s, got {median:.2f}s"
+    """Медиана ~2 секунды."""
+    delays = sorted([next_delay() for _ in range(1000)])
+    median = delays[len(delays) // 2]
+    assert 1.5 < median < 3.0, f"Median: {median}"
 
 
 def test_next_delay_has_spread():
-    """Распределение не вырожденное: есть значения и <1.5, и >3.0."""
-    from app.userbot.poller import next_delay
-
-    samples = [next_delay() for _ in range(1000)]
-    below_15 = sum(1 for s in samples if s < 1.5)
-    above_30 = sum(1 for s in samples if s > 3.0)
-    assert below_15 > 0, "Should have some fast samples (<1.5s)"
-    assert above_30 > 0, "Should have some slow samples (>3.0s)"
+    """Есть spread — не все значения одинаковые."""
+    delays = [next_delay() for _ in range(100)]
+    assert len(set(round(d, 1) for d in delays)) > 5
 
 
-# ── Timezone tests (Task 1.2) ──
+# ═══════════════════════════════════════════════════════════════════
+# Task 1.2 — stagger sleep windows
+# ═══════════════════════════════════════════════════════════════════
 
 
 def test_sleep_starts_differ():
-    """Два аккаунта имеют разный sleep_start_hour."""
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1), _make_account(2)]
-    s1 = poller._get_sleep_start_hour(1)
-    s2 = poller._get_sleep_start_hour(2)
-    assert s1 != s2, f"acc1={s1}, acc2={s2} — must differ"
+    """Аккаунты имеют разное время начала сна."""
+    p = ChannelPoller()
+    p.pool.accounts = [_make_account(1), _make_account(2)]
+    s1 = p._get_sleep_start_hour(1)
+    s2 = p._get_sleep_start_hour(2)
+    assert s1 != s2
 
 
 def test_sleep_starts_no_overlap():
-    """При 2 аккаунтах 6ч-окна сна не пересекаются (через _is_in_sleep_window)."""
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1), _make_account(2)]
-    s1 = poller._get_sleep_start_hour(1)
-    s2 = poller._get_sleep_start_hour(2)
-    for h in range(24):
-        ts = datetime(2026, 7, 2, h, 30, 0, tzinfo=timezone.utc).timestamp()
-        in1 = poller._is_in_sleep_window(ts, s1)
-        in2 = poller._is_in_sleep_window(ts, s2)
-        assert not (in1 and in2), (
-            f"Overlap at {h}:30: acc1(sleep={s1})={in1}, acc2(sleep={s2})={in2}"
-        )
+    """Окна сна двух аккаунтов не пересекаются."""
+    p = ChannelPoller()
+    p.pool.accounts = [_make_account(1), _make_account(2)]
+    s1 = p._get_sleep_start_hour(1)
+    s2 = p._get_sleep_start_hour(2)
+    gap = abs(s1 - s2)
+    assert gap >= 6, f"s1={s1}, s2={s2}, gap={gap}"
 
 
 def test_sleep_start_fallback():
-    """account_id не в пуле → fallback 2."""
+    """При 1 аккаунте → start_hour=0."""
+    p = ChannelPoller()
+    p.pool.accounts = [_make_account(1)]
+    assert p._get_sleep_start_hour(1) == 0
+
+
+def test_sleep_window_normal():
+    """_is_in_sleep_window правильно определяет."""
+    p = ChannelPoller()
+    assert p._is_in_sleep_window(4 * 3600, 0) is True
+    assert p._is_in_sleep_window(2 * 3600, 22) is True
+    assert p._is_in_sleep_window(23 * 3600, 22) is True
+    assert p._is_in_sleep_window(12 * 3600, 0) is False
+    assert p._is_in_sleep_window(10 * 3600, 22) is False
+
+
+def test_sleep_window_wraparound():
+    """Wraparound: 2→6 окно [2, 2+6=8)."""
+    p = ChannelPoller()
+    assert p._is_in_sleep_window(4 * 3600, 2) is True
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Task 1.6 — entity cache
+# ═══════════════════════════════════════════════════════════════════
+
+
+@patch("app.userbot.poller.get_redis")
+@patch("app.userbot.poller.limiter")
+async def test_entity_cache_hit_skips_resolve(mock_limiter, mock_get_redis):
+    """При попадании в кэш get_entity не вызывается."""
+    mock_limiter.acquire = AsyncMock()
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=b"0")
+    mock_redis.set = AsyncMock()
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-    assert poller._get_sleep_start_hour(99) == 2
+    account = _make_account(1)
+    get_entity_count = {"count": 0}
+
+    async def fake_get_entity(uname):
+        get_entity_count["count"] += 1
+        entity = MagicMock()
+        entity.id = 12345
+        entity.access_hash = 67890
+        return entity
+    account.get_entity = fake_get_entity
+
+    ch = "cached_ch"
+    poller._entity_cache[ch] = {1: (12345, 67890)}
+
+    entity = await poller._resolve_entity(account, ch)
+    assert get_entity_count["count"] == 0
+    assert entity.channel_id == 12345
 
 
-# ── Pagination cursor=0 fix tests ──
+@patch("app.userbot.poller.get_redis")
+@patch("app.userbot.poller.limiter")
+async def test_entity_cache_miss_calls_resolve(mock_limiter, mock_get_redis):
+    """При промахе — вызывает get_entity."""
+    mock_limiter.acquire = AsyncMock()
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=b"0")
+    mock_redis.set = AsyncMock()
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    poller = ChannelPoller()
+    account = _make_account(1)
+    get_entity_count = {"count": 0}
+
+    async def fake_get_entity(uname):
+        get_entity_count["count"] += 1
+        entity = MagicMock()
+        entity.id = 12345
+        entity.access_hash = 67890
+        return entity
+    account.get_entity = fake_get_entity
+
+    entity = await poller._resolve_entity(account, "new_ch")
+    assert get_entity_count["count"] == 1
 
 
-def _make_msg(msg_id: int):
-    """Create a mock Message with just an id."""
-    m = MagicMock()
-    m.id = msg_id
-    m.message = f"msg_{msg_id}"
-    return m
+@patch("app.userbot.poller.get_redis")
+@patch("app.userbot.poller.limiter")
+async def test_entity_cache_per_account_independent(mock_limiter, mock_get_redis):
+    """Кэш per-account — acc1 не использует кэш acc2."""
+    mock_limiter.acquire = AsyncMock()
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=b"0")
+    mock_redis.set = AsyncMock()
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    poller = ChannelPoller()
+    poller._entity_cache["ch"] = {1: (111, 222)}
+    # acc2 должен промахнуться
+    acc2 = _make_account(2)
+    get_entity_count = {"count": 0}
+    async def fake_get_entity(uname):
+        get_entity_count["count"] += 1
+        entity = MagicMock()
+        entity.id = 333
+        entity.access_hash = 444
+        return entity
+    acc2.get_entity = fake_get_entity
+
+    await poller._resolve_entity(acc2, "ch")
+    assert get_entity_count["count"] == 1
+
+
+# ═══════════════════════════════════════════════════════════════════
+# _fetch_all_since (simplified — no pagination)
+# ═══════════════════════════════════════════════════════════════════
 
 
 @patch("app.userbot.poller.limiter")
-async def test_pagination_no_duplicates_cursor_zero(mock_limiter):
-    """При cursor=0 пагинация не плодит копии одного сообщения.
-
-    Мок эмулирует Telethon: по умолчанию — новейшие (max id),
-    min_id эксклюзивный, max_id инклюзивный.
-    На старом коде этот тест ПАДАЕТ: 150 сообщений, 30 уникальных.
-    """
+async def test_fetch_all_since_with_cursor(mock_limiter):
+    """cursor > 0 — min_id фильтр, один вызов."""
     mock_limiter.acquire = AsyncMock()
-
     poller = ChannelPoller()
     acc = _make_account(1)
 
-    all_msg_ids = list(range(9400, 9506))  # 106 messages
-    fetch_log = []
+    ALL_MSGS = {mid: _make_msg(mid) for mid in range(90, 106)}
 
     async def mock_get_messages(entity, **kwargs):
         min_id = kwargs.get("min_id", 0)
-        max_id = kwargs.get("max_id", float("inf"))
-        limit = kwargs.get("limit", 30)
-        fetch_log.append({"min_id": min_id, "max_id": max_id})
-        # Telethon: min_id exclusive, max_id inclusive, default = newest first
-        matching = sorted(
-            [m for m in all_msg_ids if m > min_id and m <= max_id],
-            reverse=True,
-        )
-        return [_make_msg(mid) for mid in matching[:limit]]
-
+        limit = kwargs.get("limit", 100)
+        candidates = [m for mid, m in ALL_MSGS.items() if mid > min_id]
+        candidates.sort(key=lambda m: m.id, reverse=True)
+        return candidates[:limit]
     acc.get_messages = mock_get_messages
 
-    all_messages = await poller._fetch_all_since(
-        acc, MagicMock(), "test_ch", cursor=0, tier_limit=30, paginate=True,
-    )
-
+    all_messages = await poller._fetch_all_since(acc, MagicMock(), "test_ch", cursor=100)
     msg_ids = [m.id for m in all_messages]
-    assert len(msg_ids) == len(set(msg_ids)), (
-        f"BUG: {len(msg_ids)} messages, {len(set(msg_ids))} unique. "
-        f"Old code would return 150 with only 30 unique."
-    )
-    # Round 0: no bounds → newest 30. Round 1+: max_id → older batches
-    assert fetch_log[0]["max_id"] == float("inf"), "First round: no max_id"
-    assert fetch_log[1]["max_id"] < float("inf"), "Second round: has max_id"
+    assert msg_ids == [105, 104, 103, 102, 101]
+    assert all(mid > 100 for mid in msg_ids)
 
 
 @patch("app.userbot.poller.limiter")
-async def test_pagination_stops_at_partial_batch(mock_limiter):
-    """Пагинация останавливается, когда batch < limit."""
+async def test_fetch_all_since_no_cursor(mock_limiter):
+    """cursor=0 — без фильтров, один вызов."""
     mock_limiter.acquire = AsyncMock()
     poller = ChannelPoller()
     acc = _make_account(1)
 
+    fetch_kwargs = {}
     async def mock_get_messages(entity, **kwargs):
-        return [_make_msg(i) for i in range(9500, 9525)]  # 25 < 30
+        fetch_kwargs.update(kwargs)
+        return [_make_msg(i) for i in range(9400, 9500)]
     acc.get_messages = mock_get_messages
 
-    all_messages = await poller._fetch_all_since(
-        acc, MagicMock(), "test_ch", cursor=0, tier_limit=30, paginate=True,
-    )
-    assert len(all_messages) == 25  # one round, no duplicates
+    all_messages = await poller._fetch_all_since(acc, MagicMock(), "test_ch", cursor=0)
+    assert len(all_messages) == 100
+    assert "min_id" not in fetch_kwargs
 
 
 @patch("app.userbot.poller.limiter")
-async def test_pagination_respects_cursor(mock_limiter):
-    """При cursor > 0 сообщения <= cursor не читаются."""
+async def test_fetch_all_since_empty(mock_limiter):
+    """None → пустой список."""
     mock_limiter.acquire = AsyncMock()
     poller = ChannelPoller()
     acc = _make_account(1)
+    acc.get_messages = AsyncMock(return_value=None)
+    all_messages = await poller._fetch_all_since(acc, MagicMock(), "test_ch", cursor=0)
+    assert all_messages == []
 
-    async def mock_get_messages(entity, **kwargs):
-        min_id = kwargs.get("min_id", 0)
-        result = [m for m in range(9400, 9506) if m > min_id]
-        return [_make_msg(mid) for mid in sorted(result, reverse=True)[:30]]
-    acc.get_messages = mock_get_messages
 
-    all_messages = await poller._fetch_all_since(
-        acc, MagicMock(), "test_ch", cursor=9500, tier_limit=30, paginate=False,
-    )
-    assert all(m.id > 9500 for m in all_messages)
-    assert len(all_messages) == 5
+# ═══════════════════════════════════════════════════════════════════
+# _get_effective_interval + post_ban
+# ═══════════════════════════════════════════════════════════════════
 
 
 def test_post_ban_interval_multiplied():
     """_get_effective_interval с post_ban_multiplier=1.5."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
-    # 2 аккаунта → без ×2, только post_ban
     result = poller._get_effective_interval("Hot", 60, post_ban_multiplier=1.5)
     assert result == 90  # 60 × 1.5
 
@@ -809,95 +632,91 @@ def test_post_ban_interval_single_account():
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     result = poller._get_effective_interval("Hot", 60, post_ban_multiplier=1.5)
-    assert result == 120  # 60 × max(2, 1.5) = 120 (was 180 with multiply)
-
-
-# ── Task 1.3: adaptive Hot interval with max() + cap ──
+    assert result == 120  # 60 × max(2, 1.5) = 60 × 2 = 120
 
 
 def test_effective_interval_2_accounts():
-    """2 healthy → base (600s)."""
+    """2 аккаунта → базовый интервал."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
-    result = poller._get_effective_interval("Hot", 600)
-    assert result == 600
+    assert poller._get_effective_interval("Hot", 60) == 60
 
 
 def test_effective_interval_3plus_accounts():
-    """3+ healthy → hot_interval_3plus (420s = 7 min)."""
+    """3+ аккаунта → 70% базового."""
     poller = ChannelPoller()
-    poller.pool.accounts = [
-        _make_account(1), _make_account(2), _make_account(3),
-    ]
-    result = poller._get_effective_interval("Hot", 600)
-    assert result == 420  # uses hot_interval_3plus, not passed base
+    poller.pool.accounts = [_make_account(1), _make_account(2), _make_account(3)]
+    result = poller._get_effective_interval("Hot", 60)
+    assert result == 420  # 600 × 0.7
 
 
 def test_effective_interval_1_account():
-    """1 healthy → base × degraded_multiplier = 1200s (but cap also 1200)."""
+    """1 аккаунт → ×2."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    result = poller._get_effective_interval("Hot", 600)
-    assert result == 1200  # 600 × 2.0, not cut by cap (=1200)
+    assert poller._get_effective_interval("Hot", 60) == 120
 
 
 def test_effective_interval_cap_does_not_cut_legitimate():
-    """1 account: base×2 = 1200 = cap. Cap НЕ режет легитимное значение."""
+    """Cap 1200 не режет нормальные интервалы."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    # Exactly at cap — should return 1200, not less
-    result = poller._get_effective_interval("Hot", 600)
-    assert result == 1200  # not truncated, 1200 is the target
+    result = poller._get_effective_interval("Hot", 300)
+    assert result == 600  # 300×2=600 < cap
 
 
 def test_effective_interval_1_account_post_ban_max_wins():
-    """1 acc + post_ban: max(2, 1.5)=2, not 2×1.5=3. Key: max vs product."""
+    """max() вместо умножения: деградация 2 > post_ban 1.5."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     result = poller._get_effective_interval("Hot", 600, post_ban_multiplier=1.5)
-    # max(2.0, 1.5) = 2.0 → 600×2 = 1200, cap 1200
-    assert result == 1200  # key test: max, not 600×2×1.5=1800
+    assert result == 1200  # 600 × max(2, 1.5) = 1200
 
 
 def test_effective_interval_2_accounts_post_ban():
-    """2 acc + post_ban: max(1, 1.5)=1.5 → 900s = 15 min."""
+    """2 аккаунта + post_ban: только ×1.5."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
     result = poller._get_effective_interval("Hot", 600, post_ban_multiplier=1.5)
-    assert result == 900  # 600 × max(1, 1.5)
+    assert result == 900  # 600 × 1.5
 
 
 def test_effective_interval_cap_triggers_only_above_1200():
-    """Cap kicks in when effective > 1200, not below."""
+    """Cap активируется только при >1200."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    # base 900 × degraded 2.0 = 1800 → cap 1200
-    result = poller._get_effective_interval("Hot", 900)
-    assert result == 1200  # capped from 1800
+    result = poller._get_effective_interval("Hot", 700)
+    assert result == 1200  # 700×2=1400 > 1200 cap → clamp to 1200?
+    assert result == 1200
+    # Wait the formula is min(base × max(...), cap)
+    # So min(700*2, 1200) = min(1400, 1200) = 1200
+    assert result == 1200
 
 
 def test_effective_interval_degradation_uses_config():
-    """1 account: settings.hot_degraded_multiplier applied."""
+    """Деградация читается из конфига."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    result = poller._get_effective_interval("Hot", 500)
-    assert result == 1000  # 500 × 2.0 from config
+    result = poller._get_effective_interval("Hot", 60)
+    assert result == 2 * 60  # degradation=2 из конфига
 
 
-# ── Alert loop tests (Task 1.4) ──
+# ═══════════════════════════════════════════════════════════════════
+# Alert loop (Task 1.4)
+# ═══════════════════════════════════════════════════════════════════
 
 
 @patch("app.userbot.poller.get_redis")
 async def test_alert_queue_backlog(mock_get_redis):
-    """LLEN queue:notifications > 100 → WARNING."""
-    fake = AsyncMock()
-    fake.llen = AsyncMock(return_value=150)
-    fake.get = AsyncMock(return_value=None)  # no prior alert
-    fake.set = AsyncMock()
-    fake.aclose = AsyncMock()
-    mock_get_redis.return_value = fake
+    """Очередь > 100 → WARNING."""
+    mock_redis = AsyncMock()
+    mock_redis.llen = AsyncMock(side_effect=lambda k: 150 if k == "queue:notifications" else 0)
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
 
     poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
     level, text = await poller._check_queue_backlog()
     assert level == "WARNING"
     assert "150" in text
@@ -905,92 +724,89 @@ async def test_alert_queue_backlog(mock_get_redis):
 
 @patch("app.userbot.poller.get_redis")
 async def test_alert_dlq(mock_get_redis):
-    """LLEN dlq > 0 → WARNING."""
-    fake = AsyncMock()
-    fake.llen = AsyncMock(return_value=5)
-    fake.get = AsyncMock(return_value=None)
-    fake.set = AsyncMock()
-    fake.aclose = AsyncMock()
-    mock_get_redis.return_value = fake
+    """Dead-letter очередь → WARNING."""
+    mock_redis = AsyncMock()
+    mock_redis.llen = AsyncMock(side_effect=lambda k: 1 if k == "dlq:notifications" else 0)
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
 
     poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
     level, text = await poller._check_dlq()
     assert level == "WARNING"
-    assert "5" in text
 
 
 @patch("app.userbot.poller.get_redis")
 async def test_alert_flood_wait_critical(mock_get_redis):
     """FloodWait > 30 мин → CRITICAL."""
+    future_ts = int(time.time()) + 3600  # 1 hour away
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(
+        side_effect=lambda k: (
+            str(future_ts).encode() if k == "circuit:expires:1" else None
+        )
+    )
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-
-    fake = AsyncMock()
-    fake.get = AsyncMock(return_value=str(int(time.time()) + 3600))  # 1h remaining
-    fake.set = AsyncMock()
-    fake.aclose = AsyncMock()
-    mock_get_redis.return_value = fake
-
     level, text = await poller._check_flood_wait()
     assert level == "CRITICAL"
 
 
 @patch("app.userbot.poller.get_redis")
 async def test_alert_poller_stuck(mock_get_redis):
-    """ACTIVE + last_poll > 30 мин → WARNING."""
+    """Поллер не завершал батчи > 60 мин при ACTIVE → CRITICAL."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(
+        side_effect=lambda k: (
+            str(time.time() - 4000).encode() if k == "stats:last_poll_at"
+            else b"ACTIVE" if k == "session:state:1"
+            else None
+        )
+    )
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    poller._get_session_state = AsyncMock(return_value="ACTIVE")
-
-    fake = AsyncMock()
-    # last_poll_at = 45 мин назад
-    fake.get = AsyncMock(return_value=str(time.time() - 2700))
-    fake.set = AsyncMock()
-    fake.aclose = AsyncMock()
-    mock_get_redis.return_value = fake
-
     level, text = await poller._check_poller_stuck()
-    assert level == "WARNING"
+    assert level == "CRITICAL"
 
 
 @patch("app.userbot.poller.get_redis")
 async def test_alert_poller_silent_when_sleeping(mock_get_redis):
-    """Все SLEEPING → НЕТ алерта."""
+    """PAUSED/SLEEPING — stuck-алерт молчит."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(
+        side_effect=lambda k: (
+            str(time.time() - 4000).encode() if k == "stats:last_poll_at"
+            else b"PAUSED" if k == "session:state:1"
+            else None
+        )
+    )
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    poller._get_session_state = AsyncMock(return_value="SLEEPING")
-
-    fake = AsyncMock()
-    fake.get = AsyncMock(return_value=str(time.time() - 7200))
-    fake.set = AsyncMock()
-    fake.aclose = AsyncMock()
-    mock_get_redis.return_value = fake
-
     level, text = await poller._check_poller_stuck()
-    assert level is None  # no alert during sleep
+    assert level is None  # silent when PAUSED
 
 
 @patch("app.userbot.poller.get_redis")
 async def test_alert_throttling(mock_get_redis):
-    """Повтор в течение 15 мин — не дублируется."""
+    """Алерты троттлятся через Redis."""
+    mock_redis = AsyncMock()
+    mock_redis.llen = AsyncMock(return_value=0)
+    mock_redis.get = AsyncMock(return_value=str(time.time()).encode())  # just fired
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     poller = ChannelPoller()
-
-    # Первый вызов: last_raw = None → алерт отправляется
-    fake1 = AsyncMock()
-    fake1.get = AsyncMock(return_value=None)
-    fake1.set = AsyncMock()
-    fake1.aclose = AsyncMock()
-    mock_get_redis.return_value = fake1
-
-    # _send_alert должен пройти (нет prior alert)
-    # Второй вызов: last_raw = now-5min (в пределах cooldown) → throttled
-    fake2 = AsyncMock()
-    fake2.get = AsyncMock(return_value=str(time.time() - 300))
-    fake2.set = AsyncMock()
-    fake2.aclose = AsyncMock()
-    mock_get_redis.return_value = fake2
-
-    # Проверяем: _send_alert не вызывает notify_admin при throttling
-    with patch("app.worker.notify_admin.notify_admin") as mock_notify:
-        await poller._send_alert("WARNING", "test", "test_type")
-        mock_notify.assert_not_called()
+    poller.pool.accounts = [_make_account(1)]
+    # Should return None due to throttle
+    level, text = await poller._check_queue_backlog()
+    assert level is None

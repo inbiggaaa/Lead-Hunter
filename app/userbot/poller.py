@@ -33,14 +33,13 @@ logger = logging.getLogger(__name__)
 # Module-level constants below are only for non-tier defaults (limits, jitter, delays)
 # Tier-specific message fetch limits — per API call.
 # Pagination auto-triggers if a full batch is returned (rare in practice).
+FETCH_LIMIT = 100  # max messages per channel per poll cycle
 TIER_LIMITS = {
-    "Hot": 30,    # 60s cycle — 30 msgs/min is extremely active
-    "Warm": 80,   # 5min cycle
-    "Cold": 150,  # 15min cycle
-    "Dormant": 500,  # 12h cycle — catch up on missed messages
+    "Hot": 30,    # (kept for reference, fetch uses FETCH_LIMIT)
+    "Warm": 80,
+    "Cold": 150,
+    "Dormant": 500,
 }
-MAX_PAGINATION_ROUNDS = 5  # absolute safety cap for pagination
-INITIAL_LIMIT = 5           # first-ever poll: just set cursor (no pagination)
 
 # ── Anti-ban protections ──
 # Staggered startup: tiers don't fire all at once (prevents initial API storm)
@@ -394,72 +393,27 @@ class ChannelPoller:
             await self._set_cursor(channel_username, max_msg_id)
 
     async def _fetch_all_since(
-        self, account, entity, channel_username: str, cursor: int, tier_limit: int, paginate: bool = True,
+        self, account, entity, channel_username: str, cursor: int,
     ) -> list:
-        """Fetch all messages since `cursor`, paginating if a batch is full.
+        """Fetch messages since cursor. Single API call, no pagination.
 
-        When paginate=True and a batch returns exactly tier_limit messages,
-        continues fetching older messages between cursor and the batch's
-        oldest message until the gap is exhausted or MAX_PAGINATION_ROUNDS.
-
-        Returns messages newest-first (same order as Telethon's get_messages).
+        One get_messages call per channel per poll cycle. Hot channels poll
+        more frequently → naturally catch new messages without extra API cost.
         """
-        all_messages = []
-        fetch_min_id = cursor
-        rounds = 0
-
-        while rounds < (MAX_PAGINATION_ROUNDS if paginate else 1):
-            await limiter.acquire(account.account_id)
-            try:
-                if rounds > 0:
-                    # Pagination: go deeper into history using max_id
-                    oldest_in_prev = min(m.id for m in all_messages)
-                    batch = await account.get_messages(
-                        entity, max_id=oldest_in_prev - 1, limit=tier_limit,
-                    )
-                elif fetch_min_id > 0:
-                    # Incremental: messages since cursor
-                    batch = await account.get_messages(
-                        entity, min_id=fetch_min_id, limit=tier_limit,
-                    )
-                else:
-                    batch = await account.get_messages(entity, limit=tier_limit)
-            except FloodWaitError:
-                raise
-            except ChannelInvalidError:
-                # access_hash is stale for this account — invalidate only this account's cache
-                self._entity_cache.get(channel_username, {}).pop(account.account_id, None)
-                raise
-            except Exception:
-                break  # Channel became inaccessible
-
-            if not batch:
-                break
-
-            all_messages.extend(batch)
-            rounds += 1
-
-            if len(batch) < tier_limit:
-                break  # got everything — partial batch means no more messages
-
-            if not paginate:
-                break
-
-            # Full batch means there may be more older messages.
-            # Next iteration will use max_id to fetch the gap.
-            logger.debug(
-                "@%s: full batch (%d msgs) — paginating round %d/%d",
-                getattr(entity, 'username', '?'),
-                len(batch), rounds, MAX_PAGINATION_ROUNDS,
-            )
-
-        if rounds > 1:
-            logger.info(
-                "@%s: paginated %d rounds, total %d messages fetched",
-                getattr(entity, 'username', '?'), rounds, len(all_messages),
-            )
-
-        return all_messages
+        await limiter.acquire(account.account_id)
+        try:
+            if cursor > 0:
+                batch = await account.get_messages(entity, min_id=cursor, limit=FETCH_LIMIT)
+            else:
+                batch = await account.get_messages(entity, limit=FETCH_LIMIT)
+            return list(batch) if batch else []
+        except FloodWaitError:
+            raise
+        except ChannelInvalidError:
+            self._entity_cache.get(channel_username, {}).pop(account.account_id, None)
+            raise
+        except Exception:
+            return []
 
     # ═══════════════ BATCH & TIER LOOPS ═══════════════
 
