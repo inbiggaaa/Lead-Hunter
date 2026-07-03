@@ -309,7 +309,7 @@ class ChannelPoller:
             is_broadcast = getattr(entity, "broadcast", False)
             is_megagroup = getattr(entity, "megagroup", False)
             if is_broadcast and not is_megagroup:
-                logger.debug("Skipping broadcast channel @%s (not a chat)", channel_username)
+                logger.info("Skipping broadcast channel @%s (not a chat)", channel_username)
                 return
 
         cursor = await self._get_cursor(channel_username) if not initial else 0
