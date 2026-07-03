@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     poll_parked_countries: bool = False  # poll channels from countries with no subscriptions
 
     # Tier intervals (Task 1.3 — all configurable, no hardcoded constants)
-    hot_interval_base: int = 600          # seconds, Hot base (2 healthy accounts)
+    hot_interval_base: int = 300          # seconds, Hot base (2 healthy accounts)
     hot_interval_3plus: int = 420         # seconds, Hot for 3+ accounts (7 min)
     warm_interval: int = 3000             # seconds, Warm tier (50 min)
     cold_interval: int = 9000             # seconds, Cold tier (2.5 h)

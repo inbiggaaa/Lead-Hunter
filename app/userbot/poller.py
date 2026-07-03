@@ -537,7 +537,7 @@ class ChannelPoller:
                         continue
                     cb_free += 1
 
-                skip_warmup = (cb_free == 1)
+                skip_warmup = (cb_free >= 1)
 
                 # Warmup: limit channels during first N cycles
                 if not skip_warmup and cycle_num <= len(WARMUP_STEPS):
@@ -779,7 +779,7 @@ class ChannelPoller:
 
         # 1. SLEEPING always wakes to ACTIVE — no re-sleep loop
         if prev_state == "SLEEPING":
-            until = now + random.uniform(20 * 60, 60 * 60)
+            until = now + random.uniform(40 * 60, 90 * 60)
             # Extend past current sleep window to avoid immediate re-sleep
             sleep_end = self._sleep_window_end_ts(now, sleep_start)
             if sleep_end is not None and until < sleep_end:
@@ -793,7 +793,7 @@ class ChannelPoller:
 
         # 3. ACTIVE ↔ PAUSED outside sleep window
         if prev_state == "PAUSED" or prev_state is None:
-            return ("ACTIVE", now + random.uniform(20 * 60, 60 * 60))
+            return ("ACTIVE", now + random.uniform(40 * 60, 90 * 60))
 
         return ("PAUSED", now + random.uniform(15 * 60, 60 * 60))
 
