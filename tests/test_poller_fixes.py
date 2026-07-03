@@ -756,14 +756,16 @@ async def test_alert_flood_wait_critical(mock_get_redis):
     assert level == "CRITICAL"
 
 
+@patch("app.userbot.poller.limiter")
 @patch("app.userbot.poller.get_redis")
-async def test_alert_poller_stuck(mock_get_redis):
-    """Поллер не завершал батчи > 60 мин при ACTIVE → CRITICAL."""
+async def test_alert_poller_stuck(mock_get_redis, mock_limiter):
+    """ACTIVE + CB clear + last_poll старый → CRITICAL."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
     mock_redis = AsyncMock()
     mock_redis.get = AsyncMock(
         side_effect=lambda k: (
             str(time.time() - 4000).encode() if k == "stats:last_poll_at"
-            else b"ACTIVE" if k == "session:state:1"
+            else "ACTIVE" if k == "session:state:1"
             else None
         )
     )
@@ -776,14 +778,16 @@ async def test_alert_poller_stuck(mock_get_redis):
     assert level == "CRITICAL"
 
 
+@patch("app.userbot.poller.limiter")
 @patch("app.userbot.poller.get_redis")
-async def test_alert_poller_silent_when_sleeping(mock_get_redis):
-    """PAUSED/SLEEPING — stuck-алерт молчит."""
+async def test_alert_poller_silent_when_paused(mock_get_redis, mock_limiter):
+    """PAUSED — stuck-алерт молчит."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
     mock_redis = AsyncMock()
     mock_redis.get = AsyncMock(
         side_effect=lambda k: (
             str(time.time() - 4000).encode() if k == "stats:last_poll_at"
-            else b"PAUSED" if k == "session:state:1"
+            else "PAUSED" if k == "session:state:1"
             else None
         )
     )
@@ -793,7 +797,29 @@ async def test_alert_poller_silent_when_sleeping(mock_get_redis):
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     level, text = await poller._check_poller_stuck()
-    assert level is None  # silent when PAUSED
+    assert level is None
+
+
+@patch("app.userbot.poller.limiter")
+@patch("app.userbot.poller.get_redis")
+async def test_alert_poller_silent_when_cb_open(mock_get_redis, mock_limiter):
+    """ACTIVE но CB open → алерт молчит (не может поллить)."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=True)
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(
+        side_effect=lambda k: (
+            str(time.time() - 4000).encode() if k == "stats:last_poll_at"
+            else "ACTIVE" if k == "session:state:1"
+            else None
+        )
+    )
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    level, text = await poller._check_poller_stuck()
+    assert level is None
 
 
 @patch("app.userbot.poller.get_redis")

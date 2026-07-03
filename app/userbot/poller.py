@@ -880,16 +880,23 @@ class ChannelPoller:
     async def _check_poller_stuck(self) -> tuple[str | None, str | None]:
         """Check poller liveness: last_poll_at within healthy bounds.
 
-        Does NOT fire during PAUSED/SLEEPING — legitimate inactivity.
+        Only fires when at least one account is ACTIVE AND has a clear
+        circuit breaker. PAUSED/SLEEPING/CB-blocked accounts are skipped
+        because they cannot poll by design.
         """
-        any_active = False
+        any_can_poll = False
         for acc in self.pool.accounts:
+            if not acc.is_healthy:
+                continue
             state = await self._get_session_state(acc.account_id)
-            if state == "ACTIVE":
-                any_active = True
-                break
+            if state != "ACTIVE":
+                continue
+            if await limiter.is_circuit_open(acc.account_id):
+                continue
+            any_can_poll = True
+            break
 
-        if not any_active:
+        if not any_can_poll:
             return (None, None)
 
         redis = await get_redis()
