@@ -671,6 +671,10 @@ class ChannelPoller:
 
         Sleeps until session:until, then transitions ACTIVE↔PAUSED↔SLEEPING.
         Survives worker restart via Redis keys (AOF from Task 0.6).
+
+        Guard: if this account is the only one with a clear circuit breaker,
+        it stays ACTIVE regardless of schedule — otherwise the service
+        would have zero polling capacity.
         """
         while True:
             redis = await get_redis()
@@ -695,6 +699,24 @@ class ChannelPoller:
             new_state, new_until = self._next_session_state(
                 account_id, prev_state=state, now=now,
             )
+
+            # Guard: never pause/sleep the last healthy (non-CB) account
+            if new_state in ("PAUSED", "SLEEPING"):
+                cb_free = 0
+                for acc in self.pool.accounts:
+                    if not acc.is_healthy:
+                        continue
+                    if await limiter.is_circuit_open(acc.account_id):
+                        continue
+                    cb_free += 1
+                if cb_free <= 1:
+                    logger.info(
+                        "Account %d: only %d CB-free account(s) — "
+                        "overriding %s → ACTIVE",
+                        account_id, cb_free, new_state,
+                    )
+                    new_state = "ACTIVE"
+                    new_until = now + random.uniform(20 * 60, 60 * 60)
 
             redis = await get_redis()
             await redis.set(f"session:state:{account_id}", new_state)
