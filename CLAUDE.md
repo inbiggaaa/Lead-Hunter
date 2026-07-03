@@ -883,6 +883,13 @@ Worker не останавливался, ошибок 0. Тег task-1.8-done.
 **02.07.2026 07:00 — Phase review: 2 blocker'а найдены и исправлены.**
 `/skill:phase-review` выявил: (1) `effective_city_ids` — NameError в `_dispatch` (не определён, но используется в city-фильтрации; не падал т.к. у текущих пользователей mode='all'); (2) `UserbotAccount.get_messages` не принимал `min_id`/`max_id` → `_fetch_all_since` с инкрементальным поллингом падал бы с TypeError (не падал т.к. оба аккаунта под CB). Исправлено: `+**kwargs` в `get_messages`, `+effective_city_ids` в `_dispatch`. 64 теста после исправлений — 0 регрессий.
 
+**03.07.2026 02:30 — Диагностика бана + три фикса (ветка fix/disable-discovery-fix-throttle, НЕ смержена).**
+Диагностика: оба аккаунта НЕ под активным FloodWait. Acc1 — 17ч бан от discovery (уже истёк, сейчас SLEEPING). Acc2 — чист, ACTIVE, поллит. 35 errors/цикл на Hot-тире (32%) — глушатся на logger.debug, требуют расследования.
+Фикс 1: discovery v1/v2 удалены из tasks.py полностью (импорты + client creation). Были закомментированы (61522a6, 2fe673a), теперь не могут быть случайно включены.
+Фикс 2: report_flood_wait в rate_limiter.py — добавлен 15-мин троттлинг на notify_admin (ключ alert:last:flood_wait_report:{account_id}). Ранее спамил 100+ уведомлений.
+Фикс 3: CLAUDE.md §0 — новое правило: не трогать прод при работающем worker.
+⚠️ Применять осторожно: остановить worker → пересобрать → запустить. Acc2 продолжит работать, acc1 под CB/SLEEPING подождёт.
+
 ---
 
 ## 9. Ключевые решения (полный архив — DECISIONS.md)
