@@ -526,8 +526,22 @@ class ChannelPoller:
             cycle_start = time.time()
 
             try:
+                # ── Warmup skip: if only 1 CB-free account, go full speed ──
+                # The account has been polling for days — its pattern is
+                # established. Warmup (7 cycles of ramping batch size) would
+                # look like bot calibration to Telegram.
+                cb_free = 0
+                for acc in self.pool.accounts:
+                    if not acc.is_healthy:
+                        continue
+                    if await limiter.is_circuit_open(acc.account_id):
+                        continue
+                    cb_free += 1
+
+                skip_warmup = (cb_free == 1)
+
                 # Warmup: limit channels during first N cycles
-                if cycle_num <= len(WARMUP_STEPS):
+                if not skip_warmup and cycle_num <= len(WARMUP_STEPS):
                     fraction = WARMUP_STEPS[cycle_num - 1]
                     limit = max(1, int(total_channels * fraction))
                     tier_channels = channels[:limit]
@@ -535,6 +549,13 @@ class ChannelPoller:
                         "Tier '%s' warmup %d/%d: %d/%d channels (%.0f%%)",
                         tier_name, cycle_num, len(WARMUP_STEPS),
                         len(tier_channels), total_channels, fraction * 100,
+                    )
+                elif skip_warmup and cycle_num == 1:
+                    tier_channels = channels
+                    logger.info(
+                        "Tier '%s': warmup SKIPPED (only %d CB-free account) — "
+                        "using all %d channels",
+                        tier_name, cb_free, len(tier_channels),
                     )
                 else:
                     tier_channels = channels

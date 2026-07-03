@@ -924,3 +924,67 @@ async def test_sleep_always_wakes_to_active(mock_limiter):
 
     ns, nu = poller._next_session_state(1, prev_state="SLEEPING", now=8 * 3600)
     assert ns == "ACTIVE"
+
+
+@patch("app.userbot.poller.limiter")
+async def test_warmup_skipped_when_one_cb_free(mock_limiter):
+    """1 CB-free аккаунт → warmup пропускается, сразу все каналы."""
+    mock_limiter.is_circuit_open = AsyncMock(side_effect=lambda aid: aid == 1)
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    poller._run_tier_once = AsyncMock(return_value=False)
+    poller._get_effective_interval = lambda t, i, pb: 1
+
+    # Run one cycle — should skip warmup
+    import asyncio as real_asyncio
+    cycles = 0
+
+    async def stop_after_one(_t):
+        nonlocal cycles
+        cycles += 1
+        if cycles >= 1:
+            raise StopAsyncIteration
+        await real_asyncio.sleep(0)
+
+    with patch("app.userbot.poller.asyncio.sleep", side_effect=stop_after_one):
+        try:
+            await poller._run_tier_loop("Test", [{"id": i} for i in range(217)], interval=1)
+        except StopAsyncIteration:
+            pass
+
+    # _run_tier_once should be called with all 217 channels (no warmup limit)
+    call = poller._run_tier_once.call_args
+    tier_name, tier_channels, initial = call[0]
+    assert len(tier_channels) == 217, f"Expected 217 channels, got {len(tier_channels)}"
+
+
+@patch("app.userbot.poller.limiter")
+async def test_warmup_normal_when_two_cb_free(mock_limiter):
+    """2 CB-free аккаунта → warmup идёт стандартно."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    poller._run_tier_once = AsyncMock(return_value=False)
+    poller._get_effective_interval = lambda t, i, pb: 1
+
+    cycles = 0
+    async def stop_after_one(_t):
+        nonlocal cycles
+        cycles += 1
+        if cycles >= 1:
+            raise StopAsyncIteration
+        import asyncio as real_asyncio
+        await real_asyncio.sleep(0)
+
+    with patch("app.userbot.poller.asyncio.sleep", side_effect=stop_after_one):
+        try:
+            await poller._run_tier_loop("Test", [{"id": i} for i in range(217)], interval=1)
+        except StopAsyncIteration:
+            pass
+
+    call = poller._run_tier_once.call_args
+    tier_name, tier_channels, initial = call[0]
+    # 2 CB-free → warmup step 1: 217 * 0.08 = 17
+    assert len(tier_channels) == 17, f"Expected 17 (warmup 1/7), got {len(tier_channels)}"
