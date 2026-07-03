@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-chat"
     llm_enabled: bool = False           # master switch for LLM validator
     llm_mode: str = "shadow"            # "shadow" (log only) | "blocking" (filter)
+    exclude_broadcast_channels: bool = True  # skip broadcast-only channels (not chats)
 
     # Monitoring
     sentry_dsn: str = ""

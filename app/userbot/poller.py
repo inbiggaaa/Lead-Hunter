@@ -303,6 +303,15 @@ class ChannelPoller:
             logger.warning("poll @%s: %s", channel_username, type(e).__name__)
             return
 
+        # Skip broadcast-only channels (news feeds, announcement channels).
+        # We want groups/supergroups where people actually post requests.
+        if settings.exclude_broadcast_channels:
+            is_broadcast = getattr(entity, "broadcast", False)
+            is_megagroup = getattr(entity, "megagroup", False)
+            if is_broadcast and not is_megagroup:
+                logger.debug("Skipping broadcast channel @%s (not a chat)", channel_username)
+                return
+
         cursor = await self._get_cursor(channel_username) if not initial else 0
 
         # Fetch ALL messages since cursor, paginating if needed
