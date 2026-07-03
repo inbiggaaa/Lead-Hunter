@@ -1107,8 +1107,10 @@ class ChannelPoller:
     async def _tag_new_channels(self) -> int:
         """Auto-detect city from title for channels without geo tags.
 
-        Only processes channels that have NO city_id and NO channel_cities
-        entries. Already-tagged channels are skipped (idempotent).
+        Matches both name_ru AND name_en against channel title (lowercase).
+        No minimum length filter — short city names (Уфа, Пермь) are matched.
+        Channels with existing channel_cities entries get additional cities
+        if new matches are found (previously skipped).
         Returns number of newly tagged channels.
         """
         from app.db.models import Country, City, ChannelCity, CatalogChannel
@@ -1120,11 +1122,6 @@ class ChannelPoller:
                     City.is_active == True, City.name_ru != "🌐 Вся страна"
                 )
             )).scalars().all()
-            # Only channels with NO city tag and NOT in channel_cities
-            existing_cc = (await session.execute(
-                sa_select(ChannelCity.channel_id).distinct()
-            )).scalars().all()
-            channels_with_entries = set(existing_cc)
 
             channels = (await session.execute(
                 sa_select(CatalogChannel).where(
@@ -1134,16 +1131,21 @@ class ChannelPoller:
                 )
             )).scalars().all()
 
+        # Build search index: (city_id, country_id) → [search_names]
+        # Use BOTH name_ru AND name_en for each city
         country_cities: dict[int, list[tuple[int, str]]] = {}
         for c in cities:
-            name = (c.name_ru or "").lower()
-            if len(name) >= 4:
+            names = []
+            if c.name_ru:
+                names.append(c.name_ru.lower())
+            if c.name_en and c.name_en.lower() != (c.name_ru or "").lower():
+                names.append(c.name_en.lower())
+            for name in names:
+                # No minimum length — short names (Уфа, Пермь) are valid
                 country_cities.setdefault(c.country_id, []).append((c.id, name))
 
         tagged = 0
         for ch in channels:
-            if ch.id in channels_with_entries:
-                continue
             if ch.auto_matched_country_id not in country_cities:
                 continue
 
@@ -1168,17 +1170,17 @@ class ChannelPoller:
                 tagged += 1
             else:
                 async with async_session_factory() as s:
+                    # Clear old entries, insert all matched cities
                     await s.execute(
                         sa_delete(ChannelCity).where(ChannelCity.channel_id == ch.id)
                     )
                     for city_id in unique:
                         s.add(ChannelCity(channel_id=ch.id, city_id=city_id))
-                    if not ch.auto_matched_city_id:
-                        await s.execute(
-                            sa_update(CatalogChannel)
-                            .where(CatalogChannel.id == ch.id)
-                            .values(auto_matched_city_id=unique[0])
-                        )
+                    await s.execute(
+                        sa_update(CatalogChannel)
+                        .where(CatalogChannel.id == ch.id)
+                        .values(auto_matched_city_id=unique[0])
+                    )
                     await s.commit()
                 tagged += 1
 
@@ -1197,7 +1199,7 @@ class ChannelPoller:
             get_interested_users, push_notification, build_message_hash,
             rebuild_subscription_cache,
         )
-        from app.db.models import CatalogChannel, Segment
+        from app.db.models import CatalogChannel, ChannelCity, Segment
         from sqlalchemy import select as sa_select
 
         message_hash = build_message_hash(chat_username, message_id)
@@ -1215,7 +1217,13 @@ class ChannelPoller:
             )).scalar_one_or_none()
         channel_country_id = ch.auto_matched_country_id if ch else None
         channel_city_id = ch.auto_matched_city_id if ch else None
+        # Build effective city set: primary city + all channel_cities entries
         effective_city_ids = {channel_city_id} if channel_city_id else set()
+        async with async_session_factory() as session:
+            cc_rows = (await session.execute(
+                sa_select(ChannelCity.city_id).where(ChannelCity.channel_id == ch.id)
+            )).scalars().all()
+        effective_city_ids.update(cc_rows)
 
         async with async_session_factory() as session:
             segs = (await session.execute(sa_select(Segment))).scalars().all()

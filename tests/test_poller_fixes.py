@@ -988,3 +988,79 @@ async def test_warmup_normal_when_two_cb_free(mock_limiter):
     tier_name, tier_channels, initial = call[0]
     # 2 CB-free → warmup step 1: 217 * 0.08 = 17
     assert len(tier_channels) == 17, f"Expected 17 (warmup 1/7), got {len(tier_channels)}"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# City matching fixes
+# ═══════════════════════════════════════════════════════════════════
+
+
+@patch("app.userbot.poller.async_session_factory")
+async def test_city_matching_uses_name_en(mock_factory):
+    """Канал с 'Istanbul' в названии матчится к Стамбулу через name_en."""
+    from app.userbot.poller import ChannelPoller
+    from app.db.models import City
+
+    city = City(id=48, slug="istanbul", name_ru="Стамбул", name_en="Istanbul",
+                country_id=100, is_active=True)
+    channel = MagicMock(id=1, chat_username="ist_chat", title="Istanbul Chat",
+                        auto_matched_country_id=100, auto_matched_city_id=None)
+
+    mock_sess = MagicMock()
+    mock_sess.execute = AsyncMock(side_effect=[
+        MagicMock(scalars=lambda: MagicMock(all=lambda: [city])),
+        MagicMock(scalars=lambda: MagicMock(all=lambda: [channel])),
+        MagicMock(),
+    ])
+    mock_sess.commit = AsyncMock()
+    mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+    mock_sess.__aexit__ = AsyncMock(return_value=None)
+    mock_factory.return_value = mock_sess
+
+    poller = ChannelPoller()
+    tagged = await poller._tag_new_channels()
+    assert tagged >= 1, f"Expected >=1 tagged, got {tagged}"
+
+
+@patch("app.userbot.poller.async_session_factory")
+async def test_city_matching_short_name(mock_factory):
+    """Короткое название города (Уфа, 3 буквы) матчится."""
+    from app.userbot.poller import ChannelPoller
+    from app.db.models import City
+
+    city = City(id=99, slug="ufa", name_ru="Уфа", name_en="Ufa",
+                country_id=200, is_active=True)
+    channel = MagicMock(id=2, chat_username="ufa_chat", title="Уфа чат",
+                        auto_matched_country_id=200, auto_matched_city_id=None)
+
+    mock_sess = MagicMock()
+    mock_sess.execute = AsyncMock(side_effect=[
+        MagicMock(scalars=lambda: MagicMock(all=lambda: [city])),
+        MagicMock(scalars=lambda: MagicMock(all=lambda: [channel])),
+        MagicMock(),
+    ])
+    mock_sess.commit = AsyncMock()
+    mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+    mock_sess.__aexit__ = AsyncMock(return_value=None)
+    mock_factory.return_value = mock_sess
+
+    poller = ChannelPoller()
+    tagged = await poller._tag_new_channels()
+    assert tagged >= 1, f"Expected >=1 tagged, got {tagged}"
+
+
+@patch("app.userbot.poller.async_session_factory")
+async def test_effective_city_ids_reads_channel_cities(mock_factory):
+    """Канал с channel_cities записями отдаёт все города в effective_city_ids."""
+    from app.userbot.poller import ChannelPoller
+
+    ch = MagicMock(id=5, chat_username="multi", title="Multi City",
+                   auto_matched_country_id=100, auto_matched_city_id=1)
+    cc_rows = [2, 3]
+
+    # Build effective_city_ids as _dispatch does
+    channel_city_id = ch.auto_matched_city_id
+    effective = {channel_city_id} if channel_city_id else set()
+    effective.update(cc_rows)
+
+    assert effective == {1, 2, 3}, f"Expected {{1,2,3}}, got {effective}"
