@@ -352,7 +352,7 @@ class ChannelPoller:
                     msg.message, result.matched_segments,
                 )
                 await self._log_llm_decision(
-                    chat_username, msg_id, msg.message,
+                    channel_username, msg_id, msg.message,
                     result.matched_segments, llm_result,
                 )
 
