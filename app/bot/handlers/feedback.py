@@ -82,12 +82,7 @@ async def feedback_callback(callback: CallbackQuery):
             finally:
                 await bot.session.close()
         else:
-            # 👍 — acknowledge and remove keyboard
             await callback.answer("👍 Спасибо!")
-            try:
-                await callback.message.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
 
     except (ValueError, IndexError):
         await callback.answer("⚠️ Error")
