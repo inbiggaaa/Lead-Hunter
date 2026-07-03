@@ -1149,31 +1149,31 @@ class ChannelPoller:
             if ch.auto_matched_country_id not in country_cities:
                 continue
 
-            title_lower = ch.title.lower()
+            # Search both username and title — many channels have city in @name
+            search_text = f"{ch.chat_username.lower()} {ch.title.lower()}"
             city_hits: list[int] = []
             seen_city_ids: set[int] = set()
 
-            # Pass 1: exact substring match (name in title)
+            # Pass 1: exact substring match (name in username or title)
             for city_id, city_name in country_cities[ch.auto_matched_country_id]:
                 if city_id in seen_city_ids:
                     continue
-                if city_name in title_lower:
+                if city_name in search_text:
                     city_hits.append(city_id)
                     seen_city_ids.add(city_id)
 
             # Pass 2: fuzzy match (transliteration variants: Анталья/Анталия)
             if not city_hits:
                 from difflib import SequenceMatcher
-                # Tokenize title into words for granular comparison
                 import re
-                title_words = re.split(r"[\s,./|()\[\]{}«»—–-]+", title_lower)
-                title_words = [w for w in title_words if len(w) >= 3]
+                search_words = re.split(r"[\s,./|()\[\]{}«»—–_-]+", search_text)
+                search_words = [w for w in search_words if len(w) >= 3]
 
                 for city_id, city_name in country_cities[ch.auto_matched_country_id]:
                     if city_id in seen_city_ids:
                         continue
                     threshold = 0.95 if len(city_name) < 5 else 0.85
-                    for word in title_words:
+                    for word in search_words:
                         score = SequenceMatcher(None, city_name, word).ratio()
                         if score >= threshold:
                             city_hits.append(city_id)
