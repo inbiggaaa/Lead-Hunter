@@ -308,8 +308,6 @@ class ChannelPoller:
         # Fetch ALL messages since cursor, paginating if needed
         all_messages = await self._fetch_all_since(
             account, entity, channel_username, cursor,
-            tier_limit=INITIAL_LIMIT if initial else TIER_LIMITS[tier_name],
-            paginate=not initial,  # initial poll is just to set cursor
         )
 
         if not all_messages:
