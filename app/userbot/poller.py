@@ -202,7 +202,7 @@ class ChannelPoller:
                         CatalogChannel.chat_username,
                         CatalogChannel.auto_matched_country_id,
                         CatalogChannel.participants,
-                    )
+                    ).where(CatalogChannel.is_ignored == False)
                 )
                 watched_result = await session.execute(
                     select(WatchedChat.chat_username).where(
@@ -1190,6 +1190,7 @@ class ChannelPoller:
                     CatalogChannel.auto_matched_country_id.isnot(None),
                     CatalogChannel.auto_matched_city_id.is_(None),
                     CatalogChannel.title.isnot(None),
+                    CatalogChannel.is_ignored == False,
                 )
             )).scalars().all()
 
@@ -1435,6 +1436,7 @@ class ChannelPoller:
             async with async_session_factory() as session:
                 channels = (await session.execute(
                     select(CatalogChannel.chat_username, CatalogChannel.title)
+                    .where(CatalogChannel.is_ignored == False)
                 )).all()
 
             self._channel_segments.clear()

@@ -264,7 +264,8 @@ async def _search_and_store(
                 usernames = [c["username"] for c in candidates]
                 existing_rows = (await session.execute(
                     select(CatalogChannel).where(
-                        CatalogChannel.chat_username.in_(usernames)
+                        CatalogChannel.chat_username.in_(usernames),
+                        CatalogChannel.is_ignored == False,
                     )
                 )).scalars().all()
                 existing_usernames = {ch.chat_username for ch in existing_rows}
@@ -287,6 +288,17 @@ async def _search_and_store(
                                 changed = True
                             if changed:
                                 new_count += 1  # count geo backfills as discoveries
+                        continue
+
+                    # Check if channel exists but is ignored — skip silently
+                    from sqlalchemy import select as sa_sel
+                    ignored_check = (await session.execute(
+                        sa_sel(CatalogChannel).where(
+                            CatalogChannel.chat_username == uname,
+                            CatalogChannel.is_ignored == True,
+                        )
+                    )).scalar_one_or_none()
+                    if ignored_check:
                         continue
 
                     # New channel
