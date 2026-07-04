@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -109,7 +110,10 @@ class WatchedChat(Base):
 
 class SentLog(Base):
     __tablename__ = "sent_log"
-    __table_args__ = (UniqueConstraint("user_id", "message_hash"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "message_hash"),
+        Index("idx_sent_log_content_dedup", "user_id", "content_hash", "sent_at"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
@@ -141,6 +145,9 @@ class Country(Base):
 
 class City(Base):
     __tablename__ = "cities"
+    __table_args__ = (
+        UniqueConstraint("country_id", "slug", name="uq_cities_country_slug"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     slug: Mapped[str] = mapped_column(String(50), unique=True)
@@ -198,6 +205,7 @@ class CatalogChannel(Base):
     title: Mapped[str | None] = mapped_column(Text)
     participants: Mapped[int | None] = mapped_column(Integer)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_ignored: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     auto_matched_country_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("countries.id", ondelete="SET NULL")
     )
