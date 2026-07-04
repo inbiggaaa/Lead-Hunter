@@ -956,6 +956,48 @@ ROADMAP (порядок очереди):
 КРЮЧОК (закладываем, не строим): листинг-эндпоинт шага 3 проектировать так,
 чтобы фильтры переиспользовались будущим экспортом csv/md.
 
+### 2026-07-04 (продолжение) — Админ-фича «Чаты без группы»: шаги 1-2 СДЕЛАНЫ
+
+СТАТУС ЗАДАЧИ: шаг 1 (миграция) + шаг 2 (фильтр) закрыты и в origin.
+Осталось: шаг 3 (роуты API), шаг 4 (фронт).
+
+СДЕЛАНО (в БД/коде, на origin):
+- Колонка is_ignored в catalog_channels: bool, NOT NULL, server_default false.
+  Миграция ccb7137d7d5c (down=c2a1d3b4e5f6). Все 2522 = false на момент наката.
+- Alembic ВЫЛЕЧЕН по пути: были двойные головы в alembic_version [4afd,b111] при
+  линейной цепочке + незаписанный c2a1 (реально применён через docker compose run).
+  Исправлено прямой правкой alembic_version → одна голова. Затем дрейф моделей:
+  City/SentLog не декларировали uq_cities_country_slug и idx_sent_log_content_dedup,
+  autogenerate генерил их DROP — дописали в ORM (models.py), дрейф устранён.
+  ВАЖНО: миграции писать ВРУЧНУЮ на хост, НЕ autogenerate вслепую (см. долг №7).
+- Фильтр is_ignored=False в 4 точках: discovery_v2.py (+guard перед session.add,
+  т.к. usernames из Telegram Search API — внешний источник), _get_all_channels
+  (poller, прослушка), _tag_new (poller), _load_channel_segments (poller).
+  Discovery делает INSERT (не UPSERT) → игнорированный канал НЕ воскрешается.
+- @saigon_services (id=885) помечен is_ignored=true (мёртв, подтверждён вручную).
+  Закрывает часть долга №1. Сейчас в БД ровно 1 ignored канал.
+
+ПОВЕДЕНИЕ (согласовано с владельцем):
+- Прослушка обновляется на часовом ребилде self._hot_channels (poller). Задержка
+  «Удалить»→канал перестал слушаться до 1ч — ДОПУСТИМО. Фронт ДОЛЖЕН показывать
+  пользователю, что изменения применятся в течение часа.
+- Dispatch/раздачу is_ignored НЕ фильтрует (не требуется при часовой задержке).
+
+НОВЫЙ ТЕХДОЛГ:
+7. bind-mount ./migrations:/app/migrations МЁРТВ (overlay2-конфликт: COPY . . в
+   Dockerfile кладёт migrations в образ, mount поверх не работает; host uid 1000 vs
+   container root). Следствие: alembic upgrade в контейнере читает миграции ИЗ
+   ОБРАЗА, не с хоста. Обход: писать файл на хост (для git) + docker compose cp в
+   контейнер + upgrade. Вероятная КОРНЕВАЯ причина всего рассинхрона Alembic.
+   Чинить осознанно (правка Dockerfile/compose + пересборка = красная линия +
+   перезапуск userbot). Кандидат — совместить с передеплоем под ключевики.
+
+ОСТАЛОСЬ по активной задаче:
+- Шаг 3: роуты в существующем /api/channels (FastAPI, api/__init__.py:63):
+  фильтр has_city=false + country_id/city_id/is_ignored; POST привязки мультисити;
+  POST «добавить город»; PATCH is_ignored=true («Удалить»).
+- Шаг 4: фронт «Чаты без группы» (React).
+
 ---
 
 ## 9. Ключевые решения (полный архив — DECISIONS.md)
