@@ -998,6 +998,21 @@ ROADMAP (порядок очереди):
   POST «добавить город»; PATCH is_ignored=true («Удалить»).
 - Шаг 4: фронт «Чаты без группы» (React).
 
+### 2026-07-04 — Шаг 3: роуты API (СДЕЛАНО)
+
+Активная задача: шаги 1-3 сделаны, остался шаг 4 (фронт).
+
+- (a) GET /api/channels: фильтры has_city/country_id/city_id/is_ignored, is_ignored в ответе.
+  city_id ловит мультисити через channel_cities. Очередь = has_city=false AND is_ignored=false = 830.
+  Коммит 745cfc0.
+- (c) POST /api/cities UNIQUE-safe: 409 при конфликте country_id+slug, сессия не виснет.
+  Коммит 161aa99.
+- (b)+(d) PUT /api/channels: привязка городов перезаписью (DELETE-all→INSERT),
+  country auto-set если пуст; is_ignored в updatable («Удалить»). Коммит 745cfc0.
+- Все правки — admin-слой (FastAPI), схему БД не трогали, миграций нет.
+- Отложено (не потерять): экспорт csv/md по стране/городу — дорабатываем потом, не скоро.
+  Направления/сегменты ждут долга №3 (ключевики).
+
 ---
 
 ## 9. Ключевые решения (полный архив — DECISIONS.md)
