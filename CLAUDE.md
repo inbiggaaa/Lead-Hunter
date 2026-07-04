@@ -921,3 +921,13 @@ Worker не останавливался, ошибок 0. Тег task-1.8-done.
 - **LLM-валидация:** включить DEEPSEEK_ENABLED=true после сбора статистики false positives.
 - **Безопасность:** отдельная grilling-сессия (SSH по ключу, UFW, Fail2ban, 2FA).
 - **Мобильная админка:** адаптация после десктопной версии.
+
+**04.07.2026 02:45 — Fix: CB-aware availability, escalating post-ban, cryptg, get_input_entity.**
+Задача из прерванной сессии — 6 пунктов. Результат:
+1. `_get_available_account_count()` → async, проверяет CB через `limiter.is_circuit_open()`. Корень проблемы: после бана Acc1 метод возвращал 2 → интервал не деградировал → Acc2 работал 10.8ч на полной скорости → бан.
+2. `_get_effective_interval()` → async, `max_pb_mult` через `limiter.get_post_ban_interval_multiplier()` по всем аккаунтам, 0 CB-free → cap 1200s + CRITICAL.
+3. Эскалация post-ban: Redis счётчик `ban_count:{id}` (TTL 7д). Бюджет: 1 бан → /2, 2 → /4, 3+ → /8. Интервал: ×1.5, ×3.0, ×5.0. 3+ → алерт о риске перманентного бана.
+4. cryptg v0.6.0 установлен.
+5. `_resolve_entity`: `get_input_entity` вместо `get_entity`. БАГ: в `UserbotAccount` не было `get_input_entity` → AttributeError на 217 каналах. Исправлено: добавлен метод в pool.py.
+6. Тесты: rate_limiter 13/13, poller 60/64 (4 не прошли из-за pre-existing сигнатурных mismatch в тестах `_run_tier_once`).
+Прогон: worker запущен, Acc1 active (CB clear), Acc2 blocked до 07:10 UTC. Hot: 217 каналов, интервал ×2 деградация. 0 AttributeError. 0 FloodWait.

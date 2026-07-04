@@ -61,6 +61,16 @@ class UserbotAccount:
             raise ValueError(f"Account {self.account_id} is unhealthy")
         return await self.client.get_entity(username)
 
+    async def get_input_entity(self, username: str):
+        """Get input entity (prefers session cache), with health check.
+
+        Unlike get_entity, this returns InputPeer* directly without a full
+        ResolveUsername API call when the entity is in the session cache.
+        """
+        if not self.is_healthy:
+            raise ValueError(f"Account {self.account_id} is unhealthy")
+        return await self.client.get_input_entity(username)
+
     async def get_messages(self, entity, limit: int = 10, **kwargs):
         """Get messages from a channel. Passes through all Telethon kwargs."""
         return await self.client.get_messages(entity, limit=limit, **kwargs)
