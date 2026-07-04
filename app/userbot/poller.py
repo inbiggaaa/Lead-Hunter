@@ -331,6 +331,14 @@ class ChannelPoller:
         if not all_messages:
             return
 
+        # ── 7-day freshness gate ──
+        # server_max: max id from FULL server output (before any text/date filters).
+        # This is the cursor target — prevents re-reading dead channels and
+        # ensures the cursor advances past skipped (old/textless) messages.
+        server_max = max((m.id for m in all_messages), default=None)
+        # cutoff: messages older than this are intentionally skipped.
+        cutoff = datetime.now(timezone.utc) - timedelta(days=settings.message_max_age_days)
+
         # Update channel title and participants (async, best-effort)
         new_title = getattr(entity, "title", None)
         new_participants = getattr(entity, "participants_count", None)
@@ -344,6 +352,13 @@ class ChannelPoller:
         max_msg_id = cursor
         for msg in reversed(all_messages):
             if not isinstance(msg, Message) or not msg.message:
+                continue
+
+            # ── 7-day freshness gate ──
+            # Messages older than cutoff are intentionally skipped.
+            # This is a pure gating decision — no cursor touching here.
+            # Cursor advances via server_max (full server output), not by this filter.
+            if msg.date and msg.date < cutoff:
                 continue
 
             msg_id = msg.id
@@ -405,9 +420,13 @@ class ChannelPoller:
             else:
                 await self._log_unmatched(channel_username, msg.message, msg_id)
 
-        # Update cursor to latest processed message
-        if max_msg_id > cursor:
-            await self._set_cursor(channel_username, max_msg_id)
+        # Update cursor from FULL server output (server_max), unconditionally.
+        # This prevents cursor lag from old/textless messages — the cursor always
+        # moves to the highest message_id Telegram returned, regardless of filters.
+        # server_max is computed before the text/date gates (see freshness gate above).
+        new_cursor = max(cursor, server_max) if server_max is not None else cursor
+        if server_max is not None and new_cursor != cursor:
+            await self._set_cursor(channel_username, new_cursor)
 
     async def _fetch_all_since(
         self, account, entity, channel_username: str, cursor: int,

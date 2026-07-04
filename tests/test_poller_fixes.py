@@ -1081,3 +1081,211 @@ async def test_city_matching_fuzzy_transliteration(mock_factory):
     tagged = await poller._tag_new_channels()
     # "Анталья" vs "Анталия" — fuzzy match should work (score ~0.86)
     assert tagged >= 1, f"Expected >=1 tagged via fuzzy, got {tagged}"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 7-day freshness gate (FEAT_7DAY_2026-07-04)
+# ═══════════════════════════════════════════════════════════════════
+
+from datetime import datetime, timezone, timedelta
+
+
+def _make_msg_with_date(msg_id: int, days_ago: int = 0):
+    """Create a mock Telegram Message with id, text, and date offset."""
+    msg = MagicMock()
+    msg.id = msg_id
+    msg.message = f"Test message {msg_id}"
+    msg.date = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    return msg
+
+
+def _fresh_classification():
+    """Return a ClassificationResult with one matched segment."""
+    from app.userbot.classifier import ClassificationResult
+    return ClassificationResult(
+        matched_segments=["catering"],
+        is_urgent=False,
+    )
+
+
+@patch("app.userbot.poller.Message", MagicMock)  # isinstance(mock, Message) → True
+@patch("app.userbot.poller.llm_validator")
+@patch("app.userbot.poller.classify_message")
+@patch("app.userbot.poller.ChannelPoller._log_llm_decision")
+@patch("app.userbot.poller.ChannelPoller._log_unmatched")
+@patch("app.userbot.poller.ChannelPoller._dispatch")
+@patch("app.userbot.poller.ChannelPoller._set_cursor")
+@patch("app.userbot.poller.ChannelPoller._fetch_all_since")
+@patch("app.userbot.poller.ChannelPoller._get_cursor")
+@patch("app.userbot.poller.ChannelPoller._resolve_entity")
+async def test_t1_fresh_messages_classified_cursor_is_server_max(
+    mock_resolve, mock_get_cursor, mock_fetch, mock_set_cursor,
+    mock_dispatch, mock_log_unmatched, mock_log_llm,
+    mock_classify, mock_llm,
+):
+    """t1: свежие сообщения (≤7д) → классифицируются, курсор = server_max."""
+    mock_resolve.return_value = MagicMock(broadcast=False)
+    mock_get_cursor.return_value = 100
+    mock_llm.validate = AsyncMock(return_value=MagicMock(verdict="OK", reason=""))
+    mock_llm.should_block = MagicMock(return_value=False)
+    mock_classify.return_value = _fresh_classification()
+
+    # 3 messages: ids 101, 102, 103 — all 1 day old
+    msgs = [
+        _make_msg_with_date(103, days_ago=1),
+        _make_msg_with_date(102, days_ago=1),
+        _make_msg_with_date(101, days_ago=1),
+    ]
+    mock_fetch.return_value = msgs
+
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    await poller._poll_channel(acc, "test_ch", "Hot", initial=False)
+
+    # Все 3 должны быть классифицированы
+    assert mock_classify.call_count == 3
+    # Курсор: server_max=103, cursor=100 → new_cursor=103
+    mock_set_cursor.assert_called_once_with("test_ch", 103)
+
+
+@patch("app.userbot.poller.Message", MagicMock)  # isinstance(mock, Message) → True
+@patch("app.userbot.poller.llm_validator")
+@patch("app.userbot.poller.classify_message")
+@patch("app.userbot.poller.ChannelPoller._log_llm_decision")
+@patch("app.userbot.poller.ChannelPoller._log_unmatched")
+@patch("app.userbot.poller.ChannelPoller._dispatch")
+@patch("app.userbot.poller.ChannelPoller._set_cursor")
+@patch("app.userbot.poller.ChannelPoller._fetch_all_since")
+@patch("app.userbot.poller.ChannelPoller._get_cursor")
+@patch("app.userbot.poller.ChannelPoller._resolve_entity")
+async def test_t2_old_batch_cursor_advances_no_classify(
+    mock_resolve, mock_get_cursor, mock_fetch, mock_set_cursor,
+    mock_dispatch, mock_log_unmatched, mock_log_llm,
+    mock_classify, mock_llm,
+):
+    """t2: батч целиком старше cutoff → classify НЕ вызывается, курсор ВСЁ РАВНО сдвигается.
+
+    Ключевой тест: анти-петля. Без сдвига курсора этот батч перечитывался бы
+    бесконечно на каждом опросе (все сообщения старше 7д, но новее min_id).
+    """
+    mock_get_cursor.return_value = 100
+    mock_llm.validate = AsyncMock()
+    mock_llm.should_block = MagicMock(return_value=False)
+    mock_resolve.return_value = MagicMock(broadcast=False)
+
+    # Все 3 сообщения — 10 дней назад (старше cutoff=7д)
+    msgs = [
+        _make_msg_with_date(103, days_ago=10),
+        _make_msg_with_date(102, days_ago=10),
+        _make_msg_with_date(101, days_ago=10),
+    ]
+    mock_fetch.return_value = msgs
+
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    await poller._poll_channel(acc, "test_ch", "Hot", initial=False)
+
+    # Classify НЕ вызывается — все отфильтрованы по дате
+    mock_classify.assert_not_called()
+    # Но курсор сдвигается на server_max=103
+    mock_set_cursor.assert_called_once_with("test_ch", 103)
+
+
+@patch("app.userbot.poller.Message", MagicMock)  # isinstance(mock, Message) → True
+@patch("app.userbot.poller.llm_validator")
+@patch("app.userbot.poller.classify_message")
+@patch("app.userbot.poller.ChannelPoller._log_llm_decision")
+@patch("app.userbot.poller.ChannelPoller._log_unmatched")
+@patch("app.userbot.poller.ChannelPoller._dispatch")
+@patch("app.userbot.poller.ChannelPoller._set_cursor")
+@patch("app.userbot.poller.ChannelPoller._fetch_all_since")
+@patch("app.userbot.poller.ChannelPoller._get_cursor")
+@patch("app.userbot.poller.ChannelPoller._resolve_entity")
+async def test_t3_mixed_batch_partial_classify_cursor_server_max(
+    mock_resolve, mock_get_cursor, mock_fetch, mock_set_cursor,
+    mock_dispatch, mock_log_unmatched, mock_log_llm,
+    mock_classify, mock_llm,
+):
+    """t3: смешанный батч — свежие классифицируются, старые пропускаются.
+
+    Курсор = server_max (по всей выдаче), НЕ max по свежим.
+    """
+    mock_get_cursor.return_value = 100
+    mock_llm.validate = AsyncMock(return_value=MagicMock(verdict="OK", reason=""))
+    mock_llm.should_block = MagicMock(return_value=False)
+    mock_classify.return_value = _fresh_classification()
+    mock_resolve.return_value = MagicMock(broadcast=False)
+
+    # id 105 — свежий (1д), id 104 — старый (10д), id 103 — свежий (2д)
+    msgs = [
+        _make_msg_with_date(105, days_ago=1),   # свежий
+        _make_msg_with_date(104, days_ago=10),  # старый → skip
+        _make_msg_with_date(103, days_ago=2),   # свежий
+    ]
+    mock_fetch.return_value = msgs
+
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    await poller._poll_channel(acc, "test_ch", "Hot", initial=False)
+
+    # Только 2 свежих дошли до classify
+    assert mock_classify.call_count == 2
+    # Курсор = server_max=105 (НЕ max по свежим = 105, здесь совпало, но проверяем именно server_max)
+    mock_set_cursor.assert_called_once_with("test_ch", 105)
+
+
+@patch("app.userbot.poller.ChannelPoller._set_cursor")
+@patch("app.userbot.poller.ChannelPoller._fetch_all_since")
+@patch("app.userbot.poller.ChannelPoller._get_cursor")
+@patch("app.userbot.poller.ChannelPoller._resolve_entity")
+async def test_t4_empty_batch_cursor_unchanged(
+    mock_resolve, mock_get_cursor, mock_fetch, mock_set_cursor,
+):
+    """t4: пустой батч → early return, курсор не меняется, _set_cursor НЕ вызывается."""
+    mock_resolve.return_value = MagicMock(broadcast=False)
+    mock_get_cursor.return_value = 100
+    mock_fetch.return_value = []
+
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    await poller._poll_channel(acc, "test_ch", "Hot", initial=False)
+
+    # Early return на пустом батче — курсор не трогаем
+    mock_set_cursor.assert_not_called()
+
+
+@patch("app.userbot.poller.Message", MagicMock)  # isinstance(mock, Message) → True
+@patch("app.userbot.poller.llm_validator")
+@patch("app.userbot.poller.classify_message")
+@patch("app.userbot.poller.ChannelPoller._log_llm_decision")
+@patch("app.userbot.poller.ChannelPoller._log_unmatched")
+@patch("app.userbot.poller.ChannelPoller._dispatch")
+@patch("app.userbot.poller.ChannelPoller._set_cursor")
+@patch("app.userbot.poller.ChannelPoller._fetch_all_since")
+@patch("app.userbot.poller.ChannelPoller._get_cursor")
+@patch("app.userbot.poller.ChannelPoller._resolve_entity")
+async def test_t5_msg_date_none_does_not_crash(
+    mock_resolve, mock_get_cursor, mock_fetch, mock_set_cursor,
+    mock_dispatch, mock_log_unmatched, mock_log_llm,
+    mock_classify, mock_llm,
+):
+    """t5: msg.date=None не роняет фильтр (guard `if msg.date and ...`).
+
+    Сообщение без даты проходит фильтр и доходит до classify.
+    """
+    mock_get_cursor.return_value = 100
+    mock_llm.validate = AsyncMock(return_value=MagicMock(verdict="OK", reason=""))
+    mock_llm.should_block = MagicMock(return_value=False)
+    mock_classify.return_value = _fresh_classification()
+    mock_resolve.return_value = MagicMock(broadcast=False)
+
+    msg_no_date = _make_msg_with_date(101, days_ago=1)
+    msg_no_date.date = None  # нет даты
+    mock_fetch.return_value = [msg_no_date]
+
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    await poller._poll_channel(acc, "test_ch", "Hot", initial=False)
+
+    # Не упало, сообщение без даты дошло до classify
+    mock_classify.assert_called_once()

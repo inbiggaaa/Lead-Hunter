@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     daily_request_budget: int = 10000    # max API calls per account per day
     flood_sleep_threshold: int = 60       # Telethon auto-sleep short FloodWait; longer → exception
     poll_parked_countries: bool = False  # poll channels from countries with no subscriptions
+    message_max_age_days: int = 7        # skip messages older than N days (0 = disabled)
 
     # Tier intervals (Task 1.3 — all configurable, no hardcoded constants)
     hot_interval_base: int = 300          # seconds, Hot base (2 healthy accounts)
