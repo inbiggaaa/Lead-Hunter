@@ -6,6 +6,7 @@ aiogram>=3.7,<4.0
 
 # Userbot
 telethon>=1.36,<2.0
+cryptg>=0.4,<1.0
 
 # Database
 SQLAlchemy>=2.0,<3.0

@@ -274,9 +274,18 @@ class ChannelPoller:
         if cached is not None:
             return InputPeerChannel(*cached)
 
-        # Cache miss — resolve once per account lifetime
+        # Cache miss — resolve once per account lifetime.
+        # get_input_entity is preferred over get_entity: it checks the
+        # session cache first and returns InputPeer directly, avoiding
+        # a full ResolveUsername in many cases.
         await limiter.acquire(account.account_id)
-        entity = await account.get_entity(channel_username)
+        entity = await account.get_input_entity(channel_username)
+        # get_input_entity may return InputPeerChannel directly;
+        # extract the id/access_hash for our entity cache.
+        if hasattr(entity, 'channel_id'):
+            per_account[account.account_id] = (entity.channel_id, entity.access_hash)
+            return entity
+        # Fallback: full entity (shouldn't normally happen with get_input_entity)
         per_account[account.account_id] = (entity.id, entity.access_hash)
         return entity
 
@@ -578,19 +587,10 @@ class ChannelPoller:
                     tier_name, tier_channels, initial,
                 )
 
-                # Post-ban multiplier for interval scaling (read from limiter cache)
-                pb_mult = 1.0
-                for acc in self.pool.accounts:
-                    if acc.is_healthy:
-                        try:
-                            if await limiter._is_post_ban(acc.account_id):
-                                pb_mult = settings.post_ban_interval_multiplier
-                        except Exception:
-                            pass
-                        break
-
                 # Dynamic interval + jitter
-                effective_interval = self._get_effective_interval(tier_name, interval, pb_mult)
+                # Post-ban multiplier is now inside _get_effective_interval —
+                # it checks all accounts and uses max() across them.
+                effective_interval = await self._get_effective_interval(tier_name, interval)
                 jitter = effective_interval * INTERVAL_JITTER
                 jittered = effective_interval + random.uniform(-jitter, jitter)
                 elapsed = time.time() - cycle_start
@@ -618,11 +618,12 @@ class ChannelPoller:
         # Distribute channels across available accounts
         account_chunks = await self._distribute(tier_channels)
 
-        # Guard: pause Warm/Cold/Dormant when only 1 account is healthy
-        if not self._should_poll_tier(tier_name):
+        # Guard: pause Warm/Cold/Dormant when only 1 CB-free account is available
+        if not await self._should_poll_tier(tier_name):
+            available = await self._get_available_account_count()
             logger.debug(
-                "%s tier: paused (only %d healthy account(s) — need 2+)",
-                tier_name, self._get_available_account_count(),
+                "%s tier: paused (only %d CB-free account(s) — need 2+)",
+                tier_name, available,
             )
             return initial  # skip this cycle, initial unchanged
 
@@ -1011,46 +1012,79 @@ class ChannelPoller:
             )
         return (None, None)
 
-    def _get_available_account_count(self) -> int:
-        """Count accounts that are healthy.
+    async def _get_available_account_count(self) -> int:
+        """Count accounts that are healthy AND have a clear circuit breaker.
 
-        Note: circuit breaker state is checked async in _distribute.
-        This is a fast synchronous estimate for interval calculation.
+        Unlike the previous sync-only version, this checks CB state via Redis
+        so degradation kicks in when an account gets banned. This was the root
+        cause of the July 3-4 incident: after Acc1 was banned, this method
+        still returned 2 → no degradation → Acc2 kept polling at full speed.
         """
-        return sum(1 for a in self.pool.accounts if a.is_healthy)
+        count = 0
+        for a in self.pool.accounts:
+            if not a.is_healthy:
+                continue
+            if await limiter.is_circuit_open(a.account_id):
+                continue
+            count += 1
+        return count
 
-    def _should_poll_tier(self, tier_name: str) -> bool:
+    async def _should_poll_tier(self, tier_name: str) -> bool:
         """Check if this tier should be polled given current account availability.
 
-        Hot tier always runs. Warm/Cold/Dormant require 2+ healthy accounts —
+        Hot tier always runs. Warm/Cold/Dormant require 2+ CB-free accounts —
         a single account must not bear the full load to avoid repeat bans.
         """
         if tier_name == "Hot":
             return True
-        available = self._get_available_account_count()
+        available = await self._get_available_account_count()
         return available >= 2
 
-    def _get_effective_interval(
-        self, tier_name: str, base_interval: int, post_ban_multiplier: float = 1.0,
+    async def _get_effective_interval(
+        self, tier_name: str, base_interval: int,
     ) -> int:
         """Calculate effective interval with degradation and cap.
 
         Hot tier only — non-Hot tiers pass through unchanged.
-        Multipliers: degradation (×2 at 1 acc) and post_ban (×1.5) —
+        Multipliers: degradation (×2 at 1 CB-free acc) and post_ban
+        (escalating 1.5→3.0→5.0 based on ban count per account).
         max() wins (they don't multiply — distinct risk factors).
         Hard cap prevents excessive sparseness regardless of conditions.
         """
         if tier_name != "Hot":
-            return int(base_interval * post_ban_multiplier)
+            return base_interval
 
-        available = self._get_available_account_count()
+        available = await self._get_available_account_count()
+
+        if available == 0:
+            logger.critical(
+                "ZERO CB-free accounts! All api-call-capable accounts are blocked. "
+                "Using cap interval (%.0fs) — service has no polling capacity.",
+                settings.hot_interval_cap,
+            )
+            return settings.hot_interval_cap
+
         if available >= 3:
             base = settings.hot_interval_3plus
         else:
             base = base_interval  # settings.hot_interval_base for 1 or 2 accounts
 
         degraded = settings.hot_degraded_multiplier if available < 2 else 1.0
-        multiplier = max(degraded, post_ban_multiplier)
+
+        # Escalating post-ban multiplier — take max across all accounts
+        # so the whole tier slows down if ANY account is in severe post-ban.
+        max_pb_mult = 1.0
+        for acc in self.pool.accounts:
+            if not acc.is_healthy:
+                continue
+            try:
+                pb_mult = await limiter.get_post_ban_interval_multiplier(acc.account_id)
+                if pb_mult > max_pb_mult:
+                    max_pb_mult = pb_mult
+            except Exception:
+                pass
+
+        multiplier = max(degraded, max_pb_mult)
 
         effective = base * multiplier
         return min(int(effective), settings.hot_interval_cap)

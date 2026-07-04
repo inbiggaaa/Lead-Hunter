@@ -181,14 +181,23 @@ async def test_budget_exceeded_message_contains_account_id():
 
 @patch("app.userbot.rate_limiter.get_redis")
 async def test_post_ban_budget_halved(mock_get_redis):
-    """При post_ban бюджет 50 → 51-й вызов BudgetExceeded (не 101-й)."""
+    """При post_ban (бан #1) бюджет 100 → 50 (деление на 2).
+
+    Проверяем, что бан #1 даёт divisor=2 → effective_budget=50."""
     fake_redis = AsyncMock()
     fake_redis.incr = AsyncMock(side_effect=list(range(1, 52)))
     fake_redis.expire = AsyncMock()
     fake_redis.aclose = AsyncMock()
-    fake_redis.get = AsyncMock(return_value=str(time.time() + 3600))
-    # _is_post_ban (1) + acquire ×51
-    mock_get_redis.side_effect = [fake_redis] * 52
+    # Ключевой мок: get() возвращает разные значения для разных ключей
+    async def fake_get(key):
+        if key == "post_ban_until:1":
+            return str(time.time() + 3600).encode()  # пост-бан активен
+        if key == "ban_count:1":
+            return b"1"  # первый бан → divisor=2
+        return None
+    fake_redis.get = fake_get
+    # _is_post_ban (1) + get_ban_count (1) + acquire ×51 = 53
+    mock_get_redis.side_effect = [fake_redis] * 53
 
     lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
 

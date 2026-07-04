@@ -44,13 +44,10 @@ def _make_msg(msg_id: int):
 # ═══════════════════════════════════════════════════════════════════
 
 
-@patch("app.userbot.poller.get_redis")
-async def test_distribute_filters_blocked_account(mock_get_redis):
+@patch("app.userbot.poller.limiter")
+async def test_distribute_filters_blocked_account(mock_limiter):
     """_distribute исключает аккаунты с открытым circuit breaker."""
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(side_effect=lambda k: b"1" if k == "circuit:open:1" else None)
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+    mock_limiter.is_circuit_open = AsyncMock(side_effect=lambda aid: aid == 1)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
@@ -63,13 +60,10 @@ async def test_distribute_filters_blocked_account(mock_get_redis):
     assert len(result[0][1]) == 10
 
 
-@patch("app.userbot.poller.get_redis")
-async def test_distribute_no_channel_loss(mock_get_redis):
+@patch("app.userbot.poller.limiter")
+async def test_distribute_no_channel_loss(mock_limiter):
     """Каналы не теряются при блокировке — переходят на здоровый аккаунт."""
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(side_effect=lambda k: b"1" if k == "circuit:open:1" else None)
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+    mock_limiter.is_circuit_open = AsyncMock(side_effect=lambda aid: aid == 1)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
@@ -80,13 +74,10 @@ async def test_distribute_no_channel_loss(mock_get_redis):
     assert total == 5
 
 
-@patch("app.userbot.poller.get_redis")
-async def test_distribute_all_blocked(mock_get_redis):
+@patch("app.userbot.poller.limiter")
+async def test_distribute_all_blocked(mock_limiter):
     """Все аккаунты заблокированы → пустой список."""
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=b"1")
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+    mock_limiter.is_circuit_open = AsyncMock(return_value=True)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
@@ -95,13 +86,10 @@ async def test_distribute_all_blocked(mock_get_redis):
     assert result == []
 
 
-@patch("app.userbot.poller.get_redis")
-async def test_distribute_round_robin_preserved(mock_get_redis):
+@patch("app.userbot.poller.limiter")
+async def test_distribute_round_robin_preserved(mock_limiter):
     """Round-robin сохраняется, когда все аккаунты здоровы."""
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
@@ -118,85 +106,68 @@ async def test_distribute_round_robin_preserved(mock_get_redis):
 # ═══════════════════════════════════════════════════════════════════
 
 
-@patch("app.userbot.poller.get_redis")
-async def test_should_poll_tier_hot_always(mock_get_redis):
+@patch("app.userbot.poller.limiter")
+async def test_should_poll_tier_hot_always(mock_limiter):
     """Hot-тир всегда поллится, даже при 1 аккаунте."""
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    assert poller._should_poll_tier("Hot") is True
+    assert await poller._should_poll_tier("Hot") is True
 
 
-@patch("app.userbot.poller.get_redis")
-async def test_should_poll_tier_warm_needs_two_accounts(mock_get_redis):
-    """Warm требует 2+ healthy аккаунтов."""
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+@patch("app.userbot.poller.limiter")
+async def test_should_poll_tier_warm_needs_two_accounts(mock_limiter):
+    """Warm требует 2+ CB-free аккаунтов."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    assert poller._should_poll_tier("Warm") is False
+    assert await poller._should_poll_tier("Warm") is False
 
     poller.pool.accounts = [_make_account(1), _make_account(2)]
-    assert poller._should_poll_tier("Warm") is True
+    assert await poller._should_poll_tier("Warm") is True
 
 
-@patch("app.userbot.poller.get_redis")
-async def test_should_poll_tier_cold_needs_two_accounts(mock_get_redis):
-    """Cold требует 2+ healthy аккаунтов."""
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+@patch("app.userbot.poller.limiter")
+async def test_should_poll_tier_cold_needs_two_accounts(mock_limiter):
+    """Cold требует 2+ CB-free аккаунтов."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    assert poller._should_poll_tier("Cold") is False
+    assert await poller._should_poll_tier("Cold") is False
 
 
-@patch("app.userbot.poller.get_redis")
-async def test_should_poll_tier_dormant_needs_two_accounts(mock_get_redis):
-    """Dormant требует 2+ healthy аккаунтов."""
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+@patch("app.userbot.poller.limiter")
+async def test_should_poll_tier_dormant_needs_two_accounts(mock_limiter):
+    """Dormant требует 2+ CB-free аккаунтов."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    assert poller._should_poll_tier("Dormant") is False
+    assert await poller._should_poll_tier("Dormant") is False
 
 
-@patch("app.userbot.poller.get_redis")
-async def test_should_poll_tier_unhealthy_not_counted(mock_get_redis):
+@patch("app.userbot.poller.limiter")
+async def test_should_poll_tier_unhealthy_not_counted(mock_limiter):
     """Unhealthy аккаунты не считаются."""
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2, is_healthy=False)]
-    assert poller._should_poll_tier("Warm") is False
+    assert await poller._should_poll_tier("Warm") is False
 
 
-@patch("app.userbot.poller.get_redis")
-async def test_should_poll_tier_dormant_blocked_not_counted(mock_get_redis):
-    """Blocked аккаунты не считаются."""
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(side_effect=lambda k: b"1" if k == "circuit:open:1" else None)
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+@patch("app.userbot.poller.limiter")
+async def test_should_poll_tier_cb_blocked_not_counted(mock_limiter):
+    """Аккаунты с открытым CB не считаются в should_poll_tier."""
+    mock_limiter.is_circuit_open = AsyncMock(side_effect=lambda aid: aid == 1)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
-    assert poller._should_poll_tier("Dormant") is False
+    # Acc1 CB blocked, Acc2 CB clear → only 1 CB-free → Warm should NOT poll
+    assert await poller._should_poll_tier("Warm") is False
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -204,21 +175,21 @@ async def test_should_poll_tier_dormant_blocked_not_counted(mock_get_redis):
 # ═══════════════════════════════════════════════════════════════════
 
 
-def test_handle_account_failure_does_not_redistribute():
+async def test_handle_account_failure_does_not_redistribute():
     """handle_account_failure больше не перераспределяет каналы."""
     from app.userbot.pool import UserbotPool
     pool = UserbotPool()
     pool.accounts = [_make_account(1), _make_account(2)]
-    # Не должно райзить
-    pool.handle_account_failure(1, Exception("test"))
+    # Не должно райзить — теперь принимает только UserbotAccount
+    await pool.handle_account_failure(pool.accounts[0])
 
 
-def test_handle_account_failure_no_exception_when_last_account():
+async def test_handle_account_failure_no_exception_when_last_account():
     """Не падает когда падает последний аккаунт."""
     from app.userbot.pool import UserbotPool
     pool = UserbotPool()
     pool.accounts = [_make_account(1)]
-    pool.handle_account_failure(1, Exception("test"))
+    await pool.handle_account_failure(pool.accounts[0])
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -260,7 +231,7 @@ async def test_session_ticker_transitions(mock_get_redis):
 async def test_get_session_state(mock_get_redis):
     """_get_session_state читает из Redis."""
     mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=b"ACTIVE")
+    mock_redis.get = AsyncMock(return_value="ACTIVE")  # decode_responses=True
     mock_redis.aclose = AsyncMock()
     mock_get_redis.return_value = mock_redis
 
@@ -331,7 +302,7 @@ async def test_run_tier_once_active_calls_poll_batch(mock_get_redis):
     mock_batch = AsyncMock(return_value=(1, 0))
     poller._poll_batch = mock_batch
 
-    await poller._run_tier_once("Hot", mock_batch)
+    await poller._run_tier_once("Hot", mock_batch, initial=True)
     mock_batch.assert_called_once()
 
 
@@ -350,7 +321,7 @@ async def test_run_tier_once_try_lock_skips_polling(mock_get_redis):
     lock = poller._account_locks.setdefault(1, asyncio.Lock())
     await lock.acquire()
 
-    await poller._run_tier_once("Hot", mock_batch)
+    await poller._run_tier_once("Hot", mock_batch, initial=True)
     mock_batch.assert_not_called()
     lock.release()
 
@@ -368,7 +339,7 @@ async def test_run_tier_once_unlocked_calls_poll_batch(mock_get_redis):
     mock_batch = AsyncMock(return_value=(1, 0))
     poller._poll_batch = mock_batch
 
-    await poller._run_tier_once("Hot", mock_batch)
+    await poller._run_tier_once("Hot", mock_batch, initial=True)
     mock_batch.assert_called_once()
 
 
@@ -486,13 +457,13 @@ async def test_entity_cache_hit_skips_resolve(mock_limiter, mock_get_redis):
     account = _make_account(1)
     get_entity_count = {"count": 0}
 
-    async def fake_get_entity(uname):
+    async def fake_get_input_entity(uname):
         get_entity_count["count"] += 1
         entity = MagicMock()
         entity.id = 12345
         entity.access_hash = 67890
         return entity
-    account.get_entity = fake_get_entity
+    account.get_input_entity = fake_get_input_entity
 
     ch = "cached_ch"
     poller._entity_cache[ch] = {1: (12345, 67890)}
@@ -517,13 +488,13 @@ async def test_entity_cache_miss_calls_resolve(mock_limiter, mock_get_redis):
     account = _make_account(1)
     get_entity_count = {"count": 0}
 
-    async def fake_get_entity(uname):
+    async def fake_get_input_entity(uname):
         get_entity_count["count"] += 1
         entity = MagicMock()
         entity.id = 12345
         entity.access_hash = 67890
         return entity
-    account.get_entity = fake_get_entity
+    account.get_input_entity = fake_get_input_entity
 
     entity = await poller._resolve_entity(account, "new_ch")
     assert get_entity_count["count"] == 1
@@ -545,13 +516,13 @@ async def test_entity_cache_per_account_independent(mock_limiter, mock_get_redis
     # acc2 должен промахнуться
     acc2 = _make_account(2)
     get_entity_count = {"count": 0}
-    async def fake_get_entity(uname):
+    async def fake_get_input_entity(uname):
         get_entity_count["count"] += 1
         entity = MagicMock()
         entity.id = 333
         entity.access_hash = 444
         return entity
-    acc2.get_entity = fake_get_entity
+    acc2.get_input_entity = fake_get_input_entity
 
     await poller._resolve_entity(acc2, "ch")
     assert get_entity_count["count"] == 1
@@ -619,86 +590,104 @@ async def test_fetch_all_since_empty(mock_limiter):
 # ═══════════════════════════════════════════════════════════════════
 
 
-def test_post_ban_interval_multiplied():
-    """_get_effective_interval с post_ban_multiplier=1.5."""
+@patch("app.userbot.poller.limiter")
+async def test_post_ban_interval_with_multiplier(mock_limiter):
+    """_get_effective_interval: 1 CB-free + post_ban ×3.0 — max(2.0, 3.0)=3.0."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
+    mock_limiter.get_post_ban_interval_multiplier = AsyncMock(return_value=3.0)
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    result = await poller._get_effective_interval("Hot", 60)
+    assert result == 180  # 60 × max(2.0, 3.0) = 180
+
+
+@patch("app.userbot.poller.limiter")
+async def test_effective_interval_2_accounts_no_post_ban(mock_limiter):
+    """2 CB-free аккаунта, без post-ban → базовый интервал."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
+    mock_limiter.get_post_ban_interval_multiplier = AsyncMock(return_value=1.0)
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
-    result = poller._get_effective_interval("Hot", 60, post_ban_multiplier=1.5)
-    assert result == 90  # 60 × 1.5
+    result = await poller._get_effective_interval("Hot", 60)
+    assert result == 60
 
 
-def test_post_ban_interval_single_account():
-    """1 аккаунт + post_ban: max(degraded=2, post_ban=1.5) = 2 → base×2."""
+@patch("app.userbot.poller.limiter")
+async def test_effective_interval_1_account_degraded(mock_limiter):
+    """1 CB-free аккаунт → ×2 degradation."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
+    mock_limiter.get_post_ban_interval_multiplier = AsyncMock(return_value=1.0)
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    result = poller._get_effective_interval("Hot", 60, post_ban_multiplier=1.5)
-    assert result == 120  # 60 × max(2, 1.5) = 60 × 2 = 120
+    result = await poller._get_effective_interval("Hot", 60)
+    assert result == 120  # 60 × 2
 
 
-def test_effective_interval_2_accounts():
-    """2 аккаунта → базовый интервал."""
+@patch("app.userbot.poller.limiter")
+async def test_effective_interval_zero_cb_free_uses_cap(mock_limiter):
+    """0 CB-free аккаунтов → использует cap."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=True)
+    mock_limiter.get_post_ban_interval_multiplier = AsyncMock(return_value=1.0)
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1)]
+    result = await poller._get_effective_interval("Hot", 60)
+    assert result == settings.hot_interval_cap  # 1200
+
+
+@patch("app.userbot.poller.limiter")
+async def test_effective_interval_cap_applies(mock_limiter):
+    """Cap триммит вычисленный интервал."""
+    mock_limiter.is_circuit_open = AsyncMock(side_effect=lambda aid: aid == 2)
+    mock_limiter.get_post_ban_interval_multiplier = AsyncMock(return_value=5.0)
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
-    assert poller._get_effective_interval("Hot", 60) == 60
+    # Acc1 CB-free, Acc2 CB-blocked → 1 CB-free → degraded ×2
+    # post_ban multiplier for Acc1 = 5.0 (escalated after 3 bans)
+    # max(2.0, 5.0) = 5.0 → 60 × 5 = 300 < cap
+    result = await poller._get_effective_interval("Hot", 60)
+    assert result == 300
 
 
-def test_effective_interval_3plus_accounts():
-    """3+ аккаунта → 70% базового."""
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1), _make_account(2), _make_account(3)]
-    result = poller._get_effective_interval("Hot", 60)
-    assert result == 420  # 600 × 0.7
+@patch("app.userbot.poller.limiter")
+async def test_effective_interval_degradation_with_post_ban_max_wins(mock_limiter):
+    """max(degraded=2, post_ban=1.5) = 2 → ×2."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
+    mock_limiter.get_post_ban_interval_multiplier = AsyncMock(return_value=1.5)
 
-
-def test_effective_interval_1_account():
-    """1 аккаунт → ×2."""
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-    assert poller._get_effective_interval("Hot", 60) == 120
-
-
-def test_effective_interval_cap_does_not_cut_legitimate():
-    """Cap 1200 не режет нормальные интервалы."""
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    result = poller._get_effective_interval("Hot", 300)
-    assert result == 600  # 300×2=600 < cap
-
-
-def test_effective_interval_1_account_post_ban_max_wins():
-    """max() вместо умножения: деградация 2 > post_ban 1.5."""
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-    result = poller._get_effective_interval("Hot", 600, post_ban_multiplier=1.5)
+    result = await poller._get_effective_interval("Hot", 600)
     assert result == 1200  # 600 × max(2, 1.5) = 1200
 
 
-def test_effective_interval_2_accounts_post_ban():
-    """2 аккаунта + post_ban: только ×1.5."""
+@patch("app.userbot.poller.limiter")
+async def test_effective_interval_2_acc_post_ban(mock_limiter):
+    """2 аккаунта + post_ban ×3.0: только ×3.0 (нет деградации)."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
+    mock_limiter.get_post_ban_interval_multiplier = AsyncMock(return_value=3.0)
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
-    result = poller._get_effective_interval("Hot", 600, post_ban_multiplier=1.5)
-    assert result == 900  # 600 × 1.5
-
-
-def test_effective_interval_cap_triggers_only_above_1200():
-    """Cap активируется только при >1200."""
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-    result = poller._get_effective_interval("Hot", 700)
-    assert result == 1200  # 700×2=1400 > 1200 cap → clamp to 1200?
-    assert result == 1200
-    # Wait the formula is min(base × max(...), cap)
-    # So min(700*2, 1200) = min(1400, 1200) = 1200
+    result = await poller._get_effective_interval("Hot", 600)
+    # 600 × 3.0 = 1800 > 1200 cap → clamp to 1200
     assert result == 1200
 
 
-def test_effective_interval_degradation_uses_config():
-    """Деградация читается из конфига."""
+@patch("app.userbot.poller.limiter")
+async def test_effective_interval_degradation_reads_config(mock_limiter):
+    """Деградация читается из конфига (hot_degraded_multiplier=2.0)."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
+    mock_limiter.get_post_ban_interval_multiplier = AsyncMock(return_value=1.0)
+
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    result = poller._get_effective_interval("Hot", 60)
-    assert result == 2 * 60  # degradation=2 из конфига
+    result = await poller._get_effective_interval("Hot", 60)
+    assert result == 2 * 60
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -859,8 +848,8 @@ async def test_run_tier_loop_survives_once_crash(mock_sleep):
         return False
 
     poller._run_tier_once = crash_once
-    poller._get_available_account_count = lambda: 1
-    poller._get_effective_interval = lambda t, i, pb: 1
+    poller._get_available_account_count = AsyncMock(return_value=1)
+    poller._get_effective_interval = AsyncMock(return_value=1)
 
     # After 2 sleeps (crash recovery + normal cycle), stop the loop
     sleep_count = 0
@@ -934,7 +923,7 @@ async def test_warmup_skipped_when_one_cb_free(mock_limiter):
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
     poller._run_tier_once = AsyncMock(return_value=False)
-    poller._get_effective_interval = lambda t, i, pb: 1
+    poller._get_effective_interval = AsyncMock(return_value=1)
 
     # Run one cycle — should skip warmup
     import asyncio as real_asyncio
@@ -961,13 +950,13 @@ async def test_warmup_skipped_when_one_cb_free(mock_limiter):
 
 @patch("app.userbot.poller.limiter")
 async def test_warmup_normal_when_two_cb_free(mock_limiter):
-    """2 CB-free аккаунта → warmup идёт стандартно."""
+    """2 CB-free аккаунта → warmup пропускается (skip_warmup = cb_free >= 1)."""
     mock_limiter.is_circuit_open = AsyncMock(return_value=False)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
     poller._run_tier_once = AsyncMock(return_value=False)
-    poller._get_effective_interval = lambda t, i, pb: 1
+    poller._get_effective_interval = AsyncMock(return_value=1)
 
     cycles = 0
     async def stop_after_one(_t):
@@ -986,8 +975,8 @@ async def test_warmup_normal_when_two_cb_free(mock_limiter):
 
     call = poller._run_tier_once.call_args
     tier_name, tier_channels, initial = call[0]
-    # 2 CB-free → warmup step 1: 217 * 0.08 = 17
-    assert len(tier_channels) == 17, f"Expected 17 (warmup 1/7), got {len(tier_channels)}"
+    # 2 CB-free → skip_warmup = True → all 217 channels used (no warmup ramp)
+    assert len(tier_channels) == 217, f"Expected 217 (skip warmup), got {len(tier_channels)}"
 
 
 # ═══════════════════════════════════════════════════════════════════

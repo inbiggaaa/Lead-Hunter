@@ -32,6 +32,10 @@ def _budget_key(account_id: int) -> str:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return f"budget:used:{account_id}:{today}"
 
+def _ban_count_key(account_id: int) -> str:
+    """Rolling ban counter — incremented on each FloodWait, TTL 7 days."""
+    return f"ban_count:{account_id}"
+
 class BudgetExceeded(Exception):
     """Raised when an account exceeds its daily API request budget."""
 
@@ -69,24 +73,27 @@ class TelegramRateLimiter:
         self._account_locks: dict[int, asyncio.Lock] = {}
         # Post-ban cache: {account_id: (checked_at_ts, is_active)}
         self._post_ban_cache: dict[int, tuple[float, bool]] = {}
+        # Ban count cache: {account_id: count} — co-cached with _is_post_ban
+        self._ban_count_cache: dict[int, int] = {}
 
     async def acquire(self, account_id: int) -> None:
         """Wait for per-account rate limit slot, then check and increment daily budget.
 
         Raises BudgetExceeded if the account has used all its daily API calls.
-        Raises CircuitBreakerOpenError if circuit breaker is open for this account.
-        """
-        # 0. Check circuit breaker before any API call
-        if await self.is_circuit_open(account_id):
-            raise CircuitBreakerOpenError(account_id)
 
+        Note: Circuit breaker check is NOT done here — that is the caller's
+        responsibility (_distribute and _poll_batch gate at the tier/batch level).
+        This method concerns itself only with rate limiting and budget.
+        """
         # 1. Check daily budget BEFORE waiting on interval.
         #    account_id=0 is legacy (discovery v1 on pause) — gets its own key,
         #    harmless since v1 is not actively running.
         if self.daily_budget > 0:
             effective_budget = self.daily_budget
             if await self._is_post_ban(account_id):
-                effective_budget = max(1, self.daily_budget // 2)
+                ban_count = await self.get_ban_count(account_id)
+                divisor = self._ban_budget_divisor(ban_count)
+                effective_budget = max(1, self.daily_budget // divisor)
             redis = await get_redis()
             try:
                 key = _budget_key(account_id)
@@ -122,6 +129,49 @@ class TelegramRateLimiter:
             return max(0, self.daily_budget - used)
         finally:
             await redis.aclose()
+
+    async def get_ban_count(self, account_id: int) -> int:
+        """Return number of FloodWait bans in the last 7 days.
+
+        Cached in _post_ban_cache alongside _is_post_ban result —
+        avoids Redis on every acquire() in post-ban mode.
+        """
+        # Check cache first (piggybacks on _is_post_ban cache structure)
+        cached = self._post_ban_cache.get(account_id)
+        now = time.time()
+        if cached and (now - cached[0]) < 60:
+            # ban_count is stored in a second cache dict
+            bc = self._ban_count_cache.get(account_id)
+            if bc is not None:
+                return bc
+
+        redis = await get_redis()
+        try:
+            raw = await redis.get(_ban_count_key(account_id))
+            count = int(raw) if raw else 0
+            self._ban_count_cache[account_id] = count
+            return count
+        finally:
+            await redis.aclose()
+
+    def _ban_budget_divisor(self, ban_count: int) -> int:
+        """Escalating budget divisor: 1→2, 2→4, 3+→8."""
+        return {1: 2, 2: 4}.get(ban_count, 8)
+
+    def _ban_interval_multiplier(self, ban_count: int) -> float:
+        """Escalating interval multiplier: 1→1.5, 2→3.0, 3+→5.0."""
+        return {1: 1.5, 2: 3.0}.get(ban_count, 5.0)
+
+    async def get_post_ban_interval_multiplier(self, account_id: int) -> float:
+        """Get the interval multiplier for this account based on its ban count.
+
+        Returns 1.0 if account is not in post-ban mode.
+        Returns escalating multiplier based on number of bans in last 7 days.
+        """
+        if not await self._is_post_ban(account_id):
+            return 1.0
+        ban_count = await self.get_ban_count(account_id)
+        return self._ban_interval_multiplier(ban_count)
 
     async def _is_post_ban(self, account_id: int) -> bool:
         """Check if account is in post-ban mode. Cached for 60s to avoid Redis
@@ -194,6 +244,10 @@ class TelegramRateLimiter:
         await redis.set(last_ban_key, str(int(time.time())))
         await redis.expire(last_ban_key, seconds + 48 * 3600)
 
+        # Increment rolling ban counter (TTL 7 days — auto-resets if no more bans)
+        ban_count = await redis.incr(_ban_count_key(account_id))
+        await redis.expire(_ban_count_key(account_id), 7 * 86400)
+
         # Throttle admin notifications — same account, same ban = one alert per 15min.
         # Without this, multiple concurrent FloodWait catches (different tiers)
         # would spam notify_admin before circuit breaker propagates.
@@ -214,12 +268,28 @@ class TelegramRateLimiter:
         )
 
         if should_alert:
+            divisor = self._ban_budget_divisor(ban_count)
+            multiplier = self._ban_interval_multiplier(ban_count)
+            budget_pct = int(100 / divisor)
+            esc_info = (
+                f"📊 Это бан #{ban_count} за 7 дней\n"
+                f"🛡 После снятия: бюджет {budget_pct}%, интервалы ×{multiplier}"
+            )
+            perm_risk = ""
+            if ban_count >= 3:
+                perm_risk = (
+                    f"\n\n⚠️ РИСК ПЕРМАНЕНТНОГО БАНА — "
+                    f"{ban_count} бана за 7 дней. Рассмотрите замену аккаунта."
+                )
+
             from app.worker.notify_admin import notify_admin
             await notify_admin(
                 f"🚨 FloodWait — аккаунт #{account_id} заблокирован\n\n"
                 f"⏱ Бан на: {duration}\n"
                 f"📍 Источник: {context}\n"
+                f"{esc_info}\n"
                 f"🛑 API-вызовы аккаунта #{account_id} остановлены до истечения бана."
+                f"{perm_risk}"
             )
 
     async def is_circuit_open(self, account_id: int = 0) -> bool:
@@ -307,11 +377,23 @@ class TelegramRateLimiter:
         await redis.set(post_ban_key, str(int(time.time()) + 48 * 3600))
         await redis.expire(post_ban_key, 52 * 3600)
 
+        ban_count = await self.get_ban_count(account_id)
+        divisor = self._ban_budget_divisor(ban_count)
+        multiplier = self._ban_interval_multiplier(ban_count)
+        budget_pct = int(100 / divisor)
+
         from app.worker.notify_admin import notify_admin
-        await notify_admin(
+        notify_text = (
             f"✅ FloodWait истёк для аккаунта #{account_id} — работа возобновлена.\n\n"
-            f"🛡 Пост-бан режим активирован на 48ч (бюджет 50%, интервалы ×1.5)"
+            f"🛡 Пост-бан режим активирован на 48ч\n"
+            f"📊 Бан #{ban_count} за 7 дней: бюджет {budget_pct}%, интервалы ×{multiplier}"
         )
+        if ban_count >= 3:
+            notify_text += (
+                f"\n\n⚠️ Аккаунт #{account_id} получил {ban_count} бана за 7 дней — "
+                f"РИСК ПЕРМАНЕНТНОГО БАНА. Рассмотрите замену аккаунта."
+            )
+        await notify_admin(notify_text)
         # Clear keys to prevent duplicate notifications
         await redis.delete(key, expires_key, "circuit:open", "circuit:expires_at")
         await redis.aclose()
