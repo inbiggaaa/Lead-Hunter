@@ -62,6 +62,10 @@ async def list_channels(
     per_page: int = 20,
     search: str | None = None,
     is_verified: bool | None = None,
+    has_city: bool | None = None,
+    country_id: int | None = None,
+    city_id: int | None = None,
+    is_ignored: bool | None = None,
 ):
     async with async_session_factory() as session:
         stmt = select(CatalogChannel)
@@ -73,6 +77,35 @@ async def list_channels(
             )
         if is_verified is not None:
             stmt = stmt.where(CatalogChannel.is_verified == is_verified)
+        if is_ignored is not None:
+            stmt = stmt.where(CatalogChannel.is_ignored == is_ignored)
+        if country_id is not None:
+            stmt = stmt.where(CatalogChannel.auto_matched_country_id == country_id)
+        if city_id is not None:
+            stmt = stmt.where(
+                (CatalogChannel.auto_matched_city_id == city_id)
+                | CatalogChannel.id.in_(
+                    select(ChannelCity.channel_id).where(
+                        ChannelCity.city_id == city_id
+                    )
+                )
+            )
+        if has_city is not None:
+            if has_city:
+                stmt = stmt.where(
+                    (CatalogChannel.auto_matched_city_id.isnot(None))
+                    | CatalogChannel.id.in_(
+                        select(ChannelCity.channel_id)
+                    )
+                )
+            else:
+                stmt = stmt.where(
+                    CatalogChannel.auto_matched_city_id.is_(None)
+                ).where(
+                    ~CatalogChannel.id.in_(
+                        select(ChannelCity.channel_id)
+                    )
+                )
 
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = (await session.execute(count_stmt)).scalar() or 0
@@ -90,6 +123,7 @@ async def list_channels(
                 "title": ch.title,
                 "participants": ch.participants,
                 "is_verified": ch.is_verified,
+                "is_ignored": ch.is_ignored,
                 "auto_matched_country_id": ch.auto_matched_country_id,
                 "auto_matched_city_id": ch.auto_matched_city_id,
                 "discovered_at": ch.discovered_at.isoformat()
@@ -147,10 +181,15 @@ async def update_channel(channel_id: int, data: dict):
             raise HTTPException(status_code=404, detail="Not found")
 
         updatable = {"title", "participants", "is_verified",
-                      "auto_matched_country_id", "auto_matched_city_id"}
+                      "auto_matched_country_id", "auto_matched_city_id",
+                      "is_ignored"}
         for k, v in data.items():
             if k in updatable:
                 setattr(ch, k, v)
+
+        # Auto-set country from city if missing — city without country is invalid
+        if "country_id" in data and not ch.auto_matched_country_id:
+            ch.auto_matched_country_id = data["country_id"]
 
         # Update segments
         if "segments" in data:
