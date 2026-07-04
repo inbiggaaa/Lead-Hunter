@@ -11,6 +11,7 @@ from typing import Any, Type
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import Table, inspect, select, func, delete as sa_delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import async_session_factory
@@ -128,9 +129,16 @@ def create_crud_router(model: Type[Base], model_name: str, prefix: str) -> APIRo
         async with async_session_factory() as session:
             # Remove pk so DB auto-generates it
             clean = {k: v for k, v in data.items() if k not in pks}
-            stmt = table.insert().values(**clean)
-            result = await session.execute(stmt)
-            await session.commit()
+            try:
+                stmt = table.insert().values(**clean)
+                result = await session.execute(stmt)
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{model_name} already exists — unique constraint violated",
+                )
 
             new_id = result.inserted_primary_key[0]
             q = select(table).where(pk_col == new_id)
