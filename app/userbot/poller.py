@@ -486,17 +486,6 @@ class ChannelPoller:
                     account_id=account.account_id,
                 )
                 return False
-            except BudgetExceeded:
-                logger.warning(
-                    "Budget exceeded for account %d — stopping batch",
-                    account.account_id,
-                )
-                from app.worker.notify_admin import notify_admin
-                await notify_admin(
-                    f"📊 Аккаунт #{account.account_id} исчерпал суточный бюджет "
-                    f"API-запросов. Поллинг остановлен до следующих суток."
-                )
-                return False
             except Exception as e:
                 logger.warning("poll @%s: %s", ch.get('chat_username', '?'), type(e).__name__)
                 return False
@@ -507,7 +496,27 @@ class ChannelPoller:
 
         ok, errors = 0, 0
         for i, ch in enumerate(shuffled):
-            result = await _poll_one(ch)
+            try:
+                result = await _poll_one(ch)
+            except BudgetExceeded:
+                logger.warning(
+                    "Budget exceeded for account %d — stopping batch after %d channels",
+                    account.account_id, i,
+                )
+                # Throttle: at most one budget notification per account per 15 min
+                alert_key = f"alert:last:budget_exceed:{account.account_id}"
+                redis = await get_redis()
+                last_alert = await redis.get(alert_key)
+                now = time.time()
+                if not last_alert or (now - float(last_alert)) >= 900:
+                    await redis.setex(alert_key, 900, str(now))
+                    from app.worker.notify_admin import notify_admin
+                    await notify_admin(
+                        f"📊 Аккаунт #{account.account_id} исчерпал суточный бюджет "
+                        f"API-запросов. Поллинг остановлен до следующих суток."
+                    )
+                await redis.aclose()
+                break  # budget exhausted, no point polling remaining channels
             if result:
                 ok += 1
             else:
