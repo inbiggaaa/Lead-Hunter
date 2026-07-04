@@ -457,7 +457,6 @@ class ChannelPoller:
                     e.seconds, context=f"poller:@{ch['chat_username']}",
                     account_id=account.account_id,
                 )
-                await asyncio.sleep(e.seconds)
                 return False
             except BudgetExceeded:
                 logger.warning(
@@ -485,6 +484,8 @@ class ChannelPoller:
                 ok += 1
             else:
                 errors += 1
+                if await limiter.is_circuit_open(account.account_id):
+                    break
             if i < len(shuffled) - 1:
                 delay = next_delay()
                 await asyncio.sleep(delay)

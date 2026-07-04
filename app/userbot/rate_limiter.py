@@ -44,6 +44,16 @@ class BudgetExceeded(Exception):
         )
 
 
+class CircuitBreakerOpenError(Exception):
+    """Raised when acquire() is called while circuit breaker is open for this account."""
+
+    def __init__(self, account_id: int):
+        self.account_id = account_id
+        super().__init__(
+            f"Circuit breaker open for account {account_id} — API calls blocked"
+        )
+
+
 async def _now() -> float:
     return time.monotonic()
 
@@ -64,7 +74,12 @@ class TelegramRateLimiter:
         """Wait for per-account rate limit slot, then check and increment daily budget.
 
         Raises BudgetExceeded if the account has used all its daily API calls.
+        Raises CircuitBreakerOpenError if circuit breaker is open for this account.
         """
+        # 0. Check circuit breaker before any API call
+        if await self.is_circuit_open(account_id):
+            raise CircuitBreakerOpenError(account_id)
+
         # 1. Check daily budget BEFORE waiting on interval.
         #    account_id=0 is legacy (discovery v1 on pause) — gets its own key,
         #    harmless since v1 is not actively running.

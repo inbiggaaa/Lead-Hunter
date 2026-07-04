@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     # Userbot rate limiter (per-account)
     userbot_min_interval: float = 1.5   # seconds between API calls per account
     daily_request_budget: int = 10000    # max API calls per account per day
+    flood_sleep_threshold: int = 60       # Telethon auto-sleep short FloodWait; longer → exception
     poll_parked_countries: bool = False  # poll channels from countries with no subscriptions
 
     # Tier intervals (Task 1.3 — all configurable, no hardcoded constants)

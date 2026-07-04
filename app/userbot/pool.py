@@ -26,6 +26,7 @@ class UserbotAccount:
             str(SESSIONS_DIR / session_name),
             api_id,
             api_hash,
+            flood_sleep_threshold=settings.flood_sleep_threshold,
         )
         self.is_healthy = True
         self.last_error: str | None = None
