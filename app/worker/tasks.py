@@ -20,9 +20,16 @@ async def main():
     poller = ChannelPoller()
     sender = NotificationSender()
 
-    # Discovery loops REMOVED — they shared acc1 client, causing FloodWait bans.
-    # DO NOT re-enable without a dedicated discovery account (separate SIM).
-    # See: fix/disable-discovery-fix-throttle, commits 61522a6 + 2fe673a.
+    # Discovery v3 — dedicated account, fully isolated from poller.
+    # Enable with DISCOVERY_ENABLED=true in .env.
+    # Requires DISCOVERY_ACCOUNT_ID=3 (separate SIM) for production mode.
+    # Without account #3: runs in manual/test mode (only when poller inactive).
+    if settings.discovery_enabled:
+        from app.userbot.discovery_v2 import DiscoveryWorker
+        discovery = DiscoveryWorker()
+        asyncio.create_task(discovery.run())
+        logger.info("Discovery worker started (account #%d)", settings.discovery_account_id)
+
     await poller.start()
 
     await asyncio.gather(

@@ -1,21 +1,24 @@
-"""Discovery v2 — programmatic channel search across all cities.
+"""Discovery v3 — autonomous background channel search with full poller isolation.
 
-Replaces hand-written DISCOVERY.md queries with systematic query generation:
-- All 120+ cities from the DB (not a static file)
-- 84 community-type words (RU + EN): чат, болталка, советы, chat, help, ...
-- 8 post-Soviet diaspora prefixes: kz, by, ua, uz, kg, am, az, md
-- Matches real Telegram naming patterns: kz_danang, дананг болталка, ...
+Key improvements over v2:
+- Separate TelegramRateLimiter + circuit breaker (does NOT share with poller)
+- Redis cursor for progress (survives restart)
+- Human-like pauses (time-of-day aware, random breaks, jitter)
+- Daily budget (configurable, default 500)
+- Metrics in Redis + throttled admin notifications
+- Manual/test mode without dedicated account (polls only when poller inactive)
 
-Safety:
-- Uses DEDICATED userbot2 account (never shares poller client)
-- Per-account circuit breaker: ban on discovery ≠ ban on poller
-- Ultra-slow pace: 30s between queries → ~8 days per 23K-query cycle
-- Only 0.03 API calls/sec — invisible to Telegram anti-spam
+Management (no bot commands):
+- ENV: DISCOVERY_ENABLED=true        → enable at container start
+- Redis: SET discovery:pause 1      → pause without restart
+- Redis: DEL discovery:pause        → resume
 """
 
 import asyncio
 import logging
 import random
+import time
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from telethon import TelegramClient
@@ -25,15 +28,16 @@ from telethon.tl.functions.contacts import SearchRequest
 from app.config import settings
 from app.db.session import async_session_factory
 from app.db.models import CatalogChannel, Country, City
-from app.userbot.rate_limiter import limiter
+from app.userbot.rate_limiter import TelegramRateLimiter
+from app.cache import get_redis
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
-# ── Tier 1 countries: processed first (most Russian-speaking expats) ──
+# ── Query generation (kept from v2) ──
+
 TIER1_COUNTRY_SLUGS = {"tr", "vn", "th", "id", "eg", "ae", "ge"}
 
-# ── Russian community-type words (real names used in Telegram channels) ──
 COMMUNITY_RU = [
     "чат", "чатик", "общение", "болталка", "общаемся",
     "отдых", "туризм", "путешествия",
@@ -52,7 +56,6 @@ COMMUNITY_RU = [
     "русские", "русский", "русскоязычные",
 ]
 
-# ── English community-type words ──
 COMMUNITY_EN = [
     "chat", "group", "community", "hub", "club",
     "talk", "discussion", "social",
@@ -71,45 +74,25 @@ COMMUNITY_EN = [
     "russian", "russians", "rus", "ru",
 ]
 
-# ── Post-Soviet diaspora prefixes (Russian-speaking, NOT from Russia) ──
 DIASPORA_PREFIXES = ["kz", "by", "ua", "uz", "kg", "am", "az", "md"]
 
-# ── Timing ──
-# EXTREME caution: discovery shares userbot1 with poller.
-# If discovery triggers a ban, the ENTIRE service goes down.
-# Therefore: 90s between queries → ~0.01 calls/sec → invisible.
-# Full cycle (36K queries): ~37 days. No rush.
-INTER_QUERY_PAUSE_MIN = 60   # minimum seconds between searches
-INTER_QUERY_PAUSE_MAX = 120  # maximum (randomized per query)
-SEARCH_LIMIT = 10             # max results per SearchRequest
-
-# Dedicated discovery account — uses userbot1 (older, more trusted)
-# WARNING: shares account with poller. Ban on discovery = ban on service.
-DISCOVERY_ACCOUNT_ID = 1
-DISCOVERY_SESSION_NAME = "userbot"
+SEARCH_LIMIT = 10
 
 
 def _slugify(text: str | None) -> str:
     """Convert city name to Telegram-username-friendly slug."""
     if not text:
         return ""
-    # Lowercase, replace spaces/special chars with underscores, collapse
     slug = text.lower().strip()
     slug = slug.replace(" ", "_").replace("-", "_")
-    # Remove non-ASCII (Cyrillic, etc.) — Telegram usernames are ASCII-only
     slug = "".join(c for c in slug if c.isascii() and (c.isalnum() or c == "_"))
-    # Collapse multiple underscores
     while "__" in slug:
         slug = slug.replace("__", "_")
     return slug.strip("_")
 
 
 async def _generate_queries() -> list[dict]:
-    """Generate all search queries from cities in the DB.
-
-    Returns list of {query, country_id, city_id, country_name, city_name}.
-    Tier 1 countries come first.
-    """
+    """Generate all search queries from cities in the DB."""
     async with async_session_factory() as session:
         countries = (await session.execute(
             select(Country).where(Country.is_active == True)
@@ -119,23 +102,18 @@ async def _generate_queries() -> list[dict]:
         )).scalars().all()
 
     country_map = {c.id: c for c in countries}
-
     queries: list[dict] = []
-    seen: set[str] = set()  # dedup identical query strings
+    seen: set[str] = set()
 
     def _add(query: str, country_id: int, city_id: int, country_name: str, city_name: str):
         q = query.strip().lower()
         if q and q not in seen and len(q) >= 2:
             seen.add(q)
             queries.append({
-                "query": q,
-                "country_id": country_id,
-                "city_id": city_id,
-                "country_name": country_name,
-                "city_name": city_name,
+                "query": q, "country_id": country_id, "city_id": city_id,
+                "country_name": country_name, "city_name": city_name,
             })
 
-    # Separate Tier 1 and others
     tier1_cities = []
     other_cities = []
     for city in cities:
@@ -149,100 +127,351 @@ async def _generate_queries() -> list[dict]:
         city_ru = (city.name_ru or "").strip()
         city_en = (city.name_en or "").strip()
         city_slug = _slugify(city.slug or city_en)
-
         if not city_ru and not city_en:
             continue
-
         if country is None:
             continue
-
         country_name = country.name_ru or country.slug
         city_name = city_ru or city_en
         cid = country.id
         ciid = city.id
 
-        # ── 1. {city_en} {community_ru} — "da nang чат", "da nang помощь" ──
         if city_en and len(city_en) >= 2:
             for word in COMMUNITY_RU:
                 _add(f"{city_en} {word}", cid, ciid, country_name, city_name)
-
-        # ── 2. {city_ru} {community_ru} — "дананг чат", "дананг болталка" ──
         if city_ru and len(city_ru) >= 2:
             for word in COMMUNITY_RU:
                 _add(f"{city_ru} {word}", cid, ciid, country_name, city_name)
-
-        # ── 3. {city_en} {community_en} — "da nang chat", "da nang help" ──
         if city_en and len(city_en) >= 2:
             for word in COMMUNITY_EN:
                 _add(f"{city_en} {word}", cid, ciid, country_name, city_name)
-
-        # ── 4. Diaspora prefixes (post-Soviet communities) ──
         if city_slug:
             for prefix in DIASPORA_PREFIXES:
-                # Telegram usernames: kz_danang, by_danang
                 _add(f"{prefix}_{city_slug}", cid, ciid, country_name, city_name)
                 _add(f"{city_slug}_{prefix}", cid, ciid, country_name, city_name)
-
         if city_en and len(city_en) >= 2:
             for prefix in DIASPORA_PREFIXES:
                 _add(f"{prefix} {city_en}", cid, ciid, country_name, city_name)
-
         if city_ru and len(city_ru) >= 2:
             for prefix in DIASPORA_PREFIXES:
                 _add(f"{prefix} {city_ru}", cid, ciid, country_name, city_name)
 
-    logger.info(
-        "Discovery v2: generated %d queries for %d cities (%d tier1, %d other)",
-        len(queries), len(tier1_cities) + len(other_cities),
-        len(tier1_cities), len(other_cities),
-    )
+    logger.info("Discovery: generated %d queries for %d cities", len(queries), len(tier1_cities) + len(other_cities))
     return queries
 
 
-async def _search_and_store(
-    client: TelegramClient, queries: list[dict],
-) -> int:
-    """Execute search queries, dedup against catalog_channels, store new ones.
+# ── DiscoveryWorker ──
 
-    Returns number of newly discovered channels.
+class DiscoveryWorker:
+    """Autonomous discovery loop with full poller isolation.
+
+    Uses a dedicated Telegram account (DISCOVERY_ACCOUNT_ID=3) with its own
+    rate limiter and circuit breaker. Falls back to manual/test mode if the
+    dedicated account is unavailable (polls only when poller is inactive).
     """
-    found = 0
-    skipped = 0
-    total = len(queries)
 
-    for i, q in enumerate(queries):
-        # Circuit breaker check every 100 queries (per-account, won't block poller)
-        if i % 100 == 0:
-            if await limiter.is_circuit_open(DISCOVERY_ACCOUNT_ID):
-                logger.warning(
-                    "Discovery v2: circuit breaker open for account %d at query %d/%d — pausing cycle",
-                    DISCOVERY_ACCOUNT_ID, i, total,
-                )
-                await limiter.wait_if_circuit_open(DISCOVERY_ACCOUNT_ID)
-                logger.info("Discovery v2: circuit breaker closed — resuming")
+    def __init__(self):
+        self._account_id = settings.discovery_account_id
+        self._is_dedicated = (self._account_id == 3)
+        self._daily_limit = (
+            settings.discovery_daily_limit if self._is_dedicated
+            else settings.discovery_manual_daily_limit
+        )
+        self._limiter = TelegramRateLimiter(
+            min_interval=2.0,
+            daily_budget=self._daily_limit,
+        )
+        self._client: TelegramClient | None = None
+        self._stop_flag = False
 
-            logger.info(
-                "Discovery v2: %d/%d queries (%d new, %d skipped)",
-                i, total, found, skipped,
+    # ── Client setup ──
+
+    async def _init_client(self) -> TelegramClient:
+        """Create and start a dedicated Telethon client for discovery."""
+        api_id, api_hash, phone = settings.get_userbot_creds(self._account_id)
+        session_path = str(Path("/app/sessions") / f"{settings.discovery_session_name}.session")
+        client = TelegramClient(
+            session_path, api_id, api_hash,
+            flood_sleep_threshold=settings.discovery_flood_sleep_threshold,
+        )
+        await client.start(phone=phone or None)
+        me = await client.get_me()
+        logger.info("Discovery: account %d authorised as @%s", self._account_id, me.username)
+        return client
+
+    # ── Pause helpers ──
+
+    async def _is_paused(self) -> bool:
+        """Check Redis pause flag."""
+        try:
+            redis = await get_redis()
+            val = await redis.get("discovery:pause")
+            await redis.aclose()
+            return val == b"1"
+        except Exception:
+            return False
+
+    async def _is_poller_active(self) -> bool:
+        """Check if poller is currently polling (for manual mode)."""
+        try:
+            redis = await get_redis()
+            state = await redis.get("session:state:1")
+            await redis.aclose()
+            return state and state.decode() == "ACTIVE"
+        except Exception:
+            return True  # assume active if can't check
+
+    # ── Human-like pause ──
+
+    def _get_pause_seconds(self) -> float:
+        """Return pause duration based on simulated time-of-day patterns."""
+        hour = datetime.now(timezone.utc).hour
+        is_weekend = datetime.now(timezone.utc).weekday() >= 5
+
+        if 2 <= hour < 5:
+            base_min, base_max = 3600, 7200      # deep sleep: 1-2h
+        elif 5 <= hour < 8:
+            base_min, base_max = 1800, 3600      # early morning: 30-60m
+        elif 8 <= hour < 20:
+            base_min, base_max = 60, 180          # daytime: 1-3m
+        else:
+            base_min, base_max = 300, 900         # evening: 5-15m
+
+        if is_weekend:
+            base_min = int(base_min * 1.3)
+            base_max = int(base_max * 1.3)
+
+        if not self._is_dedicated:
+            base_min = int(base_min * 2.5)
+            base_max = int(base_max * 2.5)
+
+        pause = random.uniform(base_min, base_max)
+        pause *= random.uniform(0.8, 1.2)  # jitter ±20%
+        return max(10.0, pause)
+
+    # ── Progress cursor ──
+
+    async def _load_cursor(self, queries_hash: str) -> int:
+        """Restore saved query index, reset if query set changed."""
+        redis = await get_redis()
+        saved_hash = await redis.get("discovery:queries_hash")
+        await redis.aclose()
+        if saved_hash and saved_hash.decode() == queries_hash:
+            redis = await get_redis()
+            val = await redis.get("discovery:cursor:query_index")
+            await redis.aclose()
+            return int(val) if val else 0
+        return 0  # queries changed — reset
+
+    async def _save_cursor(self, index: int) -> None:
+        """Save current query index to Redis."""
+        try:
+            redis = await get_redis()
+            await redis.set("discovery:cursor:query_index", str(index))
+            await redis.aclose()
+        except Exception:
+            pass
+
+    # ── Metrics ──
+
+    async def _incr_metric(self, name: str) -> None:
+        """Increment a daily metric counter."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        try:
+            redis = await get_redis()
+            await redis.incr(f"discovery:metrics:{today}:{name}")
+            await redis.expire(f"discovery:metrics:{today}:{name}", 7 * 86400)
+            await redis.aclose()
+        except Exception:
+            pass
+
+    # ── Throttled notifications ──
+
+    async def _notify(self, text: str, alert_type: str) -> None:
+        """Send admin notification with Redis-backed throttling (15 min cooldown)."""
+        key = f"alert:last:discovery:{alert_type}"
+        redis = await get_redis()
+        last = await redis.get(key)
+        now = time.time()
+        if not last or (now - float(last)) >= 900:
+            await redis.setex(key, 900, str(now))
+            from app.worker.notify_admin import notify_admin
+            await notify_admin(text)
+        await redis.aclose()
+
+    # ── Main loop ──
+
+    async def run(self) -> None:
+        """Main discovery loop. Blocks until stopped."""
+        if not settings.discovery_enabled:
+            logger.info("Discovery: disabled (DISCOVERY_ENABLED=false)")
+            return
+
+        # ── Init client ──
+        try:
+            self._client = await self._init_client()
+        except Exception as e:
+            logger.error("Discovery: failed to init client: %s", e)
+            await self._notify(
+                f"🔍 Discovery: не удалось запустить клиент — {e}",
+                "startup_failed",
             )
+            return
+
+        if not self._is_dedicated:
+            logger.warning(
+                "Discovery: MANUAL/TEST MODE — account %d is not dedicated (expected #3). "
+                "Will poll only when poller is inactive.",
+                self._account_id,
+            )
+            await self._notify(
+                f"⚠️ Discovery запущен в ручном режиме на аккаунте #{self._account_id}. "
+                "Опрос только при неактивном пуллере.",
+                "manual_mode",
+            )
+        else:
+            await self._notify("🔍 Discovery: запущен (выделенный аккаунт #3)", "started")
+
+        # ── Generate queries once, use cursor for progress ──
+        queries = await _generate_queries()
+        if not queries:
+            logger.warning("Discovery: no queries generated")
+            return
+
+        random.shuffle(queries)
+        import hashlib
+        queries_hash = hashlib.md5(
+            ",".join(q["query"] for q in queries[:100]).encode()
+        ).hexdigest()
+
+        cursor = await self._load_cursor(queries_hash)
+        if cursor > 0:
+            logger.info("Discovery: resuming from query %d/%d", cursor, len(queries))
+        redis = await get_redis()
+        await redis.set("discovery:queries_hash", queries_hash)
+        await redis.aclose()
+
+        consecutive_errors = 0
+        consecutive_flood = 0
+        query_count = 0
 
         try:
-            await limiter.acquire(account_id=DISCOVERY_ACCOUNT_ID)
-            result = await client(SearchRequest(q=q["query"], limit=SEARCH_LIMIT))
-        except FloodWaitError as e:
-            logger.warning("Discovery v2 FloodWait: %ds on '%s'", e.seconds, q["query"])
-            await limiter.report_flood_wait(
-                e.seconds, context=f"discovery_v2:{q['query']}",
-                account_id=DISCOVERY_ACCOUNT_ID,
-            )
-            await asyncio.sleep(e.seconds)
-            continue
-        except Exception as e:
-            logger.debug("Discovery v2: search failed '%s': %s", q["query"], e)
-            skipped += 1
-            continue
+            idx = cursor
+            while not self._stop_flag:
+                # ── Check pause flag ──
+                if await self._is_paused():
+                    await asyncio.sleep(60)
+                    continue
 
-        # Collect usernames from this search
+                # ── Manual mode: check poller ──
+                if not self._is_dedicated and await self._is_poller_active():
+                    await asyncio.sleep(random.uniform(300, 600))
+                    continue
+
+                # ── Check daily budget ──
+                remaining = await self._limiter.budget_remaining(self._account_id)
+                if remaining <= 0:
+                    logger.info("Discovery: daily budget exhausted — sleeping 1h")
+                    await self._notify(
+                        f"🔍 Discovery: суточный лимит исчерпан ({self._daily_limit} запросов). "
+                        "Ожидание следующих суток.",
+                        "budget_exhausted",
+                    )
+                    await asyncio.sleep(3600)
+                    continue
+
+                # ── Wrap-around ──
+                if idx >= len(queries):
+                    idx = 0
+                    logger.info("Discovery: full cycle complete — restarting")
+                    await self._notify(
+                        f"🔍 Discovery: полный цикл завершён ({len(queries)} запросов). "
+                        f"Найдено каналов за цикл: {query_count}.",
+                        "cycle_done",
+                    )
+                    query_count = 0
+
+                q = queries[idx]
+
+                # ── Circuit breaker check (per-account, isolated from poller) ──
+                if await self._limiter.is_circuit_open(self._account_id):
+                    logger.warning("Discovery: circuit breaker OPEN — sleeping 1h")
+                    await self._notify(
+                        "🔍 Discovery: circuit breaker OPEN — остановка на 1 час",
+                        "cb_open",
+                    )
+                    await asyncio.sleep(3600)
+                    continue
+
+                # ── Rate limit + search ──
+                try:
+                    await self._limiter.acquire(account_id=self._account_id)
+                    result = await self._client(SearchRequest(q=q["query"], limit=SEARCH_LIMIT))
+                    consecutive_errors = 0
+                    consecutive_flood = 0
+
+                    # ── Process results ──
+                    await self._store_results(result, q)
+                    await self._incr_metric("requests")
+                    query_count += 1
+
+                    # ── Random long break (3% chance) ──
+                    if random.random() < 0.03:
+                        break_sec = random.uniform(600, 3600)
+                        logger.debug("Discovery: taking a break for %.0fs", break_sec)
+                        await asyncio.sleep(break_sec)
+
+                except FloodWaitError as e:
+                    consecutive_flood += 1
+                    logger.warning("Discovery FloodWait: %ds on '%s'", e.seconds, q["query"])
+                    await self._limiter.report_flood_wait(
+                        e.seconds, context=f"discovery:{q['query']}",
+                        account_id=self._account_id,
+                    )
+                    await self._incr_metric("floodwait")
+                    if e.seconds > 3600:
+                        await self._notify(
+                            f"🚨 Discovery FloodWait {e.seconds // 3600}ч на '{q['query']}'",
+                            "floodwait_long",
+                        )
+                    backoff = min(e.seconds * (2 ** (consecutive_flood - 1)), 86400)
+                    await asyncio.sleep(backoff)
+                    continue  # retry same query
+
+                except Exception as e:
+                    consecutive_errors += 1
+                    logger.warning("Discovery: search failed '%s': %s", q["query"], type(e).__name__)
+                    await self._incr_metric("errors")
+                    if consecutive_errors >= 10:
+                        logger.warning("Discovery: %d consecutive errors — long pause", consecutive_errors)
+                        await asyncio.sleep(random.uniform(1800, 3600))
+                        consecutive_errors = 0
+
+                # ── Advance cursor + save progress ──
+                idx += 1
+                if idx % 10 == 0:
+                    await self._save_cursor(idx)
+                    if idx % 100 == 0:
+                        logger.info(
+                            "Discovery: %d/%d queries done, %d in this run",
+                            idx, len(queries), query_count,
+                        )
+
+                # ── Human-like pause ──
+                pause = self._get_pause_seconds()
+                await asyncio.sleep(pause)
+
+        except asyncio.CancelledError:
+            logger.info("Discovery: cancelled — saving progress (idx=%d)", idx)
+            await self._save_cursor(idx)
+            raise
+        finally:
+            if self._client:
+                await self._client.disconnect()
+            logger.info("Discovery: stopped")
+
+    async def _store_results(self, result, q: dict) -> None:
+        """Store newly found channels in catalog_channels with geo-matching."""
         candidates: list[dict] = []
         for chat in result.chats:
             username = getattr(chat, "username", None)
@@ -254,11 +483,8 @@ async def _search_and_store(
                 })
 
         if not candidates:
-            skipped += 1
-            await asyncio.sleep(INTER_QUERY_PAUSE)
-            continue
+            return
 
-        # Batch DB: check existence + insert in one session
         try:
             async with async_session_factory() as session:
                 usernames = [c["username"] for c in candidates]
@@ -274,10 +500,7 @@ async def _search_and_store(
                 for c in candidates:
                     uname = c["username"]
                     if uname in existing_usernames:
-                        # Already known — backfill geo if missing
-                        row = next(
-                            (r for r in existing_rows if r.chat_username == uname), None
-                        )
+                        row = next((r for r in existing_rows if r.chat_username == uname), None)
                         if row:
                             changed = False
                             if q["country_id"] and not row.auto_matched_country_id:
@@ -287,138 +510,22 @@ async def _search_and_store(
                                 row.auto_matched_city_id = q["city_id"]
                                 changed = True
                             if changed:
-                                new_count += 1  # count geo backfills as discoveries
+                                new_count += 1
                         continue
 
-                    # Check if channel exists but is ignored — skip silently
-                    from sqlalchemy import select as sa_sel
-                    ignored_check = (await session.execute(
-                        sa_sel(CatalogChannel).where(
-                            CatalogChannel.chat_username == uname,
-                            CatalogChannel.is_ignored == True,
-                        )
-                    )).scalar_one_or_none()
-                    if ignored_check:
-                        continue
-
-                    # New channel
                     session.add(CatalogChannel(
-                        chat_username=uname,
-                        title=c["title"],
-                        participants=c["participants"],
-                        is_verified=False,
+                        chat_username=uname, title=c["title"],
+                        participants=c["participants"], is_verified=False,
                         auto_matched_country_id=q["country_id"],
                         auto_matched_city_id=q["city_id"],
                     ))
                     new_count += 1
-                    logger.info(
-                        "Discovery v2: + @%s → %s/%s",
-                        uname, q["country_name"], q["city_name"],
-                    )
+                    logger.info("Discovery: + @%s → %s/%s", uname, q["country_name"], q["city_name"])
 
                 await session.commit()
-                found += new_count
+                if new_count:
+                    await self._incr_metric("found")
+                    await self._incr_metric("geo_linked")
+
         except Exception as e:
-            logger.debug("Discovery v2: DB batch error: %s", e)
-
-        skipped += 1
-        # Randomized pause: unpredictable pattern, very slow (60-120s)
-        await asyncio.sleep(random.uniform(INTER_QUERY_PAUSE_MIN, INTER_QUERY_PAUSE_MAX))
-
-    logger.info("Discovery v2: finished — %d new, %d queries", found, total)
-    return found
-
-
-def _discovery_has_dedicated_session() -> bool:
-    """Check if a dedicated discovery session exists."""
-    return (Path("/app/sessions") / f"{DISCOVERY_SESSION_NAME}.session").exists()
-
-
-async def _create_dedicated_discovery_client() -> TelegramClient:
-    """Create a dedicated client for discovery using account 2 credentials."""
-    api_id, api_hash, phone = settings.get_userbot_creds(DISCOVERY_ACCOUNT_ID)
-    client = TelegramClient(
-        str(Path("/app/sessions") / DISCOVERY_SESSION_NAME),
-        api_id,
-        api_hash,
-    )
-    await client.start(phone=phone or None)
-    logger.info(
-        "Discovery v2: dedicated client on account %d, api_id=%d",
-        DISCOVERY_ACCOUNT_ID, api_id,
-    )
-    return client
-
-
-async def discovery_v2_loop(client: TelegramClient | None = None):
-    """Background discovery loop — shares userbot1 with poller.
-
-    WARNING: Uses the SAME account as the poller. If discovery triggers
-    a FloodWait, the circuit breaker blocks ALL API calls for account 1
-    including poller. Therefore: extreme caution.
-
-    Speed: 60-120s randomized between queries → ~0.01 calls/sec.
-    Full cycle: ~37 days at 90s avg pause.
-    Queries are shuffled to avoid predictable patterns.
-    """
-    # Stagger: wait 15 minutes so poller is fully running
-    logger.info("Discovery v2: waiting 15 min (poller warmup + stagger)")
-    await asyncio.sleep(900)
-
-    if client is None:
-        logger.warning(
-            "Discovery v2: no pool client passed — skipping. "
-            "Discovery must share userbot1 via pool."
-        )
-        return
-
-    logger.info(
-        "Discovery v2: using shared pool client for account %d "
-        "(poller shares same account — ALL API calls rate-limited together)",
-        DISCOVERY_ACCOUNT_ID,
-    )
-
-    try:
-        while True:
-            # Check per-account circuit breaker BEFORE any API calls
-            # If account 1 is blocked, BOTH poller and discovery are dead
-            if await limiter.is_circuit_open(DISCOVERY_ACCOUNT_ID):
-                logger.warning(
-                    "Discovery v2: circuit breaker open for account %d — "
-                    "poller is also blocked. Waiting...",
-                    DISCOVERY_ACCOUNT_ID,
-                )
-                await limiter.wait_if_circuit_open(DISCOVERY_ACCOUNT_ID)
-
-            logger.info("Discovery v2: starting new cycle...")
-            try:
-                queries = await _generate_queries()
-                if not queries:
-                    logger.warning("Discovery v2: no queries generated — empty DB?")
-                    await asyncio.sleep(3600)
-                    continue
-
-                # Shuffle to avoid predictable query patterns (anti-spam)
-                random.shuffle(queries)
-
-                found = await _search_and_store(client, queries)
-
-                # Report stats
-                from app.userbot.discovery import report_discovery_stats
-                await report_discovery_stats(found)
-
-                # Estimate next cycle (avg pause ~90s, randomized 60-120s)
-                avg_pause = (INTER_QUERY_PAUSE_MIN + INTER_QUERY_PAUSE_MAX) / 2
-                est_hours = (len(queries) * avg_pause) / 3600
-                est_days = est_hours / 24
-                logger.info(
-                    "Discovery v2: cycle complete — %d new channels from %d queries. "
-                    "Next cycle starts now (est. %.1f days).",
-                    found, len(queries), est_days,
-                )
-            except Exception as e:
-                logger.error("Discovery v2: cycle error: %s", e, exc_info=True)
-                await asyncio.sleep(3600)  # Wait 1h before retry
-
-    finally:
-        pass  # Don't disconnect — client is shared with poller
+            logger.debug("Discovery: DB batch error: %s", e)

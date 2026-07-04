@@ -94,6 +94,17 @@ class Settings(BaseSettings):
     poll_parked_countries: bool = False  # poll channels from countries with no subscriptions
     message_max_age_days: int = 7        # skip messages older than N days (0 = disabled)
 
+    # Discovery v2
+    discovery_enabled: bool = False       # ENV: DISCOVERY_ENABLED=true
+    discovery_api_id: int = 0
+    discovery_api_hash: str = ""
+    discovery_phone: str = ""
+    discovery_session_name: str = "discovery"
+    discovery_account_id: int = 3          # 3 = dedicated, other = manual/test mode
+    discovery_daily_limit: int = 500       # max SearchRequests per day (dedicated mode)
+    discovery_manual_daily_limit: int = 100  # max per day in manual/test mode
+    discovery_flood_sleep_threshold: int = 120
+
     # Tier intervals (Task 1.3 — all configurable, no hardcoded constants)
     hot_interval_base: int = 300          # seconds, Hot base (2 healthy accounts)
     hot_interval_3plus: int = 420         # seconds, Hot for 3+ accounts (7 min)
