@@ -123,6 +123,19 @@ export default function ChannelsPage() {
     }
   };
 
+  const handleUnignore = async (channelId: number) => {
+    try {
+      await api(`/api/channels/${channelId}`, {
+        method: "PUT",
+        body: JSON.stringify({ is_ignored: false }),
+      });
+      toast.success("Канал восстановлен");
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
   const handleAddCity = async () => {
     if (!newCitySlug || !newCityName || !selectedCountry) {
       toast.error("Укажите slug, название и страну");
@@ -213,7 +226,6 @@ export default function ChannelsPage() {
                     <TableHead>Название</TableHead>
                     <TableHead>Участники</TableHead>
                     <TableHead>Игнор</TableHead>
-                    <TableHead>Направление</TableHead>
                     <TableHead>Действия</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -242,14 +254,6 @@ export default function ChannelsPage() {
                         ) : (
                           <Badge variant="outline">Активен</Badge>
                         )}
-                      </TableCell>
-                      <TableCell>
-                        <select
-                          disabled
-                          className="border rounded px-2 py-1 text-xs bg-muted text-muted-foreground cursor-not-allowed"
-                        >
-                          <option>— ждёт авто-направлений —</option>
-                        </select>
                       </TableCell>
                       <TableCell>
                         {editingChannel === ch.id ? (
@@ -299,7 +303,11 @@ export default function ChannelsPage() {
                                 <MapPin className="size-3 mr-1" /> Город
                               </Button>
                             )}
-                            {!ch.is_ignored && (
+                            {ch.is_ignored ? (
+                              <Button size="sm" variant="outline" onClick={() => handleUnignore(ch.id)}>
+                                Восстановить
+                              </Button>
+                            ) : (
                               <Button size="sm" variant="ghost" onClick={() => handleIgnore(ch.id)}>
                                 <Trash2 className="size-3" />
                               </Button>
@@ -311,7 +319,7 @@ export default function ChannelsPage() {
                   ))}
                   {data?.items.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                         Каналы не найдены
                       </TableCell>
                     </TableRow>
