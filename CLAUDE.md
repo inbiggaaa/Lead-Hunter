@@ -1086,3 +1086,36 @@ ROADMAP (порядок очереди):
 5. `_resolve_entity`: `get_input_entity` вместо `get_entity`. БАГ: в `UserbotAccount` не было `get_input_entity` → AttributeError на 217 каналах. Исправлено: добавлен метод в pool.py.
 6. Тесты: rate_limiter 13/13, poller 60/64 (4 не прошли из-за pre-existing сигнатурных mismatch в тестах `_run_tier_once`).
 Прогон: worker запущен, Acc1 active (CB clear), Acc2 blocked до 07:10 UTC. Hot: 217 каналов, интервал ×2 деградация. 0 AttributeError. 0 FloodWait.
+
+**05.07.2026 04:00 — Resume handoff: keyword recon, orphan retag, admin frontend cleanup (commit 44a65c7).**
+Доделано с предыдущей сессии:
+- Smoke test unignore→verify→re-ignore через admin API: зелёный (канал id=885 saigon_services).
+- API login путь: `/api/auth/login` (не `/api/login`), порт 17421.
+- Коммит: удалена колонка «Направление» (disabled placeholder), добавлена кнопка «Восстановить»
+  (handleUnignore, PUT is_ignored=false) для ignored-каналов, кнопка «Удалить» только при !is_ignored.
+- Старые статик-ассеты удалены из git (index-BC1Mf4p9.js, index-C-wCZOeF.css, index-C2dFgfOB.css, index-D0xiouDV.js).
+- 9 каналов перепривязаны по транслитерации (Valencia, Casablanca, Tehran, Paphos×4, Samui×2) — DB-only, без миграций.
+- Документация: kw_recon.txt, orphans_diag.txt, matcher_anatomy.txt, retag_dryrun.txt, admin_front_recon.txt в docs/.
+Результат: админ-фича «Чаты без группы» полностью закрыта (шаги 1-4). Орфаны: 830→821.
+
+**05.07.2026 ~11:30 — Админ-панель: масштабный UI/UX-оверхаул ChannelsPage + фикс краша worker.**
+Backend (FastAPI + SQLAlchemy):
+- +city_ids в list_channels (auto_matched ∪ channel_cities M2M).
+- +manually_reviewed bool (модель + GET/PUT + миграция manrev01).
+- +discovered_after ISO-фильтр, индекс idx_disc_at01.
+- per_page max 100→500 для countries/cities (фикс 422).
+- order_by(is_ignored ASC, participants DESC NULLS LAST).
+Frontend (ChannelsPage.tsx, 524 строки, полный рерайт):
+- Фильтры: статус (Все/Активные/Игнор/Без привязки), страна (dropdown 91), город (зависимый dropdown), «Новые (7д)», perPage (20/100/200/500, default 100), поиск с X.
+- Счётчики: «Без привязки: N · Найдено: N». Секция «+ Город».
+- 3-цветная точка статуса: фиолетовая (ignored) / зелёная (reviewed) / оранжевая (pending).
+- Per-row: Select страны, MultiSelect городов (Popover+Command+Badge, M2M-safe, pre-fill из city_ids), кнопки Save/Trash2/RotateCcw (icon-only size-4).
+- 6 колонок: @username(+dot) | Название | Участники | Страна | Города | Действия.
+- Убрано: колонка «Привязан», badge «Игнор», verified-фильтр, баннер.
+- Новые shadcn-компоненты: command.tsx, popover.tsx, input-group.tsx, multi-select.tsx (кастомный).
+Bursa retag: канал 1595 → city_id=59, орфаны 821→820→813.
+ИНЦИДЕНТ: worker crash-loop из-за NameError (settings не импортирован в tasks.py:27).
+Коммит c626dfd добавил settings.discovery_enabled без импорта. Исправлено: +from app.config import settings, rebuild, restart.
+Оба аккаунта CB clear, worker стабилен.
+Git: куча немерженных файлов (backend + frontend + migrations + удалённые/новые статик-ассеты + docs).
+Handoff: .rpiv/artifacts/handoffs/2026-07-05_channels-ux-overhaul.md.

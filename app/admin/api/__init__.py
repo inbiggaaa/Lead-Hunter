@@ -45,6 +45,8 @@ api_router.include_router(segments_detail_router, dependencies=_protected)
 
 # ── Channels (custom — needs M:N joins) ──
 
+from datetime import datetime
+
 from sqlalchemy import select, func
 from app.db.models import (
     CatalogChannel,
@@ -66,6 +68,7 @@ async def list_channels(
     country_id: int | None = None,
     city_id: int | None = None,
     is_ignored: bool | None = None,
+    discovered_after: str | None = None,
 ):
     async with async_session_factory() as session:
         stmt = select(CatalogChannel)
@@ -79,6 +82,12 @@ async def list_channels(
             stmt = stmt.where(CatalogChannel.is_verified == is_verified)
         if is_ignored is not None:
             stmt = stmt.where(CatalogChannel.is_ignored == is_ignored)
+        if discovered_after is not None:
+            try:
+                cutoff = datetime.fromisoformat(discovered_after)
+                stmt = stmt.where(CatalogChannel.discovered_at >= cutoff)
+            except ValueError:
+                pass  # ignore malformed date, don't filter
         if country_id is not None:
             stmt = stmt.where(CatalogChannel.auto_matched_country_id == country_id)
         if city_id is not None:
@@ -110,12 +119,28 @@ async def list_channels(
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = (await session.execute(count_stmt)).scalar() or 0
 
+        stmt = stmt.order_by(CatalogChannel.is_ignored.asc(),
+                              CatalogChannel.participants.desc().nullslast())
         stmt = stmt.offset((page - 1) * per_page).limit(per_page)
         result = await session.execute(stmt)
         channels = result.scalars().all()
 
+        # Collect effective city_ids per channel (scalar ∪ M2M)
+        channel_ids = [ch.id for ch in channels]
+        m2m_cities: dict[int, set[int]] = {cid: set() for cid in channel_ids}
+        if channel_ids:
+            m2m_result = await session.execute(
+                select(ChannelCity).where(ChannelCity.channel_id.in_(channel_ids))
+            )
+            for cc in m2m_result.scalars().all():
+                m2m_cities[cc.channel_id].add(cc.city_id)
+
     items = []
     for ch in channels:
+        effective_city_ids = set()
+        if ch.auto_matched_city_id is not None:
+            effective_city_ids.add(ch.auto_matched_city_id)
+        effective_city_ids |= m2m_cities.get(ch.id, set())
         items.append(
             {
                 "id": ch.id,
@@ -126,6 +151,8 @@ async def list_channels(
                 "is_ignored": ch.is_ignored,
                 "auto_matched_country_id": ch.auto_matched_country_id,
                 "auto_matched_city_id": ch.auto_matched_city_id,
+                "manually_reviewed": ch.manually_reviewed,
+                "city_ids": sorted(effective_city_ids),
                 "discovered_at": ch.discovered_at.isoformat()
                 if ch.discovered_at
                 else None,
@@ -163,6 +190,7 @@ async def get_channel(channel_id: int):
             "is_verified": ch.is_verified,
             "auto_matched_country_id": ch.auto_matched_country_id,
             "auto_matched_city_id": ch.auto_matched_city_id,
+            "manually_reviewed": ch.manually_reviewed,
             "discovered_at": ch.discovered_at.isoformat()
             if ch.discovered_at
             else None,
@@ -182,7 +210,7 @@ async def update_channel(channel_id: int, data: dict):
 
         updatable = {"title", "participants", "is_verified",
                       "auto_matched_country_id", "auto_matched_city_id",
-                      "is_ignored"}
+                      "is_ignored", "manually_reviewed"}
         for k, v in data.items():
             if k in updatable:
                 setattr(ch, k, v)

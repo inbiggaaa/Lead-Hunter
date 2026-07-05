@@ -81,7 +81,7 @@ def create_crud_router(model: Type[Base], model_name: str, prefix: str) -> APIRo
     @router.get("")
     async def list_items(
         page: int = Query(1, ge=1),
-        per_page: int = Query(20, ge=1, le=100),
+        per_page: int = Query(20, ge=1, le=500),
     ):
         async with async_session_factory() as session:
             count_q = select(func.count()).select_from(table)
