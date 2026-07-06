@@ -1,0 +1,39 @@
+    country     | country_id |     city_guess      | n  |                                                                                                                                                                                                                                      channels                                                                                                                                                                                                                                       
+----------------+------------+---------------------+----+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Ангола         |        148 | Луанда              |  1 | angola_ru
+ Андорра        |        147 | — нет токена        |  1 | andorra_chat
+ Багамы         |        149 | Нассау              |  1 | bagam_chat
+ Бахрейн        |        150 | Манама              |  1 | bahrein_chatik
+ Венесуэла      |        127 | — нет токена        |  2 | venesuela_baraholka, margarita_chatik
+ Венесуэла      |        127 | Пуэрто-ла-Крус      |  1 | puertolacruz_chat
+ Венесуэла      |        127 | Каракас             |  1 | caracas_chat
+ Доминикана     |        138 | — нет токена        |  3 | mydominicana, forum_dr, bavaro_chat
+ Исландия       |        152 | Рейкьявик           |  1 | islandiya_chatik
+ Камбоджа       |        143 | Кампот              |  1 | kampot_chat
+ Камбоджа       |        143 | — нет токена        |  1 | kambodja_medicina
+ Куба           |        145 | Гавана              |  1 | gawana_chat
+ Куба           |        145 | Варадеро            |  1 | varadero_chat
+ Люксембург     |        154 | — нет токена        |  1 | luxembourg_chat
+ Маврикий       |        155 | — нет токена        |  1 | mavrikiy_chatik
+ Макао          |        156 | — нет токена        |  1 | macao_chat
+ Малайзия       |        117 | — нет токена        |  6 | visa_malaysia, borneo_chat, malaysia_women, malaziya_medicina, student_malaysia, malaziya_viza
+ Малайзия       |        117 | Лангкави            |  2 | langkawichat, langkavi_chat
+ Малайзия       |        117 | Пинанг              |  1 | pinang_chat
+ Мозамбик       |        159 | Мапуту              |  1 | mozambic_chat
+ Монако         |        157 | — нет токена        |  1 | monacochat
+ Мьянма (Бирма) |        158 | Янгон               |  1 | yangon_chat
+ Парагвай       |        160 | Асунсьон            |  1 | paragvai_chat
+ Сан-Марино     |        162 | — нет токена        |  1 | sanmarino_chat
+ Сейшелы        |        112 | — нет токена        | 10 | seyshely_avto, seyshely_ekskursii, seychelles_ru, seyshely_dayving, transfer_seyshely, seyshely_oteli, ostrov_fregat, ostrov_la_dig, ostrov_sent_ann, ostrov_siluet
+ Сейшелы        |        112 | Праслин             |  1 | ostrov_praslin
+ Сейшелы        |        112 | Виктория            |  1 | seisheli_chat
+ Словения       |        161 | Любляна             |  1 | sloveniya_chat
+ ЮАР            |        120 | Кейптаун            |  3 | keiptayn_chat, ceiptaun_chat, keiptaun_chat
+ ЮАР            |        120 | — нет токена        |  1 | africa_market
+ ЮАР            |        120 | Претория            |  1 | pretoriya_chat
+ ЮАР            |        120 | Порт-Элизабет       |  1 | port_elizabet
+ ЮАР            |        120 | Йоханнесбург        |  1 | iohannesburg_chat
+ ЮАР            |        120 | Дурбан              |  1 | durban_chatik
+ Южная Корея    |        101 | (Ю.Корея — гео нет) | 30 | ozonfbohelp, zarabotaispolzoi, woman_korea, tae_house2, southkoreachat, rabota_vsya_korea, pro1000parts, domvkoree, fishretailtrade, korea_baraholka, autopartskorea_eurasiamotors, forum_korea, koreancity_shop, mastercar125chat, arenda_korea, autojpvdk, chat_vsya_korea, diatechsauzb, fruitinfo, group_vsya_korea, guidetokorea, korea_relokaciya, koreacosmeticshoping_ua, koreainforu, koreastyleua, korenovka, meatinfotrade, milknettrade, mykoreanwork, nepopaldomoichat
+(35 rows)
+

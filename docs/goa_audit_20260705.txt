@@ -1,0 +1,42 @@
+  id  | chat_username |                                                  title                                                  | participants | verdict  
+------+---------------+---------------------------------------------------------------------------------------------------------+--------------+----------
+ 2103 | goaindiachat  | ГОА | ИНДИЯ | ЧАТ | ФОРУМ ⛈ 🌞 🌴                                                                       |        20282 | SUSPECT
+ 1074 | GoaChatik     | Гоа чатик 🇮🇳 | CHATIK                                                                                   |         5644 | SUSPECT
+ 1075 | goasiachat    | Go Asia Chat                                                                                            |          759 | SUSPECT
+ 2101 | GOaktivTIKTOK | Чат активности VK | TIK TOK                                                                             |          216 | SUSPECT
+  443 | goacoach      | Теории и практики в Гоа                                                                                 |              | SUSPECT
+  444 | goafree       | ОТДАМ / Гоа                                                                                             |              | SUSPECT
+  445 | goahouses     | Аренда жилья в Гоа                                                                                      |              | SUSPECT
+  447 | goavisasam    | 🇮🇳 ГОА/ Индия /Русский Чат Форум/ Visasam.ru /Визы в Индию 2023 🇮🇳                                      |              | SUSPECT
+  453 | goamarket     | ♻️ ГОА / барахолка объявления чат                                                                        |              | SUSPECT
+  437 | goapractic    | ГОА 🕉 ПРАКТИК                                                                                           |              | SUSPECT
+  464 | goapartymaker | 3,687 — Goa party maker                                                                                 |              | SUSPECT
+  441 | goapeople2019 | Гоа People                                                                                              |              | SUSPECT
+  442 | goabikes      | Аренда байков в Гоа                                                                                     |              | SUSPECT
+  465 | goayoga       | 481 — Yoga in Goa                                                                                       |              | SUSPECT
+  463 | goabeauty     | 721 — Goa beauty                                                                                        |              | SUSPECT
+ 2623 | goa_chat_1    | 🌏Проще говоря. ГОА                                                                                     |         6609 | TRUE_goa
+ 1076 | chats_goa     | Гоа | Индия - Общение Чат                                                                               |         2273 | TRUE_goa
+ 1388 | primus_banya  | Русская Баня/Russian Banya “Primus”, Morjim, Goa ГОА                                                    |         1281 | TRUE_goa
+ 1389 | goa_rus_ads   | ГОА УСЛУГИ ОБЪЯВЛЕНИЯ                                                                                   |          264 | TRUE_goa
+ 1387 | Goa_Russia    | Гоа: инструкция по релаксу🌴                                                                            |          204 | TRUE_goa
+ 2104 | goa_chats     | Goa Local ( Beach ) Chats | в ГОА Чаты Чат| गोवा चाट गोवा चैट|                                           |           27 | TRUE_goa
+ 1392 | russian_goa   | Русский в ГОА                                                                                           |           22 | TRUE_goa
+ 2102 | norco8        | ЧАТ Lost in Goa                                                                                         |            9 | TRUE_goa
+  802 | goa_moto      | мото                                                                                                    |              | TRUE_goa
+  459 | sportingoa    | 287 — 《《GoaСпорт 2023 // Sport in Goa》》                                                             |              | TRUE_goa
+  461 | goa_south     | 952 — 🐉 GOA / Юг                                                                                       |              | TRUE_goa
+  462 | goa_spb       | 395 — 🐉 GOA / Питер / посылки и передачи                                                               |              | TRUE_goa
+  457 | goa_uslugi    | 4,708 — 🐉 GOA / Частные услуги                                                                         |              | TRUE_goa
+  458 | pokatushkigoa | 96 — ЧетверЖГИ.                                                                                         |              | TRUE_goa
+  436 | ashwem        | Ашвем ГОА                                                                                               |              | TRUE_goa
+  173 | drzblch       | Межгалактический Чат | Визы в Индию | Гоа, Непал, Шри-Ланка, Таиланд, Индонезия, Бали, ЮВА, Путешествия |              | TRUE_goa
+  438 | arenda_goa    | 💤 ГОА / жильё аренда недвижимость                                                                      |              | TRUE_goa
+  439 | boardgoa      | Купить Продать в Гоа / Goa                                                                              |              | TRUE_goa
+  440 | buyingoa      | Купи Продай Гоа                                                                                         |              | TRUE_goa
+  448 | kipish_goa    | Кипиш Гоа                                                                                               |              | TRUE_goa
+  449 | medicinegoa   | Гоа Медицинская помощь                                                                                  |              | TRUE_goa
+  450 | poput4iki     | Попутчики Гоа+                                                                                          |              | TRUE_goa
+  454 | marketgoa     | Барахолка Гоа                                                                                           |              | TRUE_goa
+(38 rows)
+

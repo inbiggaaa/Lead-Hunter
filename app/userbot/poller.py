@@ -1224,6 +1224,7 @@ class ChannelPoller:
             # Search both username and title — many channels have city in @name
             search_text = f"{ch.chat_username.lower()} {ch.title.lower()}"
             city_hits: list[int] = []
+            city_scores: dict[int, float] = {}
             seen_city_ids: set[int] = set()
 
             # Pass 1: exact substring match (name in username or title)
@@ -1232,6 +1233,7 @@ class ChannelPoller:
                     continue
                 if city_name in search_text:
                     city_hits.append(city_id)
+                    city_scores[city_id] = 1.0
                     seen_city_ids.add(city_id)
 
             # Pass 2: fuzzy match (transliteration variants: Анталья/Анталия)
@@ -1249,6 +1251,7 @@ class ChannelPoller:
                         score = SequenceMatcher(None, city_name, word).ratio()
                         if score >= threshold:
                             city_hits.append(city_id)
+                            city_scores[city_id] = score
                             seen_city_ids.add(city_id)
                             logger.info(
                                 "Fuzzy match: '%s' vs '%s' in @%s (score: %.2f)",
@@ -1259,13 +1262,15 @@ class ChannelPoller:
             unique = list(dict.fromkeys(city_hits))
             if not unique:
                 continue
+            match_score = min(city_scores[c] for c in unique)
+            needs_review = match_score < settings.review_score_threshold
 
             if len(unique) == 1:
                 async with async_session_factory() as s:
                     await s.execute(
                         sa_update(CatalogChannel)
                         .where(CatalogChannel.id == ch.id)
-                        .values(auto_matched_city_id=unique[0])
+                        .values(auto_matched_city_id=unique[0], match_score=match_score, needs_review=needs_review)
                     )
                     await s.commit()
                 tagged += 1
@@ -1280,7 +1285,7 @@ class ChannelPoller:
                     await s.execute(
                         sa_update(CatalogChannel)
                         .where(CatalogChannel.id == ch.id)
-                        .values(auto_matched_city_id=unique[0])
+                        .values(auto_matched_city_id=unique[0], match_score=match_score, needs_review=needs_review)
                     )
                     await s.commit()
                 tagged += 1

@@ -1,0 +1,12 @@
+       tag       |  country   |  chat_username  
+-----------------+------------+-----------------
+ city_eq_country | Люксембург | luxembourg_chat
+ city_eq_country | Макао      | macao_chat
+ city_eq_country | Монако     | monacochat
+ city_eq_country | Сан-Марино | sanmarino_chat
+(4 rows)
+
+ tag | slug | in_country | name_ru 
+-----+------+------------+---------
+(0 rows)
+

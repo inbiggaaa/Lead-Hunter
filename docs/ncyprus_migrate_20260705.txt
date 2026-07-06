@@ -1,0 +1,47 @@
+BEGIN
+CREATE TABLE
+INSERT 0 15
+  tag   | country | city | count 
+--------+---------+------+-------
+ BEFORE |      96 |      |     1
+ BEFORE |     100 |  137 |     3
+ BEFORE |     100 |      |    11
+(3 rows)
+
+INSERT 0 1
+CREATE TABLE
+INSERT 0 1
+      tag       | id  
+----------------+-----
+ new_country_id | 387
+(1 row)
+
+UPDATE 15
+UPDATE 3
+DELETE 0
+    tag     | moved | verdict 
+------------+-------+---------
+ GATE_moved |    15 | OK
+(1 row)
+
+    tag     | still_137 | verdict 
+------------+-----------+---------
+ GATE_no137 |         0 | OK
+(1 row)
+
+        tag         | country_id | verdict 
+--------------------+------------+---------
+ GATE_city137_owner |        100 | OK
+(1 row)
+
+  tag  | country | city | count 
+-------+---------+------+-------
+ AFTER |     387 |      |    15
+(1 row)
+
+     tag      | cyprus_active 
+--------------+---------------
+ cyprus_after |            53
+(1 row)
+
+ROLLBACK

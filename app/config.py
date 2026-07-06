@@ -113,6 +113,7 @@ class Settings(BaseSettings):
     dormant_interval: int = 43200         # seconds, Dormant tier (12 h)
     hot_degraded_multiplier: float = 2.0  # ×2 when only 1 healthy account
     post_ban_interval_multiplier: float = 1.5  # ×1.5 during post-ban mode
+    review_score_threshold: float = 0.90  # ниже → канал в needs_review (карантин)
     hot_interval_cap: int = 1200          # seconds, effective interval ceiling (20 min)
     daily_report_hour: int = 19
     business_hidden_cap_channels: int = 60

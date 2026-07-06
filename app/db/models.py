@@ -207,6 +207,8 @@ class CatalogChannel(Base):
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_ignored: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     manually_reviewed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
+    match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     auto_matched_country_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("countries.id", ondelete="SET NULL")
     )

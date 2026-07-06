@@ -1,0 +1,60 @@
+BEGIN
+CREATE TABLE
+INSERT 0 22
+SELECT 22
+     tag      | n  | bad | verdict 
+--------------+----+-----+---------
+ GATE_anchors | 22 |   0 | OK
+(1 row)
+
+      tag      | count 
+---------------+-------
+ cities_before |     0
+(1 row)
+
+INSERT 0 22
+UPDATE 22
+UPDATE 2
+UPDATE 1
+     tag     | n  | verdict 
+-------------+----+---------
+ GATE_cities | 22 | OK
+(1 row)
+
+    tag     | n  
+------------+----
+ GATE_bound | 25
+(1 row)
+
+    tag     | bad | verdict 
+------------+-----+---------
+ GATE_owner |   0 | OK
+(1 row)
+
+     tag      |    country     |      city      | id  
+--------------+----------------+----------------+-----
+ AFTER_cities | Ангола         | Луанда         | 406
+ AFTER_cities | Багамы         | Нассау         | 407
+ AFTER_cities | Бахрейн        | Манама         | 408
+ AFTER_cities | Венесуэла      | Каракас        | 400
+ AFTER_cities | Венесуэла      | Пуэрто-ла-Крус | 401
+ AFTER_cities | Исландия       | Рейкьявик      | 409
+ AFTER_cities | Камбоджа       | Кампот         | 410
+ AFTER_cities | Куба           | Варадеро       | 403
+ AFTER_cities | Куба           | Гавана         | 402
+ AFTER_cities | Малайзия       | Лангкави       | 398
+ AFTER_cities | Малайзия       | Пинанг         | 399
+ AFTER_cities | Мозамбик       | Мапуту         | 411
+ AFTER_cities | Мьянма (Бирма) | Янгон          | 412
+ AFTER_cities | Парагвай       | Асунсьон       | 413
+ AFTER_cities | Сейшелы        | Виктория       | 405
+ AFTER_cities | Сейшелы        | Праслин        | 404
+ AFTER_cities | Словения       | Любляна        | 414
+ AFTER_cities | ЮАР            | Дурбан         | 395
+ AFTER_cities | ЮАР            | Йоханнесбург   | 394
+ AFTER_cities | ЮАР            | Кейптаун       | 393
+ AFTER_cities | ЮАР            | Порт-Элизабет  | 397
+ AFTER_cities | ЮАР            | Претория       | 396
+(22 rows)
+
+ROLLBACK

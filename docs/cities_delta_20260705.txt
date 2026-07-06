@@ -1,0 +1,28 @@
+     tag      | count 
+--------------+-------
+ cities_total |   256
+(1 row)
+
+      tag      | id  |      slug       |   name_ru   | country_id 
+---------------+-----+-----------------+-------------+------------
+ recent_cities | 443 | barnaul         | Барнаул     |          4
+ recent_cities | 442 | ubud            | Убуд        |          2
+ recent_cities | 441 | dahab           | Дахаб       |        106
+ recent_cities | 438 | Kair            | Каир        |        106
+ recent_cities | 437 | Sharm_El-Sheikh | Шарм-эш-Шей |        106
+ recent_cities | 436 | ljubljana       | Любляна     |        161
+ recent_cities | 435 | asuncion        | Асунсьон    |        160
+ recent_cities | 434 | yangon          | Янгон       |        158
+ recent_cities | 433 | maputo          | Мапуту      |        159
+ recent_cities | 432 | kampot          | Кампот      |        143
+ recent_cities | 431 | reykjavik       | Рейкьявик   |        152
+ recent_cities | 430 | manama          | Манама      |        150
+(12 rows)
+
+     tag     | id  | slug |     name_ru     |  country   
+-------------+-----+------+-----------------+------------
+ short_slugs | 202 | osh  | Ош              | Кыргызстан
+ short_slugs |  16 | spb  | Санкт-Петербург | Россия
+ short_slugs | 171 | ufa  | Уфа             | Россия
+(3 rows)
+

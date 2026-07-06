@@ -1,0 +1,74 @@
+BEGIN
+    tag    | n | verdict 
+-----------+---+---------
+ GATE_subs | 0 | OK
+(1 row)
+
+      tag      | n | verdict 
+---------------+---+---------
+ GATE_bcn_slug | 0 | OK
+(1 row)
+
+      tag      | id | slug | name_ru | country_id 
+---------------+----+------+---------+------------
+ BEFORE_cities | 72 | goa  | Гоа     |          3
+ BEFORE_cities | 77 | bar  | Бар     |         98
+ BEFORE_cities | 93 | kas  | Каш     |        104
+(3 rows)
+
+DELETE 0
+UPDATE 6
+SELECT 7
+    tag     | count 
+------------+-------
+ goa_true_n |     7
+(1 row)
+
+UPDATE 7
+DELETE 0
+UPDATE 8
+DELETE 2
+UPDATE 1
+SELECT 9
+   tag    |  id  |       chat_username        
+----------+------+----------------------------
+ bar_junk | 1583 | DahaBarberChat
+ bar_junk | 1467 | barcelona_rus
+ bar_junk | 1268 | chat_barcelona_bcn
+ bar_junk |  220 | detskayabarakholka_ik_np
+ bar_junk | 1466 | fcbarcelona_russia
+ bar_junk | 1734 | fckngbarber
+ bar_junk | 1049 | kutaisi_ads_baraholka_chat
+ bar_junk |  221 | obiyavleniya_ispanckie_kv
+ bar_junk | 1145 | tbilisi_baraholka_chat
+(9 rows)
+
+DELETE 0
+UPDATE 9
+UPDATE 1
+       tag        | n | verdict 
+------------------+---+---------
+ GATE_cities_gone | 0 | OK
+(1 row)
+
+      tag       | n | verdict 
+----------------+---+---------
+ GATE_goa_moved | 7 | OK
+(1 row)
+
+       tag        |   slug    |  name_ru  | verdict 
+------------------+-----------+-----------+---------
+ GATE_bar_renamed | barcelona | Барселона | OK
+(1 row)
+
+    tag     | auto_matched_city_id | verdict 
+------------+----------------------+---------
+ GATE_kazan |                  165 | OK
+(1 row)
+
+     tag      | id |   slug    |  name_ru  | country_id 
+--------------+----+-----------+-----------+------------
+ AFTER_cities | 77 | barcelona | Барселона |         98
+(1 row)
+
+ROLLBACK

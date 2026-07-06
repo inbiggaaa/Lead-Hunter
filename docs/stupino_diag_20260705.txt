@@ -1,0 +1,26 @@
+   tag   |  id  |    chat_username    |           title           | country_id |  country   | city_id | city | is_ignored | manually_reviewed 
+---------+------+---------------------+---------------------------+------------+------------+---------+------+------------+-------------------
+ channel | 2199 | stupino_cashira     | Ступино Кашира Объявления |        104 | Португалия |         |      | f          | f
+ channel | 2198 | stupino_obyavleniya | Ступино Кашира Объявления |        104 | Португалия |         |      | f          | f
+ channel | 2197 | stupino_kashira1    | Ступино Кашира Объявления |        104 | Португалия |         |      | f          | t
+(3 rows)
+
+ tag | channel_id | city_id | name_ru | country 
+-----+------------+---------+---------+---------
+(0 rows)
+
+   tag    | id  |  name_ru   | n_cities 
+----------+-----+------------+----------
+ portugal | 104 | Португалия |        4
+(1 row)
+
+  tag   | id | name_ru | country 
+--------+----+---------+---------
+ moscow | 15 | Москва  | Россия
+(1 row)
+
+    tag     | count 
+------------+-------
+ kash_ghost |     0
+(1 row)
+

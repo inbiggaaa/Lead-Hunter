@@ -69,6 +69,7 @@ async def list_channels(
     city_id: int | None = None,
     is_ignored: bool | None = None,
     discovered_after: str | None = None,
+    needs_review: bool | None = None,
 ):
     async with async_session_factory() as session:
         stmt = select(CatalogChannel)
@@ -88,6 +89,8 @@ async def list_channels(
                 stmt = stmt.where(CatalogChannel.discovered_at >= cutoff)
             except ValueError:
                 pass  # ignore malformed date, don't filter
+        if needs_review is not None:
+            stmt = stmt.where(CatalogChannel.needs_review == needs_review)
         if country_id is not None:
             stmt = stmt.where(CatalogChannel.auto_matched_country_id == country_id)
         if city_id is not None:
@@ -152,6 +155,8 @@ async def list_channels(
                 "auto_matched_country_id": ch.auto_matched_country_id,
                 "auto_matched_city_id": ch.auto_matched_city_id,
                 "manually_reviewed": ch.manually_reviewed,
+                "match_score": ch.match_score,
+                "needs_review": ch.needs_review,
                 "city_ids": sorted(effective_city_ids),
                 "discovered_at": ch.discovered_at.isoformat()
                 if ch.discovered_at
@@ -191,6 +196,8 @@ async def get_channel(channel_id: int):
             "auto_matched_country_id": ch.auto_matched_country_id,
             "auto_matched_city_id": ch.auto_matched_city_id,
             "manually_reviewed": ch.manually_reviewed,
+            "match_score": ch.match_score,
+            "needs_review": ch.needs_review,
             "discovered_at": ch.discovered_at.isoformat()
             if ch.discovered_at
             else None,
@@ -210,7 +217,7 @@ async def update_channel(channel_id: int, data: dict):
 
         updatable = {"title", "participants", "is_verified",
                       "auto_matched_country_id", "auto_matched_city_id",
-                      "is_ignored", "manually_reviewed"}
+                      "is_ignored", "manually_reviewed", "needs_review"}
         for k, v in data.items():
             if k in updatable:
                 setattr(ch, k, v)

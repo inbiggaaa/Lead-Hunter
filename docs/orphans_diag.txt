@@ -1,0 +1,156 @@
+ORPHANS total: 830
+CITIES in DB: 228
+TOKEN->COUNTRY index: 495 unique tokens
+
+A (city in same country, not matched)  : 21  <- matcher gap
+B (city in OTHER country, ambiguous)      : 72  <- cross-country confusion
+C (no geo token in name/title)             : 737  <- missing city in DB or no signal
+
+== A MATCHER GAP (21) -- first 30 ==
+  [1] @rio_dejaneiro_chat | объявления | country=108 | hits=['rio']
+  [2] @phi_phi_chat | Пхи пхи чат 23 февраля | country=3 | hits=['пхи', 'phi']
+  [3] @CHAT_RIO | Rio ▾ CHAT | country=108 | hits=['rio']
+  [4] @ilkemRio | ILKEM RIO чат жильцов | country=108 | hits=['rio']
+  [5] @Checker_toan_quoc_vip | Bà rịa - Vũng Tàu _VIP⚜️ Chat | country=1 | hits=['quoc']
+  [6] @ABU_DABI_OFFICIAL_CHAT | ABU_DABI_OFFICIAL_CHAT | country=107 | hits=['abu']
+  [7] @Project_RIO | Project: Rush Into Oblivion | country=108 | hits=['rio']
+  [8] @brchats_92 | Б/У РЫНОК RIO • BLACK RUSSIA #BRChats2026 Chat | country=108 | hits=['rio']
+  [9] @Samui_chat | Ραύςκυύ чατ 🌴 | country=3 | hits=['samui']
+  [10] @chat_rio_berdychiv | ЧАТ РІО | country=108 | hits=['rio']
+  [11] @byenos_aires | экспаты | country=103 | hits=['aires']
+  [12] @jaraguayhl_solteirasq | Chat Ilhéus Aventuras românticas para solteiros - São Paulo Brasil | country=108 | hits=['paulo']
+  [13] @samui_uslugi | услуги | country=3 | hits=['samui']
+  [14] @rio_prschat | rio chat ₊˚⊹♡ | country=108 | hits=['rio']
+  [15] @rio_russia | Kia Rio Ремонт и Обслуживание | country=108 | hits=['rio']
+  [16] @kia_rio_ru | Kia Rio клуб • Киа Рио чат | country=108 | hits=['rio', 'рио']
+  [17] @Buomdemdam14 | Bướm Đêm TP. Hồ Chí Minh Chat | country=1 | hits=['minh']
+  [18] @riotoursuzz | RIO TOURS chat | country=108 | hits=['rio']
+  [19] @muichiro_needL | mui_talking chat | country=1 | hits=['mui']
+  [20] @forum_mexico | Уезжант форум - Едем в Мексику | эмиграция чат | country=115 | hits=['mexico']
+  [21] @rio_chat | Оттяжка Фри Фаер [Rio] | country=108 | hits=['rio']
+
+== B CROSS-COUNTRY (72) -- first 30 ==
+  [1] @goa_moto | мото | country=119 | hits=['goa']
+  [2] @larnaca_ukraine_chat | Українці в Ларнаці | Кіпр | country=151 | hits=['larnaca']
+  [3] @dubai_rus_chat | Дубай Чат Вопрос-Ответ🇦🇪! ВНЖ! Услуги, знакомства! | country=114 | hits=['дубай', 'dubai']
+  [4] @goapractic | ГОА 🕉 ПРАКТИК | country=102 | hits=['гоа']
+  [5] @medicinegoa | Гоа Медицинская помощь | country=102 | hits=['гоа']
+  [6] @bar_montenegro_chat | Бар Черногория Чат 🇲🇪 Bar Montenegro Chat | country=99 | hits=['bar', 'бар']
+  [7] @primus_banya | Русская Баня/Russian Banya “Primus”, Morjim, Goa ГОА | country=119 | hits=['гоа', 'goa']
+  [8] @goayoga | 481 — Yoga in Goa | country=102 | hits=['goa']
+  [9] @SharmElsheikhTG | Шарм-эль-Шейх ЧАТ🇪🇬 | country=106 | hits=['эль']
+  [10] @goabikes | Аренда байков в Гоа | country=102 | hits=['гоа']
+  [11] @avia_tashkent | 188 — aviakassa-TOSHKENT | country=114 | hits=['tashkent']
+  [12] @chat_vsya_korea | 8,230 — ИНФО. Вся Корея | country=101 | hits=['вся']
+  [13] @sportingoa | 287 — 《《GoaСпорт 2023 // Sport in Goa》》 | country=102 | hits=['goa']
+  [14] @goafree | ОТДАМ / Гоа | country=102 | hits=['гоа']
+  [15] @pyerto_riko | Пуэрто-Рико — Сан-Хуан | country=107 | hits=['сан']
+  [16] @fivesquaresdahab | ДАХАБ - МУЙНЕ: виндсерфинг, винг, кайт. Чат 5 Квадратов 🤙 | country=106 | hits=['муйне']
+  [17] @chatDogovorMNE | Оформление ВНЖ | Договор аренды|Бар|Черногория (чат)️ | country=99 | hits=['бар']
+  [18] @goa_spb | 395 — 🐉 GOA / Питер / посылки и передачи | country=102 | hits=['goa', 'spb']
+  [19] @goa_south | 952 — 🐉 GOA / Юг | country=102 | hits=['goa']
+  [20] @salwador_chat | Сальвадор — Сан-Сальвадор | country=107 | hits=['сан']
+  [21] @goa_chats | Goa Local ( Beach ) Chats | в ГОА Чаты Чат| गोवा चाट गोवा चैट| | country=119 | hits=['гоа', 'goa']
+  [22] @dybaigo | ДУБАЙ / Go | country=114 | hits=['дубай']
+  [23] @buyingoa | Купи Продай Гоа | country=102 | hits=['гоа']
+  [24] @goacoach | Теории и практики в Гоа | country=102 | hits=['гоа']
+  [25] @dubai_lux_rental | Аренда Дубай Сдам/Сниму Премиум | country=114 | hits=['дубай', 'dubai']
+  [26] @dubaitopic | Полезный чат: Дубай | country=114 | hits=['дубай']
+  [27] @goaindiachat | ГОА | ИНДИЯ | ЧАТ | ФОРУМ ⛈ 🌞 🌴 | country=119 | hits=['гоа']
+  [28] @Chathastaquelaplatanossepare | (Comentarios) Hasta que la Plata Nos Separe 2006 | country=108 | hits=['plata']
+  [29] @spb_fulfillment | 3,898 — Фулфилмент Санкт-Петербург/ ФФ СПБ /Фулфилмент в спб FF_service_SPB | country=97 | hits=['петербург', 'spb', 'санкт']
+  [30] @sharm_eli_sheih | Шарм-эль-шейх чат | country=106 | hits=['эль']
+
+== C NO GEO SIGNAL (737) -- first 40 ==
+  [1] @uaespchat | 1,649 — Чат / Оголошення 🇺🇦 Україна / Іспанія 🇪🇦 Украина / Испания 📝 | country=98 | hits=--
+  [2] @yourealate | YOUR REAL ESTATE | country=96 | hits=--
+  [3] @chendu_chat | Чэнду — общий | country=109 | hits=--
+  [4] @montenegro_chat | 6,065 — Черногория Чат🇲🇪 Montenegro | country=99 | hits=--
+  [5] @colombia_chat | 1,743 — 🇨🇴 Колумбия чат | country=130 | hits=--
+  [6] @moneymontenegro | 10,172 — Черногория 🇲🇪/ Деньги / Обмен валюты / Криптовалюта | country=99 | hits=--
+  [7] @namibiya_chat | Намибия — Виндхук | country=107 | hits=--
+  [8] @SHARM_UC_CHAT | SHARM UC SHOP CHAT | country=106 | hits=--
+  [9] @batareyka125rus | 3,351 — Батарейка25 - авто из Японии, Кореи и ОАЭ | country=107 | hits=--
+  [10] @tailand_visa | Виза | country=3 | hits=--
+  [11] @chernogoria_realty | 10,200 — 🏠 ЧЕРНОГОРИЯ / Аренда и продажа недвижимости | country=99 | hits=--
+  [12] @sriktoletit | 595 — Кто летит на Шри-Ланку | country=105 | hits=--
+  [13] @marsaalam_egipet | Marsa Alam | country=106 | hits=--
+  [14] @estoniya_medicina | медицина | country=126 | hits=--
+  [15] @viza_v_ameriky | визы | country=118 | hits=--
+  [16] @shri_lanka_bentota | Bentota | country=105 | hits=--
+  [17] @fem_egipet | Женский | country=106 | hits=--
+  [18] @tegeran_chat | общий | country=128 | hits=--
+  [19] @indiya_poputchiki | попутчики | country=119 | hits=--
+  [20] @bolcano_chat | Больцано — общий | country=153 | hits=--
+  [21] @Ubud_bg | Чат Убуд 🇮🇩 | B-G | country=2 | hits=--
+  [22] @digura_maldivy | Dhigurah | country=110 | hits=--
+  [23] @vietnam_bazaar | Вьетнам Чат Bazaar | country=1 | hits=--
+  [24] @toplatindancechat | Top Latin Dance chat | country=1 | hits=--
+  [25] @caracas_chat | Каракас — экспаты | country=127 | hits=--
+  [26] @vizaranmontenegro | 8,286 — Черногория 🇲🇪/ Визаран / Трансфер | country=99 | hits=--
+  [27] @phis_chat | Чат | Физкультура про другое | country=4 | hits=--
+  [28] @lagos_chatik | Лагос — общий | country=104 | hits=--
+  [29] @zhivotnye_egipet | Животные | country=106 | hits=--
+  [30] @cairoYOUREBESTCHAT | CAIRO CHAT🇪🇬/ КАИР ЧАТ🇪🇬 | country=106 | hits=--
+  [31] @shri_lanka_arugambay | Arugam Bay | country=105 | hits=--
+  [32] @specialistsmontenegro | 9,715 — Черногория 🇲🇪/ Специалисты | country=99 | hits=--
+  [33] @cyvisaorg | 11,505 — Все про полеты на Кипр или с Кипра | country=100 | hits=--
+  [34] @thailand_help | 6,549 — Помощь в Таиланде | country=3 | hits=--
+  [35] @rent_vietnam | Недвижимость Вьетнам — аренда | country=1 | hits=--
+  [36] @piterdaishe | 651 — ПИТЕРДА ИШ ЕЛОН. | country=123 | hits=--
+  [37] @Dating_Chat_Latvia | Знакомства Наших в Латвии 🇱🇻 Чат | Dating Latvia Chat | country=1 | hits=--
+  [38] @uslugi_tursia | Услуги 🇹🇷 Турция | country=96 | hits=--
+  [39] @baiya_blanka | Баия-Бланка — общий | country=103 | hits=--
+  [40] @ExpatsinEspana | Expats in Spain | country=98 | hits=--
+
+== TOP-50 TOKENS in C (candidates for new cities, debt #5) ==
+    212  chat
+    121  чат
+     84  общий
+     42  lanka
+     34  shri
+     30  объявления
+     27  черногория
+     26  egipet
+     23  forum
+     22  кипр
+     21  tailand
+     20  expats
+     19  турция
+     19  tursia
+     18  релокация
+     17  sri
+     16  аренда
+     16  шри
+     16  медицина
+     16  вьетнам
+     16  russia
+     15  vietnam
+     15  недвижимость
+     14  medicina
+     14  ланка
+     14  работа
+     13  испания
+     13  chatik
+     13  georgia
+     13  cyprus
+     13  argentina
+     12  экспаты
+     12  египет
+     12  аргентина
+     11  визы
+     11  попутчики
+     11  maldivy
+     11  thailand
+     11  услуги
+     11  русские
+     11  грузия
+     11  барахолка
+     11  форум
+     11  внж
+     10  виза
+     10  cairo
+     10  spain
+     10  таиланд
+     10  корея
+      9  visa

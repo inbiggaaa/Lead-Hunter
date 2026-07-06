@@ -1,0 +1,76 @@
+RETAG DRY-RUN — транслит-ретеггер на ВСЕХ орфанах (830), не только A
+═══
+Проверено орфанов:    830
+ОДНОЗНАЧНО:           10  ← авто-привязалось бы
+НЕОДНОЗНАЧНО (>1):    0  ← в ручную очередь
+БЕЗ РЕЗУЛЬТАТА:       820  ← не помог транслит
+
+== ОДНОЗНАЧНЫЕ (ВСЕ 10) — username/заголовок -> город [тип] ==
+  [  1] @tegeran_chat | общий | → Тегеран [exact] country=128
+  [  2] @PaFoS_Tabak_Chat | PaFoS_Chat | → Пафос [exact] country=100
+  [  3] @Samui_chat | Ραύςκυύ чατ 🌴 | → Самуи [exact] country=3
+  [  4] @pafosmem_chat | Pafos Coin Chat | → Пафос [exact] country=100
+  [  5] @kasablanka_chat | общий | → Касабланка [exact] country=124
+  [  6] @samui_uslugi | услуги | → Самуи [exact] country=3
+  [  7] @pafoscoin_chat | Pafos chat | → Пафос [exact] country=100
+  [  8] @pafosandsotirachat | Pafos&Sotira Chat | → Пафос [exact] country=100
+  [  9] @Fukuoka_Chat | Чатик | → Фукуок [fuzzy_0.92] country=1
+  [ 10] @valensiya_chat | общий | → Валенсия [exact] country=98
+
+== НЕОДНОЗНАЧНЫЕ (0) ==
+
+== БЕЗ РЕЗУЛЬТАТА — первые 50 из 820 ==
+  [  1] @uaespchat | 1,649 — Чат / Оголошення 🇺🇦 Україна / Іспанія 🇪🇦 Украина / Испания 📝 | country=98
+  [  2] @yourealate | YOUR REAL ESTATE | country=96
+  [  3] @chendu_chat | Чэнду — общий | country=109
+  [  4] @montenegro_chat | 6,065 — Черногория Чат🇲🇪 Montenegro | country=99
+  [  5] @colombia_chat | 1,743 — 🇨🇴 Колумбия чат | country=130
+  [  6] @moneymontenegro | 10,172 — Черногория 🇲🇪/ Деньги / Обмен валюты / Криптовалюта | country=99
+  [  7] @goa_moto | мото | country=119
+  [  8] @namibiya_chat | Намибия — Виндхук | country=107
+  [  9] @larnaca_ukraine_chat | Українці в Ларнаці | Кіпр | country=151
+  [ 10] @SHARM_UC_CHAT | SHARM UC SHOP CHAT | country=106
+  [ 11] @batareyka125rus | 3,351 — Батарейка25 - авто из Японии, Кореи и ОАЭ | country=107
+  [ 12] @tailand_visa | Виза | country=3
+  [ 13] @chernogoria_realty | 10,200 — 🏠 ЧЕРНОГОРИЯ / Аренда и продажа недвижимости | country=99
+  [ 14] @rio_dejaneiro_chat | объявления | country=108
+  [ 15] @sriktoletit | 595 — Кто летит на Шри-Ланку | country=105
+  [ 16] @marsaalam_egipet | Marsa Alam | country=106
+  [ 17] @estoniya_medicina | медицина | country=126
+  [ 18] @viza_v_ameriky | визы | country=118
+  [ 19] @shri_lanka_bentota | Bentota | country=105
+  [ 20] @fem_egipet | Женский | country=106
+  [ 21] @indiya_poputchiki | попутчики | country=119
+  [ 22] @dubai_rus_chat | Дубай Чат Вопрос-Ответ🇦🇪! ВНЖ! Услуги, знакомства! | country=114
+  [ 23] @bolcano_chat | Больцано — общий | country=153
+  [ 24] @Ubud_bg | Чат Убуд 🇮🇩 | B-G | country=2
+  [ 25] @digura_maldivy | Dhigurah | country=110
+  [ 26] @vietnam_bazaar | Вьетнам Чат Bazaar | country=1
+  [ 27] @toplatindancechat | Top Latin Dance chat | country=1
+  [ 28] @caracas_chat | Каракас — экспаты | country=127
+  [ 29] @vizaranmontenegro | 8,286 — Черногория 🇲🇪/ Визаран / Трансфер | country=99
+  [ 30] @goapractic | ГОА 🕉 ПРАКТИК | country=102
+  [ 31] @phis_chat | Чат | Физкультура про другое | country=4
+  [ 32] @lagos_chatik | Лагос — общий | country=104
+  [ 33] @zhivotnye_egipet | Животные | country=106
+  [ 34] @cairoYOUREBESTCHAT | CAIRO CHAT🇪🇬/ КАИР ЧАТ🇪🇬 | country=106
+  [ 35] @shri_lanka_arugambay | Arugam Bay | country=105
+  [ 36] @specialistsmontenegro | 9,715 — Черногория 🇲🇪/ Специалисты | country=99
+  [ 37] @cyvisaorg | 11,505 — Все про полеты на Кипр или с Кипра | country=100
+  [ 38] @thailand_help | 6,549 — Помощь в Таиланде | country=3
+  [ 39] @rent_vietnam | Недвижимость Вьетнам — аренда | country=1
+  [ 40] @piterdaishe | 651 — ПИТЕРДА ИШ ЕЛОН. | country=123
+  [ 41] @Dating_Chat_Latvia | Знакомства Наших в Латвии 🇱🇻 Чат | Dating Latvia Chat | country=1
+  [ 42] @uslugi_tursia | Услуги 🇹🇷 Турция | country=96
+  [ 43] @baiya_blanka | Баия-Бланка — общий | country=103
+  [ 44] @ExpatsinEspana | Expats in Spain | country=98
+  [ 45] @chat_sharm | Чат Шарм | country=106
+  [ 46] @myhoianchat | Хойан сегодня 🇻🇳 Чат | country=1
+  [ 47] @bentoTanya_chat | БЕНТО|ТОРТЫ|ОРЕНБУРГ Chat | country=105
+  [ 48] @thai_official | 5,713 — 🇹🇭🏝Таиланд - путешествия, релокация, жизнь, быт. | country=3
+  [ 49] @gruziya_biznes | бизнес | country=97
+  [ 50] @phimnguoilonchat | Phim Người Lớn (Chat) | country=1
+
+== СТАТИСТИКА ==
+Точных (exact после транслита): 9
+Нечётких (fuzzy ≥0.90):         1

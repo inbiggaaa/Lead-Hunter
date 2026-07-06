@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
@@ -31,8 +31,6 @@ interface ChannelItem {
   is_verified: boolean;
   is_ignored: boolean;
   manually_reviewed: boolean;
-  match_score: number | null;
-  needs_review: boolean;
   auto_matched_country_id: number | null;
   auto_matched_city_id: number | null;
   city_ids: number[];
@@ -63,7 +61,7 @@ interface City {
 
 type FilterValue<T> = T | "all";
 
-type StatusFilter = "all" | "active" | "ignored" | "bez_privyazki" | "karantin";
+type StatusFilter = "all" | "active" | "ignored" | "bez_privyazki";
 
 export default function ChannelsPage() {
   const queryClient = useQueryClient();
@@ -91,7 +89,6 @@ export default function ChannelsPage() {
   if (search) params.set("search", search);
   if (statusFilter === "active") params.set("is_ignored", "false");
   else if (statusFilter === "ignored") params.set("is_ignored", "true");
-  else if (statusFilter === "karantin") params.set("needs_review", "true");
   else if (statusFilter === "bez_privyazki") {
     params.set("has_city", "false");
     params.set("is_ignored", "false");
@@ -125,8 +122,8 @@ export default function ChannelsPage() {
     staleTime: 300_000,
   });
 
-  const countries = useMemo(() => [...(countriesData?.items || [])].sort((a, b) => a.name_ru.localeCompare(b.name_ru, 'ru')), [countriesData]);
-  const cities = useMemo(() => [...(citiesData?.items || [])].sort((a, b) => a.name_ru.localeCompare(b.name_ru, 'ru')), [citiesData]);
+  const countries = countriesData?.items || [];
+  const cities = citiesData?.items || [];
   const orphansCount = orphansData?.total ?? null;
 
   // Cities filtered by selected country for the CITY filter dropdown
@@ -161,9 +158,9 @@ export default function ChannelsPage() {
   const totalPages = data ? Math.ceil(data.total / data.per_page) : 0;
 
   // Save: send auto_matched_city_id + cities + country_id + manually_reviewed
-  const handleSave = async (channelId: number, fallbackCountry: number | null) => {
+  const handleSave = async (channelId: number) => {
     const selectedCities = rowCities[channelId] || [];
-    const country = rowCountry[channelId] ?? fallbackCountry ?? null;
+    const country = rowCountry[channelId] ?? null;
     try {
       await api(`/api/channels/${channelId}`, {
         method: "PUT",
@@ -305,7 +302,6 @@ export default function ChannelsPage() {
                 <SelectItem value="active">Активные</SelectItem>
                 <SelectItem value="ignored">Игнор</SelectItem>
                 <SelectItem value="bez_privyazki">Без привязки</SelectItem>
-                <SelectItem value="karantin">Карантин</SelectItem>
               </SelectContent>
             </Select>
 
@@ -401,7 +397,6 @@ export default function ChannelsPage() {
                           <span className={[
                             "inline-block size-2 rounded-full mr-2 align-middle",
                             ch.is_ignored ? "bg-purple-500"
-                              : ch.needs_review ? "bg-red-500"
                               : ch.manually_reviewed ? "bg-green-500"
                               : "bg-orange-400",
                           ].join(" ")} />
@@ -412,11 +407,6 @@ export default function ChannelsPage() {
                             className="text-primary hover:underline"
                           >
                             @{ch.chat_username}
-                            {ch.needs_review && ch.match_score != null && (
-                              <span className="ml-1 text-xs text-red-500 tabular-nums">
-                                {ch.match_score.toFixed(2)}
-                              </span>
-                            )}
                           </a>
                         </TableCell>
                         <TableCell className="max-w-48 truncate">{ch.title || "—"}</TableCell>
@@ -462,7 +452,7 @@ export default function ChannelsPage() {
                               size="icon"
                               variant="ghost"
                               title="Сохранить"
-                              onClick={() => handleSave(ch.id, ch.auto_matched_country_id ?? null)}
+                              onClick={() => handleSave(ch.id)}
                             >
                               <Save className="size-4" />
                             </Button>

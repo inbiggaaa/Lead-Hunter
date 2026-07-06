@@ -1,0 +1,88 @@
+     tag      | city_id | name_ru |  country   | ch_id |        chat_username         |                                                  title                                                  
+--------------+---------+---------+------------+-------+------------------------------+---------------------------------------------------------------------------------------------------------
+ chan_on_city |      72 | Гоа     | Таиланд    |  1069 | GOAL24_Chat                  | Чат GOAL24
+ chan_on_city |      72 | Гоа     | Таиланд    |  1070 | GoGoat_Chat                  | Go Goat! Chat
+ chan_on_city |      72 | Гоа     | Таиланд    |  1074 | GoaChatik                    | Гоа чатик 🇮🇳 | CHATIK
+ chan_on_city |      72 | Гоа     | Таиланд    |  1076 | chats_goa                    | Гоа | Индия - Общение Чат
+ chan_on_city |      72 | Гоа     | Таиланд    |  1391 | GoalRush01                   | GOAL RUSH
+ chan_on_city |      72 | Гоа     | Таиланд    |  1075 | goasiachat                   | Go Asia Chat
+ chan_on_city |      72 | Гоа     | Таиланд    |  1390 | GoalRush1                    | Goal Rush
+ chan_on_city |      72 | Гоа     | Таиланд    |  1389 | goa_rus_ads                  | ГОА УСЛУГИ ОБЪЯВЛЕНИЯ
+ chan_on_city |      72 | Гоа     | Таиланд    |  1387 | Goa_Russia                   | Гоа: инструкция по релаксу🌴
+ chan_on_city |      72 | Гоа     | Таиланд    |  1386 | GOAT_MILK116_RUS             | Сельский край
+ chan_on_city |      72 | Гоа     | Таиланд    |  1392 | russian_goa                  | Русский в ГОА
+ chan_on_city |      72 | Гоа     | Таиланд    |  1078 | goal_chat                    | GoalHona | Чак Чаки Футбол
+ chan_on_city |      72 | Гоа     | Таиланд    |  1073 | Goatereumchat                | Goatereum - Community Chat
+ chan_on_city |      72 | Гоа     | Таиланд    |  1077 | goat_chat                    | Goat Chat
+ chan_on_city |      72 | Гоа     | Таиланд    |   173 | drzblch                      | Межгалактический Чат | Визы в Индию | Гоа, Непал, Шри-Ланка, Таиланд, Индонезия, Бали, ЮВА, Путешествия
+ chan_on_city |      77 | Бар     | Испания    |  1267 | barcelona_chat_ua            | Украинцы в Барселоне | Чат 🇪🇸
+ chan_on_city |      77 | Бар     | Испания    |  1145 | tbilisi_baraholka_chat       | Тбилиси | Барахолка & Объявления 🇬🇪
+ chan_on_city |      77 | Бар     | Испания    |  1265 | BarcelonaChatik              | Барселона чатик 🇪🇸 | CHATIK
+ chan_on_city |      77 | Бар     | Испания    |  1271 | barcelona668vip              | Barcelona668 VIP Chatroom
+ chan_on_city |      77 | Бар     | Испания    |  2038 | spain_granitsa               | Испания Барселона Чат
+ chan_on_city |      77 | Бар     | Испания    |  1731 | barmygroup                   | 🇻🇳🌍 B.ARMY - Blockchain Army Group Chat
+ chan_on_city |      77 | Бар     | Испания    |  1268 | chat_barcelona_bcn           | БАРСЕЛОНА ЧАТ и БАРАХОЛКА
+ chan_on_city |      77 | Бар     | Испания    |  1266 | Chat_de_Barcelona            | Барселона чат | Chat de Barcelona 🇪🇸
+ chan_on_city |      77 | Бар     | Испания    |  1732 | baryonnetwork                | Baryon Chat
+ chan_on_city |      77 | Бар     | Испания    |  1270 | barcelona_chatyt             | Барселона ЧАТ ♡ ИСПАНИИ
+ chan_on_city |      77 | Бар     | Испания    |  1269 | Barcelona_chat2              | 🇪🇸 БАРСЕЛОНА | ЧАТ | ИСПАНИЯ
+ chan_on_city |      77 | Бар     | Испания    |  2039 | barnachat1                   | Барселона-Чат Испания
+ chan_on_city |      77 | Бар     | Испания    |  1049 | kutaisi_ads_baraholka_chat   | KUTAISI 🇬🇪 Trade Ads/Барахолка Chat
+ chan_on_city |      77 | Бар     | Испания    |  1466 | fcbarcelona_russia           | 🔵 FC Barcelona 🔴
+ chan_on_city |      77 | Бар     | Испания    |  2040 | chat_barselona               | 🇪🇦 Барселона Чат
+ chan_on_city |      77 | Бар     | Испания    |  1381 | tapdoangai_bariavungtau      | TẬP ĐOÀN GÁI BÀ RỊA VŨNG TÀU Chat
+ chan_on_city |      77 | Бар     | Испания    |  2041 | barselona_chat               | Барселона чат
+ chan_on_city |      77 | Бар     | Испания    |  1421 | shambary_agency_chat         | DUBAI MEDIA PRO’S (video & photo expats) - Shambary Agency
+ chan_on_city |      77 | Бар     | Испания    |  1467 | barcelona_rus                | FC BARCELONA|ФК БАРСЕЛОНА
+ chan_on_city |      77 | Бар     | Испания    |  1737 | barn_chat                    | Это Алтай чат
+ chan_on_city |      77 | Бар     | Испания    |  1468 | VnJ_Barcelona                | M&A Spain Rus
+ chan_on_city |      77 | Бар     | Испания    |  1736 | bar_chat                     | Чат Типичный бармен
+ chan_on_city |      77 | Бар     | Испания    |  1734 | fckngbarber                  | FCKNG Barbers Community Chat
+ chan_on_city |      77 | Бар     | Испания    |  1469 | argentinazacion              | La rusa porteña en Barcelona
+ chan_on_city |      77 | Бар     | Испания    |  1738 | barz_chat                    | Max Barz 🇺🇸 chat
+ chan_on_city |      77 | Бар     | Испания    |  1733 | nftbarujka_chat              | NFT GIFTS BARUJKA CHAТ
+ chan_on_city |      77 | Бар     | Испания    |  1272 | BARCELONA_CHATI              | BARCELONA GRUPPA
+ chan_on_city |      77 | Бар     | Испания    |  1195 | namoro_mulheresqy_bombarrarf | Chat 🧡encontros💌 Florianópolis | Zero complicações Macapá 😍 Portugal
+ chan_on_city |      77 | Бар     | Испания    |  1470 | BarcaUnfiltered              | BARCELONA | RUS
+ chan_on_city |      77 | Бар     | Испания    |  2042 | chats_barselona              | Барселона | Испания - Общение Чат
+ chan_on_city |      77 | Бар     | Испания    |  1472 | russkaja_barcelona           | Русская Барселона
+ chan_on_city |      77 | Бар     | Испания    |  1471 | RussianBarca                 | “Flick's car” || FC “Barcelona“
+ chan_on_city |      77 | Бар     | Испания    |  1473 | Barcelona_Rusa               | Barcelona Rusa
+ chan_on_city |      77 | Бар     | Испания    |  1273 | barcelona_chat1              | Barcelona chat grp
+ chan_on_city |      77 | Бар     | Испания    |  1274 | chat_barcelona_m             | چت
+ chan_on_city |      77 | Бар     | Испания    |  1583 | DahaBarberChat               | DahaBarber Chat
+ chan_on_city |      77 | Бар     | Испания    |   221 | obiyavleniya_ispanckie_kv    | Объявления / Барахолка Испанские кварталы, Николин парк, Прокшино, Вяз
+ chan_on_city |      77 | Бар     | Испания    |   220 | detskayabarakholka_ik_np     | Детская барахолка / Объявления Испанские кварталы, НП, НХ, Прокшино
+ chan_on_city |      77 | Бар     | Испания    |   249 | spainrussiabarcelona         | 1,655 — ☀️ЭМИГРАЦИЯ в ИСПАНИИ☀️
+ chan_on_city |      93 | Каш     | Португалия |  2199 | stupino_cashira              | Ступино Кашира Объявления
+ chan_on_city |      93 | Каш     | Португалия |  2198 | stupino_obyavleniya          | Ступино Кашира Объявления
+ chan_on_city |      93 | Каш     | Португалия |  2196 | obyavlenia_barakholka199     | Доска объявлений в Кашире | Кашира
+ chan_on_city |      93 | Каш     | Португалия |  2200 | kashary_61                   | Кашарский район Объявления
+ chan_on_city |      93 | Каш     | Португалия |  2201 | kashtaktomsk                 | Каштак | Томск | Объявления
+ chan_on_city |      93 | Каш     | Португалия |  1191 | Trabzonpaykassachat          | TrabzonPay Kassa CHAT
+(60 rows)
+
+    tag     | id  | slug  | name_ru | country 
+------------+-----+-------+---------+---------
+ kazan_full | 165 | kazan | Казань  | Россия
+(1 row)
+
+    tag     |  id  |       chat_username       |            title            | auto_matched_city_id 
+------------+------+---------------------------+-----------------------------+----------------------
+ kazan_chan | 2469 | kazan_chat0               | Новости Казани и Татарстана |                  165
+ kazan_chan | 2473 | AKCO_LOGISTIC_KZN_CHAT    | ЧАТ AKCO LOGISTIC | КАЗАНЬ  |                  165
+ kazan_chan | 2467 | kazan_uslugi_chat         | Казань Услуги               |                  165
+ kazan_chan | 2472 | silavetrakazan            | Сила ветра Казань | ЧАТ     |                  165
+ kazan_chan | 2470 | chat_kazani               | ЧАТ | Казань                |                  165
+ kazan_chan | 2476 | bdsmgospojakzn            | Госпожа Казань Chat         |                  165
+ kazan_chan | 2466 | chat_kazann               | Чат Казань                  |                  165
+ kazan_chan | 2465 | kazanlive_chat            | Казань LIVE • ЧАТ           |                  165
+ kazan_chan | 2153 | district_moscow_brand_kzn | ДИСТРИКТ КАЗАНЬ             |                   15
+ kazan_chan | 2471 | kazans_chat               | Недвижимость Казань         |                  165
+ kazan_chan | 2468 | znakomstva_kazan_chatik   | Знакомства Казань           |                  165
+(11 rows)
+
+ tag | slug | n | where_ 
+-----+------+---+--------
+(0 rows)
+

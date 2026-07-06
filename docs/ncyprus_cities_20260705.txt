@@ -1,0 +1,45 @@
+BEGIN
+      tag      | count 
+---------------+-------
+ cities_before |     0
+(1 row)
+
+    tag    |  id  | chat_username | auto_matched_city_id 
+-----------+------+---------------+----------------------
+ ch_before |  311 | famagusta_ru  |                     
+ ch_before | 2009 | lefkosha      |                     
+(2 rows)
+
+INSERT 0 1
+INSERT 0 1
+CREATE TABLE
+INSERT 0 2
+     tag      |   username   | city_id 
+--------------+--------------+---------
+ new_city_ids | lefkosha     |     389
+ new_city_ids | famagusta_ru |     390
+(2 rows)
+
+UPDATE 2
+     tag     | n | verdict 
+-------------+---+---------
+ GATE_cities | 2 | OK
+(1 row)
+
+    tag     | n | verdict 
+------------+---+---------
+ GATE_bound | 2 | OK
+(1 row)
+
+    tag     | n_bad | verdict 
+------------+-------+---------
+ GATE_owner |     0 | OK
+(1 row)
+
+   tag    |  id  | chat_username | auto_matched_country_id | auto_matched_city_id 
+----------+------+---------------+-------------------------+----------------------
+ ch_after |  311 | famagusta_ru  |                     388 |                  390
+ ch_after | 2009 | lefkosha      |                     388 |                  389
+(2 rows)
+
+ROLLBACK

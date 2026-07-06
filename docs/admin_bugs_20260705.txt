@@ -1,0 +1,43 @@
+ tag  | id | slug | name_ru |  country   
+------+----+------+---------+------------
+ kash | 93 | kas  | Каш     | Португалия
+(1 row)
+
+   tag   | id  |  slug   | name_ru | country 
+---------+-----+---------+---------+---------
+ bar_bcn |  77 | bar     | Бар     | Испания
+ bar_bcn | 443 | barnaul | Барнаул | Россия
+(2 rows)
+
+ tag | id | slug | name_ru | country | country_id 
+-----+----+------+---------+---------+------------
+ goa | 72 | goa  | Гоа     | Таиланд |          3
+(1 row)
+
+  tag  | id  | name_ru | n_cities 
+-------+-----+---------+----------
+ india | 119 | Индия   |        2
+(1 row)
+
+  tag  | id  | slug  | name_ru | country 
+-------+-----+-------+---------+---------
+ kazan | 165 | kazan | Казань  | Россия
+(1 row)
+
+  tag   | id | name_ru | n_cities 
+--------+----+---------+----------
+ russia |  4 | Россия  |       18
+(1 row)
+
+  tag   |        conname         |   pg_get_constraintdef    
+--------+------------------------+---------------------------
+ uq_def | cities_slug_key        | UNIQUE (slug)
+ uq_def | uq_cities_country_slug | UNIQUE (country_id, slug)
+(2 rows)
+
+   tag    |       indexname        |                                          indexdef                                          
+----------+------------------------+--------------------------------------------------------------------------------------------
+ slug_idx | cities_slug_key        | CREATE UNIQUE INDEX cities_slug_key ON public.cities USING btree (slug)
+ slug_idx | uq_cities_country_slug | CREATE UNIQUE INDEX uq_cities_country_slug ON public.cities USING btree (country_id, slug)
+(2 rows)
+

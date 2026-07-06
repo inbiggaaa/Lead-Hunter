@@ -1,0 +1,137 @@
+================================================================================
+ADMIN FRONT RECON — ChannelsPage.tsx (320 строк) + api.ts (39 строк)
+================================================================================
+
+(1) ФИЛЬТР ГОРОДОВ ПО СТРАНЕ
+============================================================================
+    ЕСТЬ клиентский фильтр. Работает так:
+
+    Строка 93-94:
+      const filteredCities = selectedCountry
+        ? cities.filter((c) => c.country_id === selectedCountry)
+        : cities;
+
+    ▸ Дропдаун страны (строка 257-268) → setSelectedCountry(id)
+    ▸ Города загружаются ВСЕ (500 per_page, строка 81-88), затем
+      фильтруются на клиенте по country_id
+    ▸ При смене страны: selectedCities сбрасывается (строка 262)
+    ▸ Дропдаун города — <select multiple> (строка 269)
+    ▸ ПРОБЛЕМА: при переключении страны selectedCities сбрасывается,
+      но filteredCities пересчитывается корректно
+
+    ВЫВОД: фильтр «страна→города» УЖЕ РАБОТАЕТ. 228 городов загружаются
+    разом, фильтруются на клиенте. Проблемы: запрос /api/cities не
+    передаёт country_id на сервер — тянет все 228 каждый раз (лёгкий N+1,
+    но при 228 записях не критично).
+
+(2) КОЛОНКА «НАПРАВЛЕНИЕ»
+============================================================================
+    Строка 216: <TableHead>Направление</TableHead>
+    Строка 247-252:
+      <TableCell>
+        <select disabled className="border rounded px-2 py-1 text-xs
+          bg-muted text-muted-foreground cursor-not-allowed">
+          <option>— ждёт авто-направлений —</option>
+        </select>
+      </TableCell>
+
+    ▸ Это ПЛЕЙСХОЛДЕР. Не функционален, disabled.
+    ▸ Отображается ДЛЯ КАЖДОЙ строки (всех каналов, не только орфанов)
+    ▸ Для удаления: строки 247-252 целиком + заголовок 216
+
+    Техдолг: колонка заложена «под будущие авто-направления»,
+    сейчас бесполезна. Убрать заголовок и ячейку.
+
+(3) КНОПКА «ПРИВЯЗАТЬ» — СОСТОЯНИЯ
+============================================================================
+    Строка 293-301 (рендер кнопки «Город» для НЕ-редактируемой строки):
+      {ch.auto_matched_city_id == null ? (
+        <Button ... onClick={...}>  ← ОРФАН: активна
+          <MapPin /> Город
+        </Button>
+      ) : (
+        <Button ... disabled title="Редактирование привязок — отд. задачей">
+          ← С ГОРОДОМ: disabled + тултип
+          <MapPin /> Город
+        </Button>
+      )}
+
+    ▸ Орфаны (auto_matched_city_id == null): кнопка активна,
+      открывает editingChannel
+    ▸ Каналы с городом: кнопка disabled, нельзя редактировать
+    ▸ ПРИЧИНА disabled: PUT cities=перезапись (DELETE-all→INSERT),
+      UI не подгружает текущий набор channel_cities → сотрёт мультисити
+
+    В editingChannel-режиме (строки 255-292):
+    ▸ Дропдаун страны + мультиселект городов + «Привязать» + «Отмена»
+    ▸ «Привязать» (строка 283-285): вызывает handleBind →
+      PUT /api/channels/:id {cities, country_id}
+
+(4) IS_IGNORED — ТОЛЬКО ВЫСТАВИТЬ true, НЕТ ОБРАТНОГО ХОДА
+============================================================================
+    Строка 114-121: handleIgnore()
+      await api(`/api/channels/${channelId}`, {
+        method: "PUT",
+        body: JSON.stringify({ is_ignored: true }),
+      });
+
+    ▸ Фронт шлёт ТОЛЬКО is_ignored: true
+    ▸ Кнопка «удалить» (Trash2) показывается только при !ch.is_ignored (строка 302)
+    ▸ Для игнорированных — кнопки «восстановить» НЕТ
+
+    Бэкенд PUT /api/channels/:id (строка 184-185):
+      allowed = {"auto_matched_country_id", "auto_matched_city_id", "is_ignored"}
+      → is_ignored: false ДОЛЖНО работать (allowed поле)
+      → но фронт никогда не шлёт false
+
+    ВЫВОД: чтобы добавить обратный ход (снять игнор):
+      - Фронт: добавить кнопку «Восстановить» для is_ignored=true каналов,
+        шлющую PUT {is_ignored: false}
+      - Бэкенд: изменений НЕ требуется (поле уже в allowed)
+
+(5) API-СИГНАТУРЫ (api.ts — тонкая обёртка над fetch)
+============================================================================
+    api.ts (39 строк):
+      export async function api<T>(path: string, options?: RequestInit): Promise<T>
+      → fetch(`${BASE}${path}`, {credentials: "same-origin", ...options})
+
+    Используемые эндпоинты на ChannelsPage:
+      GET  /api/channels?page=&per_page=&search=&is_verified=&has_city=&is_ignored=
+      GET  /api/countries?per_page=200          → {items: Country[]}
+      GET  /api/cities?per_page=500             → {items: City[]}
+      PUT  /api/channels/:id  {cities: number[], country_id: number}
+           → привязка городов (DELETE-all→INSERT в channel_cities)
+      PUT  /api/channels/:id  {is_ignored: true}
+           → пометить игнорированным
+      POST /api/cities  {slug, name_ru, country_id}
+           → создать новый город
+
+    Country:  {id, name_ru, slug}
+    City:     {id, name_ru, slug, country_id}
+    ChannelItem: {id, chat_username, title, participants,
+                  is_verified, is_ignored,
+                  auto_matched_country_id, auto_matched_city_id,
+                  discovered_at}
+
+    GET /api/channels/:id (строка 150-172) возвращает поле "cities":
+      → список city_id из channel_cities (фронт НЕ использует этот эндпоинт)
+
+(6) ВЫВОДЫ — ОБЪЁМ UX-ПРАВОК
+============================================================================
+    A. Убрать колонку «Направление»:
+       - удалить <TableHead>Направление</TableHead> (строка 216)
+       - удалить <TableCell> с disabled select (строки 247-252)
+       - colspan с 6 на 5 (строка 311, пустое состояние)
+       → ~7 строк удалить
+
+    B. is_ignored тумблер (обратный ход):
+       - добавить handleUnignore → PUT {is_ignored: false}
+       - для is_ignored каналов: показывать кнопку «Восстановить» вместо Trash2
+       → ~10 строк добавить
+
+    C. Страна→города фильтр: УЖЕ ЕСТЬ. Правок НЕ требуется.
+       Опционально: передавать country_id в GET /api/cities для серверного фильтра.
+
+    D. Техдолг: disabled-кнопка «Город» для каналов с городом —
+       остаётся до задачи «редактирование мультисити» (долг №8).
+================================================================================

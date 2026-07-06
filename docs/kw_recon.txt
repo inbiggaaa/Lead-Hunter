@@ -1,0 +1,137 @@
+================================================================================
+KW RECON — ДОЛГ №3 (ключевики) — READ-ONLY разведка — 04.07.2026
+================================================================================
+
+(1) ГДЕ ЛЕЖАТ КЛЮЧЕВИКИ
+============================================================================
+
+    Таблица БД:      segment_keywords  (системные, 2234 записей)
+    Таблица БД:      keywords          (пользовательские, 0 записей)
+    Источник истины: segment_seed.md   (378 строк) → seed/seed_full.py → DB
+    Синонимы:        seed/seed_synonyms.py → DB
+    Универсальные
+    стоп-фразы:      seed/seed_universal_stops.py → DB (segment_id=NULL, 96 шт.)
+
+    Файлы:
+      segment_seed.md            378 строк — RU-документ, ручная правка
+      seed/seed_full.py          207 строк — парсер .md → segment_keywords
+      seed/seed_synonyms.py      216 строк — синонимы per segment
+      seed/seed_universal_stops.py 90 строк — 96 универсальных стоп-фраз
+
+(2) СТРУКТУРА
+============================================================================
+
+    segment_keywords:
+      id            BIGINT PK
+      segment_id    BIGINT FK → segments.id  (NULL = универсальные стопы)
+      text          TEXT
+      keyword_type  VARCHAR — 'demand' | 'stop' | 'synonym'
+      is_regex      BOOL DEFAULT false
+      is_active     BOOL DEFAULT true
+
+    UNIQUE(segment_id, text, keyword_type)  — защита от дублей
+
+    segments (29 шт):
+      slug, title_ru, title_en, emoji, sort_order, is_active
+
+    ▸ ПОЛЯ ЯЗЫКА НЕТ. Язык определяется эвристикой [а-яёА-ЯЁ] vs Latin.
+    ▸ Группировка по segment_id (направление/сегмент), не по языку.
+    ▸ keyword_type: demand (спрос), stop (минус-слова), synonym (синонимы спроса)
+
+    classifier.py загружает в _keyword_map:
+      {segment_slug: {"demand": [...], "stop": [...], "synonym": [...]}}
+    + universal_stops (segment_id=NULL, keyword_type='stop')
+
+(3) ОБЪЁМ
+============================================================================
+
+    ┌─────────────────┬───────┐
+    │ keyword_type    │ count │
+    ├─────────────────┼───────┤
+    │ demand          │ 1935  │
+    │ stop            │  103  │
+    │ synonym         │  196  │
+    ├─────────────────┼───────┤
+    │ TOTAL           │ 2234  │
+    └─────────────────┴───────┘
+
+    Пользовательские keywords: 0 (таблица keywords пуста)
+
+    EN vs RU (demand):
+      RU (кириллица): 1442 (74.6%)
+      EN (латиница):   493 (25.4%)
+
+    Топ-5 сегментов по demand:
+      beauty            313 (235 RU + 78 EN)
+      fitness           182 (144 RU + 38 EN)
+      catering          147 (118 RU + 29 EN)
+      crypto            108 (88 RU + 20 EN)
+      job-hiring         91 (69 RU + 22 EN)
+
+    Худшие по EN (≤5 EN слов):
+      medical 4, childcare 4, logistics 4, events 5, design 5,
+      repair 5, pets 5, it-services 5, real-estate-buy 6
+
+    Все 29 сегментов имеют и RU и EN, но с перекосом ~3:1 в пользу RU.
+
+(4) ФУНКЦИЯ РЕЛЕВАНТНОСТИ
+============================================================================
+
+    app/userbot/classifier.py:202 — classify_message(text, segment_keywords, universal_stops)
+
+    3 прохода:
+      Pass 1 — demand + synonym: word-boundary match (regex), лемматизация
+               (pymorphy3), fuzzy fallback для фраз из 4+ слов (≥70% слов).
+      Pass 2 — stop: универсальные + специфичные сегменту. Гасит совпадение,
+               ЕСЛИ нет сильного demand-сигнала.
+      Pass 3 — структурные сигналы: глагол спроса В НАЧАЛЕ (ищу/нужен/...) →
+               перебивает оффер; цена+контакт → оффер, гасит без сильного demand.
+
+    Точка вызова: poller.py:368 — для каждого сообщения.
+    Кэширование: Redis class:cache:{message_hash} (TTL 60с).
+
+(5) 10 ПРИМЕРОВ DEMAND (RU)
+============================================================================
+    crypto          | нужно обменять манаты
+    it-services     | нужен сисадмин
+    job-hiring      | ищем smm специалиста
+    moto-purchase   | посоветуйте байк
+    beauty          | ищу визажиста
+    visa            | нужна помощь с документами для визы
+    driving-lessons | нужны уроки на скутере
+    bike-rental     | нужна аренда мотоцикла
+    education       | нужен учитель английского
+    crypto          | куплю дирхамы
+
+(6) 10 ПРИМЕРОВ DEMAND (EN)
+============================================================================
+    education        | design course needed
+    job-seeking      | job wanted
+    beauty           | looking for lash master
+    real-estate-buy  | buy villa
+    beauty           | mobile nail technician
+    fitness          | looking for yoga studio
+    real-estate-rent | looking for accommodation
+    fitness          | sound bath needed
+    car-rental       | car rental near me
+    fitness          | workout partner needed
+
+(7) ТОЧКИ ДОБАВЛЕНИЯ/РЕДАКТИРОВАНИЯ
+============================================================================
+    Ручное:    segment_seed.md → seed/seed_full.py (парсер ·-разделителя)
+    Синонимы:  seed/seed_synonyms.py (Python dict SYNONYMS)
+    Стопы:     seed/seed_universal_stops.py (Python list UNIVERSAL_STOP_PHRASES)
+    Админка:   /api/segments/{id}/keywords (CRUD) — FastAPI endpoints
+               (проверить: app/admin/api/crud.py или app/admin/api/segments.py)
+    Все seed-скрипты имеют dedup (seen set), идемпотентны.
+
+(8) ВЫВОДЫ
+============================================================================
+    1. Ключевики — в БД, не в файлах. Файлы — источник для загрузки.
+    2. Поля языка нет. Язык = эвристика кириллица/латиница.
+    3. Перекос EN/RU 1:3. EN-покрытие слабое: 493 demand против 1442 RU.
+    4. 7 сегментов имеют ≤5 EN demand-слов — практически не ловят EN-сообщения.
+    5. Classifier rule-based, без ML/LLM. Лемматизация только для RU (pymorphy3).
+    6. synonym работает идентично demand на Pass 1 (объединяются в all_demand).
+    7. Универсальные стопы (96) + сегментные стопы (103) = 199 стоп-фраз всего.
+    8. Per-user keywords (таблица keywords) пусты — фича не используется.

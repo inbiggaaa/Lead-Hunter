@@ -1,0 +1,44 @@
+BEGIN
+SELECT 1
+     tag      | russia_id | city_id 
+--------------+-----------+---------
+ moscow_owner |         4 |      15
+(1 row)
+
+     tag     | verdict 
+-------------+---------
+ GATE_moscow | OK
+(1 row)
+
+  tag   |  id  |    chat_username    | auto_matched_country_id | auto_matched_city_id | manually_reviewed 
+--------+------+---------------------+-------------------------+----------------------+-------------------
+ BEFORE | 2197 | stupino_kashira1    |                     104 |                      | t
+ BEFORE | 2198 | stupino_obyavleniya |                     104 |                      | f
+ BEFORE | 2199 | stupino_cashira     |                     104 |                      | f
+(3 rows)
+
+UPDATE 3
+DELETE 0
+     tag      | n | verdict 
+--------------+---+---------
+ GATE_country | 3 | OK
+(1 row)
+
+    tag    | n | verdict 
+-----------+---+---------
+ GATE_city | 3 | OK
+(1 row)
+
+       tag        | n | verdict 
+------------------+---+---------
+ GATE_no_portugal | 0 | OK
+(1 row)
+
+  tag  |  id  |    chat_username    | country |  city  | manually_reviewed 
+-------+------+---------------------+---------+--------+-------------------
+ AFTER | 2197 | stupino_kashira1    | Россия  | Москва | t
+ AFTER | 2198 | stupino_obyavleniya | Россия  | Москва | t
+ AFTER | 2199 | stupino_cashira     | Россия  | Москва | t
+(3 rows)
+
+ROLLBACK

@@ -1,0 +1,64 @@
+ city | city_id | ch_id |        chat_username         |                                                  title                                                  | country_id |    verdict     
+------+---------+-------+------------------------------+---------------------------------------------------------------------------------------------------------+------------+----------------
+ Гоа  |      72 |  1069 | GOAL24_Chat                  | Чат GOAL24                                                                                              |          3 | FALSE
+ Гоа  |      72 |  1070 | GoGoat_Chat                  | Go Goat! Chat                                                                                           |          3 | FALSE
+ Гоа  |      72 |  1391 | GoalRush01                   | GOAL RUSH                                                                                               |          3 | FALSE
+ Гоа  |      72 |  1390 | GoalRush1                    | Goal Rush                                                                                               |          3 | FALSE
+ Гоа  |      72 |  1386 | GOAT_MILK116_RUS             | Сельский край                                                                                           |          3 | FALSE
+ Гоа  |      72 |  1078 | goal_chat                    | GoalHona | Чак Чаки Футбол                                                                              |          3 | FALSE
+ Гоа  |      72 |  1073 | Goatereumchat                | Goatereum - Community Chat                                                                              |          3 | FALSE
+ Гоа  |      72 |  1077 | goat_chat                    | Goat Chat                                                                                               |          3 | FALSE
+ Гоа  |      72 |  1074 | GoaChatik                    | Гоа чатик 🇮🇳 | CHATIK                                                                                   |          3 | TRUE_goa_india
+ Гоа  |      72 |  1076 | chats_goa                    | Гоа | Индия - Общение Чат                                                                               |          3 | TRUE_goa_india
+ Гоа  |      72 |  1075 | goasiachat                   | Go Asia Chat                                                                                            |          3 | TRUE_goa_india
+ Гоа  |      72 |  1389 | goa_rus_ads                  | ГОА УСЛУГИ ОБЪЯВЛЕНИЯ                                                                                   |          3 | TRUE_goa_india
+ Гоа  |      72 |  1387 | Goa_Russia                   | Гоа: инструкция по релаксу🌴                                                                            |          3 | TRUE_goa_india
+ Гоа  |      72 |  1392 | russian_goa                  | Русский в ГОА                                                                                           |          3 | TRUE_goa_india
+ Гоа  |      72 |   173 | drzblch                      | Межгалактический Чат | Визы в Индию | Гоа, Непал, Шри-Ланка, Таиланд, Индонезия, Бали, ЮВА, Путешествия |          3 | TRUE_goa_india
+ Бар  |      77 |  1145 | tbilisi_baraholka_chat       | Тбилиси | Барахолка & Объявления 🇬🇪                                                                     |         98 | FALSE
+ Бар  |      77 |  1731 | barmygroup                   | 🇻🇳🌍 B.ARMY - Blockchain Army Group Chat                                                                |         98 | FALSE
+ Бар  |      77 |  1732 | baryonnetwork                | Baryon Chat                                                                                             |         98 | FALSE
+ Бар  |      77 |  1049 | kutaisi_ads_baraholka_chat   | KUTAISI 🇬🇪 Trade Ads/Барахолка Chat                                                                     |         98 | FALSE
+ Бар  |      77 |  1381 | tapdoangai_bariavungtau      | TẬP ĐOÀN GÁI BÀ RỊA VŨNG TÀU Chat                                                                       |         98 | FALSE
+ Бар  |      77 |  1421 | shambary_agency_chat         | DUBAI MEDIA PRO’S (video & photo expats) - Shambary Agency                                              |         98 | FALSE
+ Бар  |      77 |  1737 | barn_chat                    | Это Алтай чат                                                                                           |         98 | FALSE
+ Бар  |      77 |  1736 | bar_chat                     | Чат Типичный бармен                                                                                     |         98 | FALSE
+ Бар  |      77 |  1734 | fckngbarber                  | FCKNG Barbers Community Chat                                                                            |         98 | FALSE
+ Бар  |      77 |  1738 | barz_chat                    | Max Barz 🇺🇸 chat                                                                                        |         98 | FALSE
+ Бар  |      77 |  1733 | nftbarujka_chat              | NFT GIFTS BARUJKA CHAТ                                                                                  |         98 | FALSE
+ Бар  |      77 |  1195 | namoro_mulheresqy_bombarrarf | Chat 🧡encontros💌 Florianópolis | Zero complicações Macapá 😍 Portugal                                 |         98 | FALSE
+ Бар  |      77 |  1583 | DahaBarberChat               | DahaBarber Chat                                                                                         |         98 | FALSE
+ Бар  |      77 |   220 | detskayabarakholka_ik_np     | Детская барахолка / Объявления Испанские кварталы, НП, НХ, Прокшино                                     |         98 | FALSE
+ Бар  |      77 |   221 | obiyavleniya_ispanckie_kv    | Объявления / Барахолка Испанские кварталы, Николин парк, Прокшино, Вяз                                  |         98 | FALSE
+ Бар  |      77 |  1267 | barcelona_chat_ua            | Украинцы в Барселоне | Чат 🇪🇸                                                                           |         98 | TRUE_barcelona
+ Бар  |      77 |  1265 | BarcelonaChatik              | Барселона чатик 🇪🇸 | CHATIK                                                                             |         98 | TRUE_barcelona
+ Бар  |      77 |  1271 | barcelona668vip              | Barcelona668 VIP Chatroom                                                                               |         98 | TRUE_barcelona
+ Бар  |      77 |  2038 | spain_granitsa               | Испания Барселона Чат                                                                                   |         98 | TRUE_barcelona
+ Бар  |      77 |  1268 | chat_barcelona_bcn           | БАРСЕЛОНА ЧАТ и БАРАХОЛКА                                                                               |         98 | TRUE_barcelona
+ Бар  |      77 |  1266 | Chat_de_Barcelona            | Барселона чат | Chat de Barcelona 🇪🇸                                                                    |         98 | TRUE_barcelona
+ Бар  |      77 |  1270 | barcelona_chatyt             | Барселона ЧАТ ♡ ИСПАНИИ                                                                                 |         98 | TRUE_barcelona
+ Бар  |      77 |  1269 | Barcelona_chat2              | 🇪🇸 БАРСЕЛОНА | ЧАТ | ИСПАНИЯ                                                                            |         98 | TRUE_barcelona
+ Бар  |      77 |  2039 | barnachat1                   | Барселона-Чат Испания                                                                                   |         98 | TRUE_barcelona
+ Бар  |      77 |  1466 | fcbarcelona_russia           | 🔵 FC Barcelona 🔴                                                                                      |         98 | TRUE_barcelona
+ Бар  |      77 |  2040 | chat_barselona               | 🇪🇦 Барселона Чат                                                                                        |         98 | TRUE_barcelona
+ Бар  |      77 |  2041 | barselona_chat               | Барселона чат                                                                                           |         98 | TRUE_barcelona
+ Бар  |      77 |  1467 | barcelona_rus                | FC BARCELONA|ФК БАРСЕЛОНА                                                                               |         98 | TRUE_barcelona
+ Бар  |      77 |  1468 | VnJ_Barcelona                | M&A Spain Rus                                                                                           |         98 | TRUE_barcelona
+ Бар  |      77 |  1469 | argentinazacion              | La rusa porteña en Barcelona                                                                            |         98 | TRUE_barcelona
+ Бар  |      77 |  1272 | BARCELONA_CHATI              | BARCELONA GRUPPA                                                                                        |         98 | TRUE_barcelona
+ Бар  |      77 |  1470 | BarcaUnfiltered              | BARCELONA | RUS                                                                                         |         98 | TRUE_barcelona
+ Бар  |      77 |  2042 | chats_barselona              | Барселона | Испания - Общение Чат                                                                       |         98 | TRUE_barcelona
+ Бар  |      77 |  1472 | russkaja_barcelona           | Русская Барселона                                                                                       |         98 | TRUE_barcelona
+ Бар  |      77 |  1471 | RussianBarca                 | “Flick's car” || FC “Barcelona“                                                                         |         98 | TRUE_barcelona
+ Бар  |      77 |  1473 | Barcelona_Rusa               | Barcelona Rusa                                                                                          |         98 | TRUE_barcelona
+ Бар  |      77 |  1273 | barcelona_chat1              | Barcelona chat grp                                                                                      |         98 | TRUE_barcelona
+ Бар  |      77 |  1274 | chat_barcelona_m             | چت                                                                                                      |         98 | TRUE_barcelona
+ Бар  |      77 |   249 | spainrussiabarcelona         | 1,655 — ☀️ЭМИГРАЦИЯ в ИСПАНИИ☀️                                                                           |         98 | TRUE_barcelona
+ Каш  |      93 |  2199 | stupino_cashira              | Ступино Кашира Объявления                                                                               |        104 | FALSE
+ Каш  |      93 |  2198 | stupino_obyavleniya          | Ступино Кашира Объявления                                                                               |        104 | FALSE
+ Каш  |      93 |  2196 | obyavlenia_barakholka199     | Доска объявлений в Кашире | Кашира                                                                      |        104 | FALSE
+ Каш  |      93 |  2200 | kashary_61                   | Кашарский район Объявления                                                                              |        104 | FALSE
+ Каш  |      93 |  2201 | kashtaktomsk                 | Каштак | Томск | Объявления                                                                             |        104 | FALSE
+ Каш  |      93 |  1191 | Trabzonpaykassachat          | TrabzonPay Kassa CHAT                                                                                   |        104 | FALSE
+(60 rows)
+

@@ -1,0 +1,115 @@
+BEGIN
+SELECT 38
+     tag     |  id  | chat_username 
+-------------+------+---------------
+ goa_ch_list | 2101 | GOaktivTIKTOK
+ goa_ch_list | 1074 | GoaChatik
+ goa_ch_list | 1387 | Goa_Russia
+ goa_ch_list |  438 | arenda_goa
+ goa_ch_list |  436 | ashwem
+ goa_ch_list |  439 | boardgoa
+ goa_ch_list |  440 | buyingoa
+ goa_ch_list | 1076 | chats_goa
+ goa_ch_list |  173 | drzblch
+ goa_ch_list | 2623 | goa_chat_1
+ goa_ch_list | 2104 | goa_chats
+ goa_ch_list |  802 | goa_moto
+ goa_ch_list | 1389 | goa_rus_ads
+ goa_ch_list |  461 | goa_south
+ goa_ch_list |  462 | goa_spb
+ goa_ch_list |  457 | goa_uslugi
+ goa_ch_list |  463 | goabeauty
+ goa_ch_list |  442 | goabikes
+ goa_ch_list |  443 | goacoach
+ goa_ch_list |  444 | goafree
+ goa_ch_list |  445 | goahouses
+ goa_ch_list | 2103 | goaindiachat
+ goa_ch_list |  453 | goamarket
+ goa_ch_list |  464 | goapartymaker
+ goa_ch_list |  441 | goapeople2019
+ goa_ch_list |  437 | goapractic
+ goa_ch_list | 1075 | goasiachat
+ goa_ch_list |  447 | goavisasam
+ goa_ch_list |  465 | goayoga
+ goa_ch_list |  448 | kipish_goa
+ goa_ch_list |  454 | marketgoa
+ goa_ch_list |  449 | medicinegoa
+ goa_ch_list | 2102 | norco8
+ goa_ch_list |  458 | pokatushkigoa
+ goa_ch_list |  450 | poput4iki
+ goa_ch_list | 1388 | primus_banya
+ goa_ch_list | 1392 | russian_goa
+ goa_ch_list |  459 | sportingoa
+(38 rows)
+
+   tag    | count 
+----------+-------
+ goa_ch_n |    38
+(1 row)
+
+         tag         | n | verdict 
+---------------------+---+---------
+ GATE_goa_free_india | 0 | OK
+(1 row)
+
+INSERT 0 1
+SELECT 1
+     tag      | id  
+--------------+-----
+ new_goa_city | 449
+(1 row)
+
+UPDATE 38
+    tag     | country_id | verdict 
+------------+------------+---------
+ GATE_owner |        119 | OK
+(1 row)
+
+    tag     | n  | verdict 
+------------+----+---------
+ GATE_bound | 38 | OK
+(1 row)
+
+  tag  |  id  | chat_username | auto_matched_country_id | auto_matched_city_id 
+-------+------+---------------+-------------------------+----------------------
+ AFTER | 2101 | GOaktivTIKTOK |                     119 |                  449
+ AFTER | 1074 | GoaChatik     |                     119 |                  449
+ AFTER | 1387 | Goa_Russia    |                     119 |                  449
+ AFTER |  438 | arenda_goa    |                     119 |                  449
+ AFTER |  436 | ashwem        |                     119 |                  449
+ AFTER |  439 | boardgoa      |                     119 |                  449
+ AFTER |  440 | buyingoa      |                     119 |                  449
+ AFTER | 1076 | chats_goa     |                     119 |                  449
+ AFTER |  173 | drzblch       |                     119 |                  449
+ AFTER | 2623 | goa_chat_1    |                     119 |                  449
+ AFTER | 2104 | goa_chats     |                     119 |                  449
+ AFTER |  802 | goa_moto      |                     119 |                  449
+ AFTER | 1389 | goa_rus_ads   |                     119 |                  449
+ AFTER |  461 | goa_south     |                     119 |                  449
+ AFTER |  462 | goa_spb       |                     119 |                  449
+ AFTER |  457 | goa_uslugi    |                     119 |                  449
+ AFTER |  463 | goabeauty     |                     119 |                  449
+ AFTER |  442 | goabikes      |                     119 |                  449
+ AFTER |  443 | goacoach      |                     119 |                  449
+ AFTER |  444 | goafree       |                     119 |                  449
+ AFTER |  445 | goahouses     |                     119 |                  449
+ AFTER | 2103 | goaindiachat  |                     119 |                  449
+ AFTER |  453 | goamarket     |                     119 |                  449
+ AFTER |  464 | goapartymaker |                     119 |                  449
+ AFTER |  441 | goapeople2019 |                     119 |                  449
+ AFTER |  437 | goapractic    |                     119 |                  449
+ AFTER | 1075 | goasiachat    |                     119 |                  449
+ AFTER |  447 | goavisasam    |                     119 |                  449
+ AFTER |  465 | goayoga       |                     119 |                  449
+ AFTER |  448 | kipish_goa    |                     119 |                  449
+ AFTER |  454 | marketgoa     |                     119 |                  449
+ AFTER |  449 | medicinegoa   |                     119 |                  449
+ AFTER | 2102 | norco8        |                     119 |                  449
+ AFTER |  458 | pokatushkigoa |                     119 |                  449
+ AFTER |  450 | poput4iki     |                     119 |                  449
+ AFTER | 1388 | primus_banya  |                     119 |                  449
+ AFTER | 1392 | russian_goa   |                     119 |                  449
+ AFTER |  459 | sportingoa    |                     119 |                  449
+(38 rows)
+
+ROLLBACK
