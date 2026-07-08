@@ -24,6 +24,7 @@ import {
   LogOut,
   CircleOff,
   TriangleAlert,
+  MapPin,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
@@ -31,7 +32,8 @@ import { api } from "@/lib/api";
 const NAV_ITEMS = [
   { to: "/", icon: LayoutDashboard, label: "Дашборд" },
   { to: "/users", icon: Users, label: "Пользователи" },
-  { to: "/categories", icon: Globe, label: "Категории" },
+  { to: "/categories", icon: Globe, label: "Каталог" },
+  { to: "/geo", icon: MapPin, label: "Geo" },
   { to: "/channels", icon: Radio, label: "Каналы" },
   { to: "/stop-words", icon: CircleOff, label: "Стоп-слова" },
   { to: "/unmatched", icon: TriangleAlert, label: "Несматченные" },
