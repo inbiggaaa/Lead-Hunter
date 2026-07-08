@@ -167,7 +167,7 @@ async def on_category_open(callback: CallbackQuery, state: FSMContext):
 
     async for session in get_session():
         segments = await get_segments_by_category(session, cat_id)
-        # Load category name in the same session (eager, avoid lazy load)
+        # Load category name in the same session
         cat_name = ""
         if segments:
             from app.db.models import Category
@@ -177,7 +177,12 @@ async def on_category_open(callback: CallbackQuery, state: FSMContext):
             if cat_name is None:
                 cat_name = ""
 
-    await state.update_data(current_category=cat_slug, selected_by_cat=selected_by_cat)
+    # Store both slug and ID in FSM state to avoid DB queries on toggle
+    await state.update_data(
+        current_category=cat_slug,
+        current_category_id=cat_id,
+        selected_by_cat=selected_by_cat,
+    )
 
     total_selected = _count_selected({"selected_by_cat": selected_by_cat})
     max_seg = data.get("max_seg", 9)
@@ -190,7 +195,7 @@ async def on_category_open(callback: CallbackQuery, state: FSMContext):
     for seg in segments:
         emoji = seg.emoji or ""
         title = seg.title_ru if lang == "ru" else (seg.title_en or seg.title_ru)
-        prefix = "☑️ " if seg.id in selected else "⬜ "
+        prefix = "✅ " if seg.id in selected else "⬜ "
         row.append(InlineKeyboardButton(
             text=f"{prefix}{emoji} {title}",
             callback_data=f"cat:seg:{seg.id}",
@@ -201,14 +206,18 @@ async def on_category_open(callback: CallbackQuery, state: FSMContext):
     if row:
         kb_rows.append(row)
 
-    if selected:
-        kb_rows.append([InlineKeyboardButton(
-            text=f"✅ Готово ({len(selected)} в этой категории)",
-            callback_data="cat:back:to_categories",
-        )])
-    kb_rows.append([InlineKeyboardButton(
+    # Back + Subscribe buttons
+    footer = []
+    footer.append(InlineKeyboardButton(
         text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories",
-    )])
+    ))
+    if selected:
+        footer.append(InlineKeyboardButton(
+            text=f"✅ Подписаться ({total_selected})",
+            callback_data="cat:to_country",
+        ))
+    kb_rows.append(footer)
+
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
     await state.set_state(CatStates.choosing_segments)
@@ -218,10 +227,11 @@ async def on_category_open(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(CatStates.choosing_segments, F.data.startswith("cat:seg:"))
 async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
-    """Toggle a subcategory selection."""
+    """Toggle a subcategory selection — instant, no DB queries."""
     seg_id = int(callback.data.split(":")[2])
     data = await state.get_data()
     cat_slug = data.get("current_category", "")
+    cat_id = data.get("current_category_id", 0)
     selected_by_cat: dict[str, list[int]] = data.get("selected_by_cat", {})
     selected = selected_by_cat.get(cat_slug, [])
     total_selected = _count_selected({"selected_by_cat": selected_by_cat})
@@ -243,38 +253,10 @@ async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
 
     await state.update_data(selected_by_cat=selected_by_cat)
 
-    # Re-render subcategories for this category
-    cat_id = int(callback.data.split(":")[-1]) if False else 0
-    # Reconstruct the original callback to re-render
-    async for session in get_session():
-        from app.db.models import Segment, Category
-        from sqlalchemy import select
-        seg = (await session.execute(select(Segment).where(Segment.id == seg_id))).scalar_one_or_none()
-        if seg:
-            cat_id = seg.category_id
-            cat_slug_render = seg.category.slug if seg.category else ""
-            # Re-open the category view
-            break
-
-    if cat_id:
-        # Re-render the subcategory list
-        await on_category_open_render(callback, state, cat_id, cat_slug_render or cat_slug)
-    await callback.answer()
-
-
-async def on_category_open_render(callback: CallbackQuery, state: FSMContext, cat_id: int, cat_slug: str):
-    """Re-render subcategory list after toggle (without setting state)."""
-    data = await state.get_data()
+    # Re-render instantly using stored cat_id — no DB roundtrip
     lang = data.get("lang", "ru")
-    selected_by_cat: dict[str, list[int]] = data.get("selected_by_cat", {})
-    selected = selected_by_cat.get(cat_slug, [])
-    total_selected = _count_selected({"selected_by_cat": selected_by_cat})
-    max_seg = data.get("max_seg", 9)
-    current = data.get("current_subs", 0)
-
     async for session in get_session():
         segments = await get_segments_by_category(session, cat_id)
-        # Load category name in session
         cat_name = ""
         if segments:
             from app.db.models import Category
@@ -284,14 +266,15 @@ async def on_category_open_render(callback: CallbackQuery, state: FSMContext, ca
             if cat_name is None:
                 cat_name = ""
 
-    text = f"{cat_name} — выбери услуги ({current + total_selected}/{max_seg}):"
+    total_after = _count_selected({"selected_by_cat": selected_by_cat})
+    text = f"{cat_name} — выбери услуги ({current + total_after}/{max_seg}):"
 
     kb_rows = []
     row = []
     for seg in segments:
         emoji = seg.emoji or ""
         title = seg.title_ru if lang == "ru" else (seg.title_en or seg.title_ru)
-        prefix = "☑️ " if seg.id in selected else "⬜ "
+        prefix = "✅ " if seg.id in selected else "⬜ "
         row.append(InlineKeyboardButton(
             text=f"{prefix}{emoji} {title}",
             callback_data=f"cat:seg:{seg.id}",
@@ -302,12 +285,21 @@ async def on_category_open_render(callback: CallbackQuery, state: FSMContext, ca
     if row:
         kb_rows.append(row)
 
-    kb_rows.append([InlineKeyboardButton(
+    # Back + Subscribe
+    footer = []
+    footer.append(InlineKeyboardButton(
         text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories",
-    )])
-    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    ))
+    if total_after > 0:
+        footer.append(InlineKeyboardButton(
+            text=f"✅ Подписаться ({total_after})",
+            callback_data="cat:to_country",
+        ))
+    kb_rows.append(footer)
 
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
 
 
 @router.callback_query(CatStates.choosing_category, F.data == "cat:to_country")
