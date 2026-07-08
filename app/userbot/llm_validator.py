@@ -62,13 +62,13 @@ EXAMPLES:
 
 [DEMAND — direct service search]
 Message: "ищу повара для семьи в Нячанге, на постоянной основе"
-Candidates: ["catering", "job-hiring"]
-→ {"category": "DEMAND", "relevant_segments": ["catering", "job-hiring"], "certainty": "high", "reason": "Explicit search for a chef — commercial demand for a service and a job vacancy"}
+Candidates: ["catering", "private-chef"]
+→ {"category": "DEMAND", "relevant_segments": ["catering", "private-chef"], "certainty": "high", "reason": "Explicit search for a chef — commercial demand for a service and a job vacancy"}
 
 [DEMAND — question without "ищу"]
 Message: "кто знает хорошего стоматолога в Нячанге? желательно русскоговорящего"
-Candidates: ["medical"]
-→ {"category": "DEMAND", "relevant_segments": ["medical"], "certainty": "high", "reason": "Author is asking for a doctor recommendation — commercial demand, despite no explicit 'searching for'"}
+Candidates: ["dentist"]
+→ {"category": "DEMAND", "relevant_segments": ["dentist"], "certainty": "high", "reason": "Author is asking for a doctor recommendation — commercial demand, despite no explicit 'searching for'"}
 
 [DEMAND — price inquiry]
 Message: "подскажите сколько стоит завернуть чемодан пленкой в аэропорту Камрань?"
@@ -77,8 +77,8 @@ Candidates: ["tourism"]
 
 [DEMAND — relocation research]
 Message: "хочу переехать с девушкой на Фукуок, реально ли жить на 1000$ в месяц с учётом жилья?"
-Candidates: ["real-estate-rent", "real-estate-buy"]
-→ {"category": "DEMAND", "relevant_segments": ["real-estate-rent"], "certainty": "high", "reason": "Author is researching rental costs for relocation — potential real estate client"}
+Candidates: ["housing-rent", "housing-buy"]
+→ {"category": "DEMAND", "relevant_segments": ["housing-rent"], "certainty": "high", "reason": "Author is researching rental costs for relocation — potential real estate client"}
 
 [DEMAND — specialist needed]
 Message: "нужна регулярная уборка квартиры, район европейский квартал, 2 комнаты"
@@ -87,7 +87,7 @@ Candidates: ["cleaning"]
 
 [OFFER — currency exchange]
 Message: "наличный обмен USDT, лучший курс в городе, пишите в личку"
-Candidates: ["crypto"]
+Candidates: ["currency-exchange"]
 → {"category": "OFFER", "relevant_segments": [], "certainty": "high", "reason": "Currency exchange ad: author offers exchange, not looking for it. 'Best rate', 'DM me' — offer markers"}
 
 [OFFER — vehicle sale]
@@ -97,7 +97,7 @@ Candidates: ["moto-purchase"]
 
 [OFFER — real estate listing]
 Message: "2-КОМНАТНАЯ КВАРТИРА В ЦЕНТРЕ НЯЧАНГ ЗА 13 МЛН. Код: ma-008. Бассейн, тренажёрка."
-Candidates: ["real-estate-rent"]
+Candidates: ["housing-rent"]
 → {"category": "OFFER", "relevant_segments": [], "certainty": "high", "reason": "Rental listing with apartment code, price, amenities — real estate agent offer"}
 
 [OFFER — price list]
@@ -107,12 +107,12 @@ Candidates: ["it-services"]
 
 [OFFER — disguised as invitation]
 Message: "есть места на йогу по утрам, записывайтесь, район центр"
-Candidates: ["fitness"]
+Candidates: ["yoga"]
 → {"category": "OFFER", "relevant_segments": [], "certainty": "high", "reason": "Disguised offer: 'spots available' + 'sign up' — this is selling yoga classes, not looking for them"}
 
 [OFFER — nanny services]
 Message: "Здравствуйте, предлагаю услуги няни. Писать в личные сообщения."
-Candidates: ["childcare", "job-seeking"]
+Candidates: ["nanny"]
 → {"category": "OFFER", "relevant_segments": [], "certainty": "high", "reason": "Author offers nanny services — this is an offer, not a search for childcare"}
 
 [OFFER — helmet sale]
@@ -122,8 +122,8 @@ Candidates: ["moto-purchase"]
 
 [MIXED — partner search + offer]
 Message: "ищу партнёра в бизнес по аренде байков, предлагаю долю 30%, инвестирую"
-Candidates: ["bike-rental"]
-→ {"category": "MIXED", "relevant_segments": ["bike-rental"], "certainty": "medium", "reason": "Author seeks a partner (demand) AND offers a stake (offer). Demand component exists → MIXED → lead"}
+Candidates: ["scooter-rental"]
+→ {"category": "MIXED", "relevant_segments": ["scooter-rental"], "certainty": "medium", "reason": "Author seeks a partner (demand) AND offers a stake (offer). Demand component exists → MIXED → lead"}
 
 [MIXED — buy or trade]
 Message: "куплю Honda Air Blade или обменяю на свой Sym, с доплатой"
@@ -132,32 +132,32 @@ Candidates: ["moto-purchase"]
 
 [OTHER — social game partner search]
 Message: "ищу с кем поиграть в теннис в Муйне, уровень средний"
-Candidates: ["fitness"]
+Candidates: ["tennis"]
 → {"category": "OTHER", "relevant_segments": [], "certainty": "high", "reason": "Social search for a game partner — not commercial demand. A tennis club cannot 'sell' a playing partner"}
 
 [OTHER — travel companion]
 Message: "ищу попутчика на Фукуок 15 июля, скинемся на такси"
-Candidates: ["tourism"]
+Candidates: ["taxi-transfer", "travel-agent"]
 → {"category": "OTHER", "relevant_segments": [], "certainty": "high", "reason": "Travel companion search — social, not commercial. One cannot sell a 'being a travel companion' service"}
 
 [OTHER — personal visa experience]
 Message: "Вы прямым рейсом летели? Визу оформляли на 90 дней или на 45?"
-Candidates: ["visa"]
+Candidates: ["visa-support"]
 → {"category": "OTHER", "relevant_segments": [], "certainty": "high", "reason": "Author asks about PERSONAL flight/visa experience — not searching for a visa agent. No service demand markers"}
 
 [OTHER — weather question]
 Message: "Как погода на Фукоке в июле? Кто сейчас там, отзовитесь!"
-Candidates: ["tourism"]
+Candidates: ["travel-agent"]
 → {"category": "OTHER", "relevant_segments": [], "certainty": "high", "reason": "General weather question — not a search for tourism services"}
 
 [OTHER — news article]
 Message: "🥭 Туристы из России приезжают в Cam Lâm собирать манго прямо с дерева"
-Candidates: ["tourism"]
+Candidates: ["travel-agent"]
 → {"category": "OTHER", "relevant_segments": [], "certainty": "high", "reason": "News piece — neither demand nor offer, informational message"}
 
 [VN — OFFER]
 Message: "Cho thuê xe máy giá rẻ 100k/ngày, liên hệ 090xxxxx"
-Candidates: ["bike-rental"]
+Candidates: ["scooter-rental"]
 → {"category": "OFFER", "relevant_segments": [], "certainty": "high", "reason": "Cho thuê = for rent — rental offer, not a rental request"}
 
 [VN — DEMAND]

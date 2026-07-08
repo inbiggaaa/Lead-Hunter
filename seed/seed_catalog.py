@@ -2,6 +2,7 @@
 
 Run inside the container:
     python seed/seed_catalog.py
+    python seed/seed_full_keywords.py  # after seeding structure, load keywords
 """
 
 import asyncio
@@ -225,6 +226,28 @@ async def seed():
                 session.add(obj)
                 seg_map[seg["slug"]] = obj
         await session.flush()
+
+        # Keywords (from seed_full_keywords.py)
+        try:
+            from seed.seed_full_keywords import SEGMENT_KEYWORDS
+            kw_count = 0
+            for seg_slug, kw_data in SEGMENT_KEYWORDS.items():
+                seg = seg_map.get(seg_slug)
+                if not seg:
+                    continue
+                for kw_type in ("demand", "stop"):
+                    for text in kw_data.get(kw_type, []):
+                        session.add(
+                            SegmentKeyword(
+                                segment_id=seg.id,
+                                text=text,
+                                keyword_type=kw_type,
+                            )
+                        )
+                        kw_count += 1
+            print(f"  Loaded {kw_count} keywords for {len(seg_map)} subcategories")
+        except ImportError:
+            print("  Keywords file not found — skipping keyword seed")
 
         await session.commit()
         print("Seed complete!")
