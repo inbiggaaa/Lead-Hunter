@@ -686,8 +686,8 @@ function KeywordsEditor({
 
   // Seed textareas when data arrives
   if (data && !initialized) {
-    setDemandText((data.demand ?? []).join("\n"));
-    setStopText((data.stop ?? []).join("\n"));
+    setDemandText((data.demand ?? []).map((kw: any) => kw.text || kw).join("\n"));
+    setStopText((data.stop ?? []).map((kw: any) => kw.text || kw).join("\n"));
     setInitialized(true);
   }
 
