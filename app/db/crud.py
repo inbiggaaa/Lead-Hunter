@@ -143,6 +143,25 @@ async def get_segments(session: AsyncSession) -> list[Segment]:
     return list(result.scalars().all())
 
 
+async def get_categories(session: AsyncSession) -> list:
+    """Return active categories ordered by sort_order."""
+    from app.db.models import Category
+    result = await session.execute(
+        select(Category).where(Category.is_active == True).order_by(Category.sort_order)
+    )
+    return list(result.scalars().all())
+
+
+async def get_segments_by_category(session: AsyncSession, category_id: int) -> list[Segment]:
+    """Return active subcategories for a given category."""
+    result = await session.execute(
+        select(Segment)
+        .where(Segment.category_id == category_id, Segment.is_active == True)
+        .order_by(Segment.sort_order)
+    )
+    return list(result.scalars().all())
+
+
 # ── User subscriptions ──
 
 async def count_user_subscriptions(session: AsyncSession, user_id: int) -> int:

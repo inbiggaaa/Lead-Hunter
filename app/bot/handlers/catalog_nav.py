@@ -1,4 +1,4 @@
-"""FSM catalog navigation: segments (multi) → country → geo → cities (multi) → confirm."""
+"""FSM catalog navigation: categories → subcategories → country → geo → cities → confirm."""
 
 import datetime
 
@@ -10,10 +10,11 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from app.db.crud import (
     count_user_subscriptions,
     create_subscription,
+    get_categories,
     get_countries,
     get_cities,
     get_max_segments,
-    get_segments,
+    get_segments_by_category,
     get_user,
     get_user_subscriptions,
     delete_subscription,
@@ -25,6 +26,7 @@ router = Router()
 
 
 class CatStates(StatesGroup):
+    choosing_category = State()
     choosing_segments = State()
     choosing_country = State()
     choosing_geo = State()
@@ -75,12 +77,20 @@ def _country_flag(slug: str) -> str:
     return flags.get(slug, "🌍")
 
 
-# ═══════════════ STEP 1: Choose segments (multi-select) ═══════════════
+# ═══════════════ STEP 0: Choose categories ═══════════════
+
+def _count_selected(data: dict) -> int:
+    """Count total selected subcategories across all categories."""
+    by_cat = data.get("selected_by_cat", {})
+    return sum(len(ids) for ids in by_cat.values())
+
 
 @router.callback_query(F.data == "menu:search")
-async def on_search_start(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(CatStates.choosing_segments, F.data == "cat:back:to_categories")
+async def on_show_categories(callback: CallbackQuery, state: FSMContext):
+    """Show category picker with selection counter."""
     lang = await _get_lang_nostate(callback)
-    await state.clear()
+    data = await state.get_data()
 
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
@@ -89,27 +99,88 @@ async def on_search_start(callback: CallbackQuery, state: FSMContext):
             return
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
-        segments = await get_segments(session)
+        categories = await get_categories(session)
 
-    # Filter out "other-services" — replaced by support button
-    segments = [s for s in segments if s.slug != "other-services"]
+    selected_by_cat: dict[str, list[int]] = data.get("selected_by_cat", {})
+    total_selected = _count_selected({"selected_by_cat": selected_by_cat})
 
-    selected: list[int] = []
-    await state.update_data(lang=lang, plan=user.plan, max_seg=max_seg, current_subs=current)
+    await state.update_data(
+        lang=lang, plan=user.plan, max_seg=max_seg,
+        current_subs=current, selected_by_cat=selected_by_cat,
+    )
 
-    text = f"Выбери направления ({current}/{max_seg}):\n\n"
-    text += "Можно выбрать несколько. Нажми «Готово» когда закончишь."
+    text = f"Выбери направления ({current + total_selected}/{max_seg}):\n\n"
+    text += "Нажми на категорию чтобы выбрать услуги."
 
-    await _render_segments(callback, state, segments, selected, lang, current, max_seg)
-    await state.set_state(CatStates.choosing_segments)
+    kb_rows = []
+    row = []
+    for cat in categories:
+        name = cat.title_ru if lang == "ru" else (cat.title_en or cat.title_ru)
+        emoji = cat.emoji or ""
+        cat_slug = cat.slug
+        cat_count = len(selected_by_cat.get(cat_slug, []))
+        label = f"{emoji} {name}"
+        if cat_count:
+            label += f" ({cat_count})"
+        row.append(InlineKeyboardButton(
+            text=label, callback_data=f"cat:open:{cat.id}:{cat_slug}"
+        ))
+        if len(row) == 2:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
+
+    if total_selected > 0:
+        kb_rows.append([InlineKeyboardButton(
+            text=f"✅ Готово ({total_selected} выбрано)",
+            callback_data="cat:to_country",
+        )])
+
+    kb_rows.append([InlineKeyboardButton(
+        text="💬 Нет вашего вида деятельности? Связаться с поддержкой" if lang == "ru" else "💬 Don't see your category? Contact support",
+        callback_data="support:missing_category",
+    )])
+    kb_rows.append([InlineKeyboardButton(
+        text=get_text(lang, "btn_back"), callback_data="menu:main",
+    )])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+    await state.set_state(CatStates.choosing_category)
+    await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
 
-async def _render_segments(
-    callback: CallbackQuery, state: FSMContext,
-    segments, selected: list[int], lang: str,
-    current: int, max_seg: int,
-):
+# ═══════════════ STEP 1: Choose subcategories within a category ═══════════════
+
+@router.callback_query(CatStates.choosing_category, F.data.startswith("cat:open:"))
+async def on_category_open(callback: CallbackQuery, state: FSMContext):
+    """Open a category — show its subcategories for multi-select."""
+    parts = callback.data.split(":")
+    cat_id = int(parts[2])
+    cat_slug = parts[3]
+
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    selected_by_cat: dict[str, list[int]] = data.get("selected_by_cat", {})
+    selected = selected_by_cat.get(cat_slug, [])
+
+    async for session in get_session():
+        segments = await get_segments_by_category(session, cat_id)
+
+    await state.update_data(current_category=cat_slug, selected_by_cat=selected_by_cat)
+
+    total_selected = _count_selected({"selected_by_cat": selected_by_cat})
+    max_seg = data.get("max_seg", 9)
+    current = data.get("current_subs", 0)
+    cat_name = ""
+    for seg in segments:
+        if seg.category:
+            cat_name = seg.category.title_ru or ""
+            break
+
+    text = f"{cat_name} — выбери услуги ({current + total_selected}/{max_seg}):"
+
     kb_rows = []
     row = []
     for seg in segments:
@@ -126,70 +197,136 @@ async def _render_segments(
     if row:
         kb_rows.append(row)
 
-    # "Done" button — enabled only if at least 1 selected
-    if selected and (current + len(selected) <= max_seg):
+    if selected:
         kb_rows.append([InlineKeyboardButton(
-            text=f"✅ Готово ({len(selected)} выбрано)",
-            callback_data="cat:segs_done",
+            text=f"✅ Готово ({len(selected)} в этой категории)",
+            callback_data="cat:back:to_categories",
         )])
-
     kb_rows.append([InlineKeyboardButton(
-        text="💬 Нет вашего вида деятельности? Связаться с поддержкой" if lang == "ru" else "💬 Don't see your category? Contact support",
-        callback_data="support:missing_category",
-    )])
-
-    kb_rows.append([InlineKeyboardButton(
-        text=get_text(lang, "btn_back"), callback_data="menu:main",
+        text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories",
     )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
-    await callback.message.edit_text(
-        f"Выбери направления ({current + len(selected)}/{max_seg}):\n\n"
-        f"Можно выбрать несколько. Нажми «Готово» когда закончишь.",
-        reply_markup=kb,
-    )
+    await state.set_state(CatStates.choosing_segments)
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
 
 
 @router.callback_query(CatStates.choosing_segments, F.data.startswith("cat:seg:"))
 async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
+    """Toggle a subcategory selection."""
     seg_id = int(callback.data.split(":")[2])
     data = await state.get_data()
-    selected: list[int] = data.get("selected_segments", [])
-    max_seg = data.get("max_seg", 1)
+    cat_slug = data.get("current_category", "")
+    selected_by_cat: dict[str, list[int]] = data.get("selected_by_cat", {})
+    selected = selected_by_cat.get(cat_slug, [])
+    total_selected = _count_selected({"selected_by_cat": selected_by_cat})
+    max_seg = data.get("max_seg", 9)
     current = data.get("current_subs", 0)
-    lang = data.get("lang", "ru")
 
     if seg_id in selected:
         selected.remove(seg_id)
     else:
-        if current + len(selected) >= max_seg:
+        if current + total_selected >= max_seg:
             await callback.answer(f"Лимит: {max_seg} направлений", show_alert=True)
             return
         selected.append(seg_id)
 
-    await state.update_data(selected_segments=selected)
+    if selected:
+        selected_by_cat[cat_slug] = selected
+    elif cat_slug in selected_by_cat:
+        del selected_by_cat[cat_slug]
 
+    await state.update_data(selected_by_cat=selected_by_cat)
+
+    # Re-render subcategories for this category
+    cat_id = int(callback.data.split(":")[-1]) if False else 0
+    # Reconstruct the original callback to re-render
     async for session in get_session():
-        segments = await get_segments(session)
-        segments = [s for s in segments if s.slug != "other-services"]
+        from app.db.models import Segment, Category
+        from sqlalchemy import select
+        seg = (await session.execute(select(Segment).where(Segment.id == seg_id))).scalar_one_or_none()
+        if seg:
+            cat_id = seg.category_id
+            cat_slug_render = seg.category.slug if seg.category else ""
+            # Re-open the category view
+            break
 
-    await _render_segments(callback, state, segments, selected, lang, current, max_seg)
+    if cat_id:
+        # Re-render the subcategory list
+        await on_category_open_render(callback, state, cat_id, cat_slug_render or cat_slug)
     await callback.answer()
 
 
-@router.callback_query(CatStates.choosing_segments, F.data == "cat:segs_done")
-async def on_segments_done(callback: CallbackQuery, state: FSMContext):
+async def on_category_open_render(callback: CallbackQuery, state: FSMContext, cat_id: int, cat_slug: str):
+    """Re-render subcategory list after toggle (without setting state)."""
     data = await state.get_data()
-    selected: list[int] = data.get("selected_segments", [])
+    lang = data.get("lang", "ru")
+    selected_by_cat: dict[str, list[int]] = data.get("selected_by_cat", {})
+    selected = selected_by_cat.get(cat_slug, [])
+    total_selected = _count_selected({"selected_by_cat": selected_by_cat})
+    max_seg = data.get("max_seg", 9)
+    current = data.get("current_subs", 0)
+
+    async for session in get_session():
+        segments = await get_segments_by_category(session, cat_id)
+
+    cat_name = ""
+    for seg in segments:
+        if seg.category:
+            cat_name = seg.category.title_ru or ""
+            break
+
+    text = f"{cat_name} — выбери услуги ({current + total_selected}/{max_seg}):"
+
+    kb_rows = []
+    row = []
+    for seg in segments:
+        emoji = seg.emoji or ""
+        title = seg.title_ru if lang == "ru" else (seg.title_en or seg.title_ru)
+        prefix = "☑️ " if seg.id in selected else "⬜ "
+        row.append(InlineKeyboardButton(
+            text=f"{prefix}{emoji} {title}",
+            callback_data=f"cat:seg:{seg.id}",
+        ))
+        if len(row) == 2:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
+
+    kb_rows.append([InlineKeyboardButton(
+        text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories",
+    )])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+    await callback.message.edit_text(text, reply_markup=kb)
+
+
+@router.callback_query(CatStates.choosing_category, F.data == "cat:to_country")
+async def on_segments_done(callback: CallbackQuery, state: FSMContext):
+    """User clicked 'Done' on category screen — flatten selected subcategories and proceed."""
+    data = await state.get_data()
+    selected_by_cat: dict[str, list[int]] = data.get("selected_by_cat", {})
     lang = data.get("lang", "ru")
 
-    if not selected:
+    # Flatten all selected subcategory IDs
+    all_selected = []
+    for ids in selected_by_cat.values():
+        all_selected.extend(ids)
+
+    if not all_selected:
         await callback.answer("Выбери хотя бы одно направление", show_alert=True)
         return
 
-    await state.update_data(selected_segments=selected)
+    await state.update_data(selected_segments=all_selected)
 
-    # Step 2: choose country
+    # Proceed to country selection
+    await _show_countries(callback, state, lang)
+
+
+async def _show_countries(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Show country picker."""
     async for session in get_session():
         countries = await get_countries(session)
 
@@ -208,13 +345,12 @@ async def on_segments_done(callback: CallbackQuery, state: FSMContext):
     if row:
         kb_rows.append(row)
     kb_rows.append([InlineKeyboardButton(
-        text=get_text(lang, "btn_back"), callback_data="menu:search",
+        text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories",
     )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
     await state.set_state(CatStates.choosing_country)
     await callback.message.edit_text(text, reply_markup=kb)
-    await callback.answer()
 
 
 # ═══════════════ STEP 2: Choose country ═══════════════
@@ -231,7 +367,7 @@ async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🌍 По всей стране", callback_data="cat:geo:all")],
         [InlineKeyboardButton(text="🏙 В городах", callback_data="cat:geo:cities")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:to_segments")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories")],
     ])
 
     await state.set_state(CatStates.choosing_geo)
@@ -239,10 +375,9 @@ async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.callback_query(CatStates.choosing_country, F.data == "cat:back:to_segments")
-async def on_back_to_segments(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(CatStates.choosing_segments)
-    await on_search_start(callback, state)
+@router.callback_query(CatStates.choosing_country, F.data == "cat:back:to_categories")
+async def on_back_to_categories(callback: CallbackQuery, state: FSMContext):
+    await on_show_categories(callback, state)
 
 
 # ═══════════════ STEP 3: Choose geo ═══════════════
@@ -330,7 +465,7 @@ async def on_back_to_country_from_cities(callback: CallbackQuery, state: FSMCont
     if row:
         kb_rows.append(row)
     kb_rows.append([InlineKeyboardButton(
-        text=get_text(lang, "btn_back"), callback_data="cat:back:to_segments",
+        text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories",
     )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
@@ -427,7 +562,7 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Подписаться", callback_data="cat:subscribe")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:to_segments")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories")],
     ])
 
     await state.set_state(CatStates.confirm_subscription)
@@ -668,12 +803,10 @@ async def on_support_missing_category(callback: CallbackQuery):
 # ═══════════════ BACK NAVIGATION ═══════════════
 
 @router.callback_query(CatStates.choosing_country, F.data == "menu:search")
-async def on_back_to_segments_from_country(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(CatStates.choosing_segments)
-    await on_search_start(callback, state)
+async def on_back_to_categories_from_country(callback: CallbackQuery, state: FSMContext):
+    await on_show_categories(callback, state)
 
 
-@router.callback_query(CatStates.confirm_subscription, F.data == "cat:back:to_segments")
+@router.callback_query(CatStates.confirm_subscription, F.data == "cat:back:to_categories")
 async def on_back_from_confirm(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(CatStates.choosing_segments)
-    await on_search_start(callback, state)
+    await on_show_categories(callback, state)

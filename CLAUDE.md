@@ -1119,3 +1119,16 @@ Bursa retag: канал 1595 → city_id=59, орфаны 821→820→813.
 Оба аккаунта CB clear, worker стабилен.
 Git: куча немерженных файлов (backend + frontend + migrations + удалённые/новые статик-ассеты + docs).
 Handoff: .rpiv/artifacts/handoffs/2026-07-05_channels-ux-overhaul.md.
+
+**08.07.2026 16:30 — Каталог v2: Фаза 1 (миграция) + Фаза 2 (ключевые слова) завершены.**
+Реструктуризация каталога: 14 категорий, 69 подкатегорий.
+- Миграция cat_hierarchy_v1: таблица categories, FK category_id в segments
+- Старые 29 сегментов удалены, 69 новых созданы с привязкой к категориям
+- Страны: оставлена 21 фокус-страна (миграция focus_countries)
+- 1524 ключевых слова (1491 demand/stop + 33 universal stop) загружены в БД
+- LLM-промпт обновлён: все старые slugs заменены на новые
+- poll_parked_countries = True: все 21 страна поллятся (Hot/Dormant)
+- Config: TIER1_COUNTRY_SLUGS расширен до 21 страны
+- 4 unit-теста исправлены (Segment теперь требует category_id)
+- Worker стабилен: 1491 keywords, 69 segments, 33 universal stops
+- Следующее: Фаза 3 (бот — двухуровневый выбор категорий/подкатегорий)

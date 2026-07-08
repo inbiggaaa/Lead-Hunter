@@ -284,9 +284,9 @@ async def cmd_cancel(message: Message, state: FSMContext):
 
 @router.message(Command("search"))
 async def cmd_search(message: Message, state: FSMContext):
-    """Open the segment picker directly (same as inline menu:search)."""
+    """Open the category picker directly."""
     from app.bot.handlers.catalog_nav import CatStates
-    from app.db.crud import get_user, count_user_subscriptions, get_max_segments, get_segments
+    from app.db.crud import get_user, count_user_subscriptions, get_max_segments, get_categories
 
     await state.clear()
     lang = await _get_user_lang_for_message(message)
@@ -298,24 +298,25 @@ async def cmd_search(message: Message, state: FSMContext):
             return
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
-        segments = await get_segments(session)
+        categories = await get_categories(session)
 
-    # Filter out "other-services" — replaced by support button
-    segments = [s for s in segments if s.slug != "other-services"]
+    await state.update_data(
+        lang=lang, plan=user.plan, max_seg=max_seg,
+        current_subs=current, selected_by_cat={},
+    )
 
-    selected: list[int] = []
-    await state.update_data(lang=lang, plan=user.plan, max_seg=max_seg, current_subs=current)
+    # Build category picker keyboard
+    text = f"Выбери направления ({current}/{max_seg}):\n\n"
+    text += "Нажми на категорию чтобы выбрать услуги."
 
-    # Build segment picker keyboard
     kb_rows = []
     row = []
-    for seg in segments:
-        emoji = seg.emoji or ""
-        title = seg.title_ru if lang == "ru" else (seg.title_en or seg.title_ru)
-        prefix = "☑️ " if seg.id in selected else "⬜ "
+    for cat in categories:
+        name = cat.title_ru if lang == "ru" else (cat.title_en or cat.title_ru)
+        emoji = cat.emoji or ""
         row.append(InlineKeyboardButton(
-            text=f"{prefix}{emoji} {title}",
-            callback_data=f"cat:seg:{seg.id}",
+            text=f"{emoji} {name}",
+            callback_data=f"cat:open:{cat.id}:{cat.slug}",
         ))
         if len(row) == 2:
             kb_rows.append(row)
@@ -332,12 +333,8 @@ async def cmd_search(message: Message, state: FSMContext):
     )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
-    text = (
-        f"Выбери направления ({current}/{max_seg}):\n\n"
-        f"Можно выбрать несколько. Нажми «Готово» когда закончишь."
-    )
     await message.answer(text, reply_markup=kb)
-    await state.set_state(CatStates.choosing_segments)
+    await state.set_state(CatStates.choosing_category)
 
 @router.message(Command("keywords"))
 async def cmd_keywords(message: Message):
