@@ -11,7 +11,7 @@ from app.admin.api.crud import create_crud_router
 from app.admin.api.stop_words import router as stop_words_router
 from app.admin.api.unmatched import router as unmatched_router
 from app.admin.api.segments import router as segments_detail_router
-from app.db.models import Country, City, Segment, SegmentKeyword
+from app.db.models import Country, City, Category, Segment, SegmentKeyword
 
 # ── Auth dependency (duplicated here to avoid circular import) ──
 
@@ -33,6 +33,7 @@ api_router.include_router(broadcast_router, dependencies=_protected)
 api_router.include_router(chat_router, dependencies=_protected)
 api_router.include_router(create_crud_router(Country, "countries", "countries"), dependencies=_protected)
 api_router.include_router(create_crud_router(City, "cities", "cities"), dependencies=_protected)
+api_router.include_router(create_crud_router(Category, "categories", "categories"), dependencies=_protected)
 api_router.include_router(create_crud_router(Segment, "segments", "segments"), dependencies=_protected)
 api_router.include_router(
     create_crud_router(SegmentKeyword, "segment_keywords", "segment-keywords"),

@@ -31,7 +31,7 @@ import { api } from "@/lib/api";
 const NAV_ITEMS = [
   { to: "/", icon: LayoutDashboard, label: "Дашборд" },
   { to: "/users", icon: Users, label: "Пользователи" },
-  { to: "/catalog", icon: Globe, label: "Каталог" },
+  { to: "/categories", icon: Globe, label: "Категории" },
   { to: "/channels", icon: Radio, label: "Каналы" },
   { to: "/stop-words", icon: CircleOff, label: "Стоп-слова" },
   { to: "/unmatched", icon: TriangleAlert, label: "Несматченные" },

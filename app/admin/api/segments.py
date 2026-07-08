@@ -120,3 +120,51 @@ async def delete_segment_keyword(segment_id: int, kw_id: int):
         await session.delete(kw)
         await session.commit()
         return {"ok": True}
+
+
+@router.put("/{segment_id}/keywords-batch")
+async def batch_update_keywords(segment_id: int, data: dict):
+    """Batch replace all keywords for a segment.
+    
+    Body: {"demand": "word1\nword2\nword3", "stop": "stop1\nstop2"}
+    Each line in the text is one keyword.
+    """
+    async with async_session_factory() as session:
+        seg = await session.get(Segment, segment_id)
+        if not seg:
+            raise HTTPException(status_code=404, detail="Segment not found")
+
+        # Delete existing keywords
+        await session.execute(
+            sa_delete(SegmentKeyword).where(SegmentKeyword.segment_id == segment_id)
+        )
+
+        demand_count = 0
+        stop_count = 0
+
+        # Insert demand keywords
+        demand_text = data.get("demand", "")
+        for line in demand_text.strip().split("\n"):
+            line = line.strip()
+            if line:
+                session.add(SegmentKeyword(
+                    segment_id=segment_id,
+                    text=line,
+                    keyword_type="demand",
+                ))
+                demand_count += 1
+
+        # Insert stop keywords
+        stop_text = data.get("stop", "")
+        for line in stop_text.strip().split("\n"):
+            line = line.strip()
+            if line:
+                session.add(SegmentKeyword(
+                    segment_id=segment_id,
+                    text=line,
+                    keyword_type="stop",
+                ))
+                stop_count += 1
+
+        await session.commit()
+        return {"demand": demand_count, "stop": stop_count}

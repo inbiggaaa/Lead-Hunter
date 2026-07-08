@@ -7,6 +7,7 @@ import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/pages/DashboardPage";
 import UsersPage from "@/pages/UsersPage";
 import CatalogPage from "@/pages/CatalogPage";
+import CategoriesPage from "@/pages/CategoriesPage";
 import ChannelsPage from "@/pages/ChannelsPage";
 import ChatPage from "@/pages/ChatPage";
 import BroadcastPage from "@/pages/BroadcastPage";
@@ -52,6 +53,7 @@ export default function App() {
               <Route index element={<DashboardPage />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="catalog" element={<CatalogPage />} />
+              <Route path="categories" element={<CategoriesPage />} />
               <Route path="channels" element={<ChannelsPage />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="broadcast" element={<BroadcastPage />} />
