@@ -167,17 +167,21 @@ async def on_category_open(callback: CallbackQuery, state: FSMContext):
 
     async for session in get_session():
         segments = await get_segments_by_category(session, cat_id)
+        # Load category name in the same session (eager, avoid lazy load)
+        cat_name = ""
+        if segments:
+            from app.db.models import Category
+            from sqlalchemy import select
+            cat = (await session.execute(select(Category).where(Category.id == cat_id))).scalar_one_or_none()
+            cat_name = cat.title_ru if cat else ""
+            if cat_name is None:
+                cat_name = ""
 
     await state.update_data(current_category=cat_slug, selected_by_cat=selected_by_cat)
 
     total_selected = _count_selected({"selected_by_cat": selected_by_cat})
     max_seg = data.get("max_seg", 9)
     current = data.get("current_subs", 0)
-    cat_name = ""
-    for seg in segments:
-        if seg.category:
-            cat_name = seg.category.title_ru or ""
-            break
 
     text = f"{cat_name} — выбери услуги ({current + total_selected}/{max_seg}):"
 
@@ -270,12 +274,15 @@ async def on_category_open_render(callback: CallbackQuery, state: FSMContext, ca
 
     async for session in get_session():
         segments = await get_segments_by_category(session, cat_id)
-
-    cat_name = ""
-    for seg in segments:
-        if seg.category:
-            cat_name = seg.category.title_ru or ""
-            break
+        # Load category name in session
+        cat_name = ""
+        if segments:
+            from app.db.models import Category
+            from sqlalchemy import select
+            cat = (await session.execute(select(Category).where(Category.id == cat_id))).scalar_one_or_none()
+            cat_name = cat.title_ru if cat else ""
+            if cat_name is None:
+                cat_name = ""
 
     text = f"{cat_name} — выбери услуги ({current + total_selected}/{max_seg}):"
 
