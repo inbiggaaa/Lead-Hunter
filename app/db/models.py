@@ -101,6 +101,12 @@ class WatchedChat(Base):
     title: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="approved")
     is_private: Mapped[bool] = mapped_column(Boolean, default=False)
+    country_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("countries.id", ondelete="SET NULL"), nullable=True
+    )
+    city_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("cities.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -161,6 +167,22 @@ class City(Base):
     country: Mapped["Country"] = relationship(back_populates="cities")
 
 
+# ── categories ──
+
+class Category(Base):
+    __tablename__ = "categories"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(String(50), unique=True)
+    title_ru: Mapped[str | None] = mapped_column(Text)
+    title_en: Mapped[str | None] = mapped_column(Text)
+    emoji: Mapped[str | None] = mapped_column(String(8))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    segments: Mapped[list["Segment"]] = relationship(back_populates="category")
+
+
 # ── segments ──
 
 class Segment(Base):
@@ -171,10 +193,14 @@ class Segment(Base):
     title_ru: Mapped[str | None] = mapped_column(Text)
     title_en: Mapped[str | None] = mapped_column(Text)
     emoji: Mapped[str | None] = mapped_column(String(8))
+    category_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("categories.id", ondelete="RESTRICT"), nullable=False
+    )
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     keywords: Mapped[list["SegmentKeyword"]] = relationship(back_populates="segment")
+    category: Mapped["Category"] = relationship(back_populates="segments")
 
 
 # ── segment_keywords ──

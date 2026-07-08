@@ -146,14 +146,21 @@ class ChannelPoller:
         for ch in channels:
             country_id = ch.get("country_id")
             participants = ch.get("participants", 0) or 0
-            is_active_country = country_id in self._active_countries
-            is_watched = country_id is None  # manually added by user, always monitor
+            is_active_country = country_id is not None and country_id in self._active_countries
+            is_watched = ch.get("is_watched", False)
+            is_watched_with_geo = is_watched and country_id is not None
 
             if is_active_country:
                 hot.append(ch)
+            elif is_watched_with_geo:
+                # Watched channel with geo — tier by country activity
+                if participants and participants >= 1000:
+                    warm.append(ch)
+                else:
+                    cold.append(ch)
             elif is_watched:
-                # User explicitly monitors — keep in active tiers
-                if participants >= 1000:
+                # Legacy watched channel without geo — always monitor
+                if participants and participants >= 1000:
                     warm.append(ch)
                 else:
                     cold.append(ch)
@@ -193,7 +200,15 @@ class ChannelPoller:
             return set()
 
     async def _get_all_channels(self) -> list[dict]:
-        """Return all channels with country_id and participant count."""
+        """Return all channels with country_id and participant count.
+
+        Sources:
+        - CatalogChannel: public channels from catalog (with geo from auto_matched)
+        - WatchedChat: manually added channels/groups (with geo from country_id column)
+
+        For WatchedChat entries without a username (private groups),
+        chat_username stores the Telegram peer ID in format "-100XXXXXXX".
+        """
         from app.db.models import CatalogChannel, WatchedChat
         try:
             async with async_session_factory() as session:
@@ -205,7 +220,10 @@ class ChannelPoller:
                     ).where(CatalogChannel.is_ignored == False)
                 )
                 watched_result = await session.execute(
-                    select(WatchedChat.chat_username).where(
+                    select(
+                        WatchedChat.chat_username,
+                        WatchedChat.country_id,
+                    ).where(
                         WatchedChat.status == "approved"
                     ).distinct()
                 )
@@ -217,6 +235,7 @@ class ChannelPoller:
                         "chat_username": row[0],
                         "country_id": row[1],
                         "participants": row[2],
+                        "is_watched": False,
                     })
                     seen.add(row[0])
                 for row in watched_result.all():
@@ -224,8 +243,9 @@ class ChannelPoller:
                     if username not in seen:
                         channels.append({
                             "chat_username": username,
-                            "country_id": None,
+                            "country_id": row[1],
                             "participants": None,
+                            "is_watched": True,
                         })
                         seen.add(username)
                 return channels
@@ -265,6 +285,11 @@ class ChannelPoller:
     async def _resolve_entity(self, account, channel_username: str):
         """Return entity for channel_username — from cache or via ResolveUsername.
 
+        Handles two formats:
+        - @username (or raw username): public channels — resolved via get_input_entity
+        - -100XXXXXXXXX: private groups without username — resolved by peer ID
+          (entity must be in the session cache; the userbot account must be a member)
+
         Caches (channel_id, access_hash) per account since access_hash differs
         between accounts. On cache hit, constructs InputPeerChannel directly —
         no API call, no limiter.acquire().
@@ -274,14 +299,22 @@ class ChannelPoller:
         if cached is not None:
             return InputPeerChannel(*cached)
 
-        # Cache miss — resolve once per account lifetime.
-        # get_input_entity is preferred over get_entity: it checks the
-        # session cache first and returns InputPeer directly, avoiding
-        # a full ResolveUsername in many cases.
         await limiter.acquire(account.account_id)
-        entity = await account.get_input_entity(channel_username)
-        # get_input_entity may return InputPeerChannel directly;
-        # extract the id/access_hash for our entity cache.
+
+        # ID-based resolution for private groups without usernames
+        if channel_username.startswith("-"):
+            # Formats: -100XXXXXXX (supergroup) or -XXXXXXXX (legacy)
+            # Strip leading -100 or - to get the positive entity ID
+            raw = channel_username
+            if raw.startswith("-100"):
+                entity_id = int(raw[4:])
+            else:
+                entity_id = int(raw[1:])
+            from telethon.tl.types import PeerChannel
+            entity = await account.client.get_input_entity(PeerChannel(entity_id))
+        else:
+            entity = await account.get_input_entity(channel_username)
+
         if hasattr(entity, 'channel_id'):
             per_account[account.account_id] = (entity.channel_id, entity.access_hash)
             return entity

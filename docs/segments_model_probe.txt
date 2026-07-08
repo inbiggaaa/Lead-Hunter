@@ -1,0 +1,181 @@
+=== SEGMENTS MODEL PROBE: подготовка к иерархии Категория→Подкатегория ===
+Дата: 2026-07-06
+РОЛЬ: read-only, только SELECT/grep, без правок.
+
+══════════════════════════════════════════════════
+ТАБЛИЦЫ С СЕГМЕНТАМИ
+══════════════════════════════════════════════════
+- segments              (29 строк) — основной справочник
+- segment_keywords      (2257 строк) — ключевые слова: demand/stop/synonym
+  96 универсальных stop-слов (segment_id=NULL)
+- channel_segments      (0 строк) — ПУСТА, не используется в матчинге
+- user_subscriptions    — подписки пользователей на направления
+
+══════════════════════════════════════════════════
+СХЕМА segments — ПЛОСКАЯ, иерархии НЕТ
+══════════════════════════════════════════════════
+Column    | Type         | Nullable
+id        | bigint PK    | not null
+slug      | varchar(50)  | not null UNIQUE
+title_ru  | text         |
+title_en  | text         |
+emoji     | varchar(8)   |
+sort_order| integer      | not null
+is_active | boolean      | not null
+
+Индексы: PK(id), UNIQUE(slug)
+FK-ссылки (входящие):
+  channel_segments.segment_id → segments(id) ON DELETE CASCADE
+  segment_keywords.segment_id → segments(id) ON DELETE CASCADE
+  user_subscriptions.segment_id → segments(id) ON DELETE CASCADE
+
+parent_id / hierarchy-поля: НЕТ
+
+══════════════════════════════════════════════════
+29 СЕГМЕНТОВ (id + slug + title_ru + demand)
+══════════════════════════════════════════════════
+ 1 | catering          | Кейтеринг / Повара        | 147
+ 2 | massage           | Массаж                    |  68
+ 3 | bike-rental       | Аренда байков             |  72
+ 4 | moto-purchase     | Покупка мотоцикла         |  58
+ 5 | car-rental        | Аренда авто               |  62
+ 6 | cleaning          | Клининг                   |  57
+ 7 | beauty            | Красота и уход            | 313
+ 8 | real-estate-rent  | Аренда жилья              |  74
+ 9 | real-estate-buy   | Покупка жилья             |  18
+10 | job-hiring        | Работа (вакансии)         |  91
+11 | job-seeking       | Работа (соискатели)       |  65
+12 | tattoo            | Татуировки                |  59
+13 | tourism           | Туризм / Экскурсии        |  57
+14 | visa              | Визы и документы          |  59
+15 | translation       | Переводчики               |  52
+16 | repair            | Ремонт / Мастера          |  18
+17 | photo-video       | Фото / Видео              |  64
+18 | fitness           | Фитнес и спорт            | 182
+19 | pets              | Услуги для животных       |  18
+20 | education         | Обучение / Репетиторы     |  70
+21 | medical           | Медицина / Врачи          |  15
+22 | legal             | Юридические услуги        |  58
+23 | it-services       | IT-услуги                 |  24
+24 | design            | Дизайн / Креатив          |  13
+25 | logistics         | Логистика / Доставка      |  14
+26 | childcare         | Няни / Присмотр за детьми |  12
+27 | events            | Организация мероприятий   |  16
+28 | crypto            | Обмен валют               | 108
+102| driving-lessons   | Обучение вождению         |  71
+
+══════════════════════════════════════════════════
+КАРТА ИСПОЛЬЗОВАНИЯ segment_id В КОДЕ
+══════════════════════════════════════════════════
+
+ГРУППА A: МАТЧИНГ / ДИСПАТЧ (ОПАСНО — живой классификатор, перестройка диспатча)
+─────────────────────────────────────────────────
+
+app/userbot/classifier.py
+  :204  segment_keywords[segment_slug]["demand"/"stop"/"synonym"]
+  :266  for segment_slug, keywords_by_type in segment_keywords.items()
+        Итерация по сегментам при классификации сообщения.
+        КЛЮЧЕВОЕ: classifier работает со SLUG (сегмент идентифицируется по slug),
+        НЕ с числовым id. Slug — связующее звено между keyword_map и matched_segments.
+
+app/userbot/poller.py
+  :84   self._channel_segments: dict[str, list[str]] = {}
+        In-memory map: chat_username → [slug1, slug2, ...]
+        Построено _load_channel_segments(), читается в _poll_channel():371
+  :131  _load_channel_segments() — вызов при старте
+  :371  channel_segs = self._channel_segments.get(channel_username, [])
+        Используется в _poll_channel() для pre-tagging каналов сегментами
+  :1161 _load_channel_segments() — вызов при ребилде тиров
+  :1345 matched_segment_ids = {seg_by_slug.get(s) for s in matched_segments}
+        Преобразование slug→id для сравнения с подписками
+  :1346 matched_segment_ids.discard(None)  — на случай отсутствия slug
+  :1361 if sub["segment_id"] in matched_segment_ids:
+        СРАВНЕНИЕ: segment_id подписки пользователя ∊ множество матчей
+        Это ГЛАВНАЯ точка связи: segment_id подписки == сегмент матча.
+  :1428-1432 _load_keywords: строит keyword_map[slug], mapping segment_id→slug
+        Читает Segment из БД, строит словарь {id: slug}.
+        Ключевые слова загружаются в память воркера при старте.
+
+app/cache/subscription_cache.py
+  :61-72 sub_geo: list of {segment_id, country_id, city_ids}
+        Кэш подписок в Redis. segment_id — ключ в диспатче.
+
+app/db/models.py
+  :180-189 SegmentKeyword: segment_id (FK→segments), text, keyword_type, is_regex
+  :231-236 ChannelSegment: segment_id PK (channel_id, segment_id) — ПУСТА (0 строк)
+  :252-262 UserSubscription: segment_id (FK→segments), UNIQUE(user,segment,country)
+
+ГРУППА Б: АДМИН / CRUD / ПОДПИСКИ (БЕЗОПАСНО — чистые FK, перепривязка атомарна)
+─────────────────────────────────────────────────
+
+app/db/crud.py
+  :165-170 create_subscription(segment_id=int) → INSERT user_subscriptions
+
+app/bot/handlers/catalog_nav.py
+  :376-385 count_user_subscriptions, get_user_subscriptions
+  :471-477 existing_pairs = {(s.segment_id, s.country_id)}
+  :592 seg_name = seg_names.get(sub.segment_id)
+
+app/bot/handlers/start.py
+  :299 count_user_subscriptions
+  :400-424 get_user_subscriptions → seg_name = seg_names.get(sub.segment_id)
+
+app/admin/api/segments.py
+  :12-117 CRUD segment_keywords: GET/POST/PUT/DELETE по segment_id
+        (keyword CRUD, не сегментов)
+
+app/admin/api/stop_words.py
+  :1-135 Stop-words CRUD: фильтрация по segment_id, поддержка NULL (универсальные)
+
+app/admin/api/__init__.py
+  :182 segments = [s.segment_id for s in seg_result]  — get_channel ответ
+  :238 ChannelSegment(channel_id, segment_id=sid)     — PUT канала
+
+app/admin/api/crud.py
+  :34,50 generic CRUD router для user_subscriptions (через ALLOWED_MODELS)
+
+app/userbot/poller.py — часть «каталог»:
+  :1161+ _tag_new_channels — НЕ использует segment_id (только geo).
+
+══════════════════════════════════════════════════
+КЛЮЧЕВОЙ ВЫВОД: ГДЕ РЕАЛЬНО ХРАНИТСЯ СВЯЗЬ КАНАЛ↔СЕГМЕНТ
+══════════════════════════════════════════════════
+Таблица channel_segments ПУСТА (0 строк).
+Связь канал↔сегмент — ЧИСТЫЙ RUNTIME:
+  1. _load_keywords() загружает все keywords→segment_slug в память
+  2. _load_channel_segments() pre-tag'ит каналы по названию (in-memory dict)
+  3. classifier.classify() сопоставляет текст сообщения с keyword_map
+  4. _dispatch() сравнивает classifier-вывод с подписками пользователя
+
+То есть: segment_id ВООБЩЕ не хранится как атрибут канала. Каналы
+классифицируются каждый раз заново при получении сообщения. Это означает,
+что переименование/реструктуризация сегментов (id, slug) автоматически
+отразится на матчинге после перезагрузки keyword_map — БЕЗ миграции
+channel_segments.
+
+══════════════════════════════════════════════════
+РИСКИ ПРИ ВВЕДЕНИИ ИЕРАРХИИ
+══════════════════════════════════════════════════
+
+ОПАСНО:
+- _dispatch() сравнивает sub["segment_id"] с matched_segment_ids
+  (poller.py:1361). Если подписка будет на родительскую категорию,
+  а классификатор вернёт дочерний slug — матча не будет. Нужно либо
+  расширять matched_segment_ids до предков, либо менять логику сравнения.
+- subscription_cache.py: кэш подписок в Redis форматируется как
+  {segment_id, country_id, city_ids}. При иерархии кэш нужно инвалидировать
+  и перестроить формат.
+
+БЕЗОПАСНО:
+- CRUD подписок (catalog_nav.py, crud.py) — сегмент в подписке можно
+  перепривязать на новый уровень иерархии без изменения кода (только
+  FK в БД и UI). segment_id остаётся валидным.
+- Админ-API segments.py — CRUD keywords, не сегментов.
+- channel_segments — пустая таблица, мигрировать нечего.
+- segment_keywords — keywords привязаны к segment_id.
+  При разбиении сегмента на подсегменты keywords мигрируют вместе
+  с FK (CASCADE не проблема, нужен ручной перенос).
+- classifier.py — работает со slug (не id), безразличен к иерархии.
+
+══════════════════════════════════════════════════
+(конец пробы)

@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # ── Query generation (kept from v2) ──
 
-TIER1_COUNTRY_SLUGS = {"tr", "vn", "th", "id", "eg", "ae", "ge"}
+TIER1_COUNTRY_SLUGS = {"tr", "vn", "th", "id", "eg", "ae", "ge", "ph", "in", "cn", "lk", "es", "it", "me", "cy", "north-cyprus", "kz", "ar", "am", "fr", "южная-корея"}
 
 COMMUNITY_RU = [
     "чат", "чатик", "общение", "болталка", "общаемся",

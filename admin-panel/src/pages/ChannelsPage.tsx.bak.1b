@@ -1,0 +1,524 @@
+import { useState, useEffect, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import {
+  Pagination, PaginationContent, PaginationItem,
+  PaginationNext, PaginationPrevious,
+} from "@/components/ui/pagination";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Search, Plus, Trash2, Save, RotateCcw, X } from "lucide-react";
+import { toast } from "sonner";
+import { MultiSelect } from "@/components/ui/multi-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+interface ChannelItem {
+  id: number;
+  chat_username: string;
+  title: string | null;
+  participants: number | null;
+  is_verified: boolean;
+  is_ignored: boolean;
+  manually_reviewed: boolean;
+  auto_matched_country_id: number | null;
+  auto_matched_city_id: number | null;
+  city_ids: number[];
+  discovered_at: string | null;
+}
+
+interface ListResponse {
+  items: ChannelItem[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+interface Country {
+  id: number;
+  name_ru: string;
+  slug: string;
+}
+
+interface City {
+  id: number;
+  name_ru: string;
+  slug: string;
+  country_id: number;
+}
+
+// ── Filter axes (independent, combined via AND) ──
+
+type FilterValue<T> = T | "all";
+
+type StatusFilter = "all" | "active" | "ignored" | "bez_privyazki";
+
+export default function ChannelsPage() {
+  const queryClient = useQueryClient();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [perPage, setPerPage] = useState(100);
+
+  // Independent filter axes ("all" = no filter)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [countryFilter, setCountryFilter] = useState<FilterValue<number>>("all");
+  const [cityIdFilter, setCityIdFilter] = useState<FilterValue<number>>("all");
+  const [newOnly, setNewOnly] = useState(false);
+
+  // Per-row editing state: country + cities selections
+  const [rowCountry, setRowCountry] = useState<Record<number, number | null>>({});
+  const [rowCities, setRowCities] = useState<Record<number, number[]>>({});
+
+  // "+ Город" state
+  const [addCityCountry, setAddCityCountry] = useState<number | null>(null);
+  const [newCitySlug, setNewCitySlug] = useState("");
+  const [newCityName, setNewCityName] = useState("");
+
+  // Build query params from all filters
+  const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+  if (search) params.set("search", search);
+  if (statusFilter === "active") params.set("is_ignored", "false");
+  else if (statusFilter === "ignored") params.set("is_ignored", "true");
+  else if (statusFilter === "bez_privyazki") {
+    params.set("has_city", "false");
+    params.set("is_ignored", "false");
+  }
+  if (countryFilter !== "all") params.set("country_id", String(countryFilter));
+  if (cityIdFilter !== "all") params.set("city_id", String(cityIdFilter));
+  if (newOnly) params.set("discovered_after", new Date(Date.now() - 7 * 86400000).toISOString());
+
+  const filterKey = `${perPage}|${statusFilter}|${countryFilter}|${cityIdFilter}|${newOnly}`;
+
+  const { data, isLoading } = useQuery<ListResponse>({
+    queryKey: ["channels", page, search, filterKey],
+    queryFn: () => api(`/api/channels?${params}`),
+  });
+
+  const { data: countriesData, isLoading: countriesLoading } = useQuery<{ items: Country[] }>({
+    queryKey: ["countries"],
+    queryFn: () => api("/api/countries?per_page=200"),
+    staleTime: 300_000,
+  });
+
+  const { data: orphansData } = useQuery<{ total: number }>({
+    queryKey: ["orphansCount"],
+    queryFn: () => api("/api/channels?has_city=false&is_ignored=false&per_page=1"),
+    staleTime: 300_000,
+  });
+
+  const { data: citiesData, isLoading: citiesLoading } = useQuery<{ items: City[] }>({
+    queryKey: ["cities"],
+    queryFn: () => api("/api/cities?per_page=500"),
+    staleTime: 300_000,
+  });
+
+  const countries = useMemo(() => [...(countriesData?.items || [])].sort((a, b) => a.name_ru.localeCompare(b.name_ru, 'ru')), [countriesData]);
+  const cities = useMemo(() => [...(citiesData?.items || [])].sort((a, b) => a.name_ru.localeCompare(b.name_ru, 'ru')), [citiesData]);
+  const orphansCount = orphansData?.total ?? null;
+
+  // Cities filtered by selected country for the CITY filter dropdown
+  const filteredCityOptions = countryFilter !== "all"
+    ? cities.filter((c) => c.country_id === (countryFilter as number))
+    : cities;
+
+  // Pre-fill per-row state from channel data (only for new rows, preserve user edits)
+  useEffect(() => {
+    if (data?.items) {
+      setRowCountry((prev) => {
+        const next = { ...prev };
+        for (const ch of data.items) {
+          if (!(ch.id in next)) {
+            next[ch.id] = ch.auto_matched_country_id;
+          }
+        }
+        return next;
+      });
+      setRowCities((prev) => {
+        const next = { ...prev };
+        for (const ch of data.items) {
+          if (!(ch.id in next)) {
+            next[ch.id] = ch.city_ids || [];
+          }
+        }
+        return next;
+      });
+    }
+  }, [data?.items]);
+
+  const totalPages = data ? Math.ceil(data.total / data.per_page) : 0;
+
+  // Save: send auto_matched_city_id + cities + country_id + manually_reviewed
+  const handleSave = async (channelId: number, fallbackCountry: number | null) => {
+    const selectedCities = rowCities[channelId] || [];
+    const country = rowCountry[channelId] ?? fallbackCountry ?? null;
+    try {
+      await api(`/api/channels/${channelId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          auto_matched_city_id: selectedCities.length > 0 ? selectedCities[0] : null,
+          cities: selectedCities,
+          country_id: country,
+          manually_reviewed: true,
+        }),
+      });
+      toast.success("Сохранено");
+      // Clear per-row state so next load re-initialises from server
+      setRowCountry((prev) => { const n = { ...prev }; delete n[channelId]; return n; });
+      setRowCities((prev) => { const n = { ...prev }; delete n[channelId]; return n; });
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
+  const handleIgnore = async (channelId: number) => {
+    try {
+      await api(`/api/channels/${channelId}`, {
+        method: "PUT",
+        body: JSON.stringify({ is_ignored: true }),
+      });
+      toast.success("Канал удалён из очереди");
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
+  const handleUnignore = async (channelId: number) => {
+    try {
+      await api(`/api/channels/${channelId}`, {
+        method: "PUT",
+        body: JSON.stringify({ is_ignored: false }),
+      });
+      toast.success("Канал восстановлен");
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
+  const handleAddCity = async () => {
+    if (!newCitySlug || !newCityName || !addCityCountry) {
+      toast.error("Укажите slug, название и страну");
+      return;
+    }
+    try {
+      await api("/api/cities", {
+        method: "POST",
+        body: JSON.stringify({
+          slug: newCitySlug,
+          name_ru: newCityName,
+          country_id: addCityCountry,
+        }),
+      });
+      toast.success(`Город ${newCityName} добавлен`);
+      setNewCitySlug("");
+      setNewCityName("");
+      queryClient.invalidateQueries({ queryKey: ["cities"] });
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold tracking-tight">Каналы</h1>
+
+      <Card>
+        <CardHeader className="pb-3">
+          {/* Header counters */}
+          <div className="text-sm text-muted-foreground mb-3">
+            {orphansCount != null ? `Без привязки: ${orphansCount}` : ""}
+            {orphansCount != null && data ? " · " : ""}
+            {data ? `Найдено: ${data.total}` : "—"}
+          </div>
+
+          {/* + Город */}
+          <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/30 mb-3">
+            <span className="text-sm font-medium">+ Город:</span>
+            <select
+              className="border rounded px-2 py-1 text-xs"
+              value={addCityCountry ?? ""}
+              onChange={(e) => setAddCityCountry(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">Страна...</option>
+              {countries.map((c) => (
+                <option key={c.id} value={c.id}>{c.name_ru}</option>
+              ))}
+            </select>
+            <Input
+              placeholder="slug (напр. kashkajsh)"
+              className="w-32 text-xs h-8"
+              value={newCitySlug}
+              onChange={(e) => setNewCitySlug(e.target.value)}
+            />
+            <Input
+              placeholder="Название (напр. Кашкайш)"
+              className="w-40 text-xs h-8"
+              value={newCityName}
+              onChange={(e) => setNewCityName(e.target.value)}
+            />
+            <Button size="sm" variant="outline" onClick={handleAddCity}>
+              <Plus className="size-3 mr-1" /> Добавить
+            </Button>
+          </div>
+
+          {/* Filters 1-6 */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* 1: Search + X */}
+            <div className="relative flex-1 min-w-48">
+              <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Поиск по username или названию..."
+                className="pl-8 pr-8"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              />
+              {search && (
+                <X
+                  className="absolute right-2.5 top-2.5 size-4 cursor-pointer text-muted-foreground hover:text-foreground"
+                  onClick={() => { setSearch(""); setPage(1); }}
+                />
+              )}
+            </div>
+
+            {/* 2: Status */}
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as StatusFilter); setPage(1); }}>
+              <SelectTrigger className="w-[160px] h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все чаты</SelectItem>
+                <SelectItem value="active">Активные</SelectItem>
+                <SelectItem value="ignored">Игнор</SelectItem>
+                <SelectItem value="bez_privyazki">Без привязки</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* 3: Country */}
+            <Select value={String(countryFilter)} onValueChange={(v) => {
+              setCountryFilter(v === "all" ? "all" : Number(v));
+              if (v === "all") setCityIdFilter("all");
+              setPage(1);
+            }}>
+              <SelectTrigger className="w-[160px] h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все страны</SelectItem>
+                {countries.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>{c.name_ru}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* 4: City */}
+            <Select
+              value={String(cityIdFilter)}
+              disabled={countryFilter === "all"}
+              onValueChange={(v) => { setCityIdFilter(v === "all" ? "all" : Number(v)); setPage(1); }}
+            >
+              <SelectTrigger className="w-[160px] h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все города</SelectItem>
+                {filteredCityOptions.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>{c.name_ru}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* 5: New 7 days + count */}
+            <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={newOnly}
+                onChange={(e) => { setNewOnly(e.target.checked); setPage(1); }}
+              />
+              Новые (7д)
+            </label>
+
+            {/* 6: perPage */}
+            <Select value={String(perPage)} onValueChange={(v) => { setPerPage(Number(v)); setPage(1); }}>
+              <SelectTrigger className="w-[90px] h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="20">20</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+                <SelectItem value="200">200</SelectItem>
+                <SelectItem value="500">500</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading || countriesLoading || citiesLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>@username</TableHead>
+                    <TableHead>Название</TableHead>
+                    <TableHead>Участники</TableHead>
+                    <TableHead>Страна</TableHead>
+                    <TableHead>Города</TableHead>
+                    <TableHead>Действия</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data?.items.map((ch) => {
+                    const chCountry = rowCountry[ch.id] ?? ch.auto_matched_country_id ?? null;
+                    const chCities = rowCities[ch.id] ?? ch.city_ids ?? [];
+                    const citiesForCountry = chCountry
+                      ? cities.filter((c) => c.country_id === chCountry)
+                      : cities;
+
+                    return (
+                      <TableRow key={ch.id}>
+                        <TableCell className="text-sm">
+                          <span className={[
+                            "inline-block size-2 rounded-full mr-2 align-middle",
+                            ch.is_ignored ? "bg-purple-500"
+                              : ch.manually_reviewed ? "bg-green-500"
+                              : "bg-orange-400",
+                          ].join(" ")} />
+                          <a
+                            href={`https://t.me/${ch.chat_username}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            @{ch.chat_username}
+                          </a>
+                        </TableCell>
+                        <TableCell className="max-w-48 truncate">{ch.title || "—"}</TableCell>
+                        <TableCell>
+                          {ch.participants != null
+                            ? ch.participants.toLocaleString()
+                            : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={chCountry != null ? String(chCountry) : "__none__"}
+                            onValueChange={(v) => {
+                              const cid = v === "__none__" ? null : Number(v);
+                              setRowCountry((prev) => ({ ...prev, [ch.id]: cid }));
+                              setRowCities((prev) => ({ ...prev, [ch.id]: [] }));
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs min-w-[140px]">
+                              <SelectValue placeholder="—" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" disabled>—</SelectItem>
+                              {countries.map((c) => (
+                                <SelectItem key={c.id} value={String(c.id)}>{c.name_ru}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <MultiSelect
+                            options={citiesForCountry.map((c) => ({ value: c.id, label: c.name_ru }))}
+                            selected={chCities}
+                            onChange={(next) =>
+                              setRowCities((prev) => ({ ...prev, [ch.id]: next }))
+                            }
+                            disabled={!chCountry}
+                            placeholder={chCountry ? "Города" : "Сначала страну"}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="Сохранить"
+                              onClick={() => handleSave(ch.id, ch.auto_matched_country_id ?? null)}
+                            >
+                              <Save className="size-4" />
+                            </Button>
+                            {ch.is_ignored ? (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                title="Восстановить"
+                                onClick={() => handleUnignore(ch.id)}
+                              >
+                                <RotateCcw className="size-4" />
+                              </Button>
+                            ) : (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="Удалить"
+                              onClick={() => handleIgnore(ch.id)}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {data?.items.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                        Каналы не найдены
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+
+              {totalPages > 1 && (
+                <div className="mt-4 flex justify-center">
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                      <PaginationItem>
+                        <span className="px-4 text-sm text-muted-foreground">
+                          {page} / {totalPages}
+                        </span>
+                      </PaginationItem>
+                      <PaginationItem>
+                        <PaginationNext
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          className={page >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

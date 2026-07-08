@@ -1,4 +1,4 @@
-"""Seed database with catalog data: countries, cities, segments, and keywords.
+"""Seed database with catalog data: countries, cities, categories, segments, and keywords.
 
 Run inside the container:
     python seed/seed_catalog.py
@@ -8,7 +8,7 @@ import asyncio
 from sqlalchemy import select, delete
 
 from app.db.session import engine, async_session_factory
-from app.db.models import Country, City, Segment, SegmentKeyword
+from app.db.models import Country, City, Category, Segment, SegmentKeyword
 
 # ── Countries ──
 
@@ -16,8 +16,7 @@ COUNTRIES = [
     {"slug": "vn", "name_ru": "Вьетнам", "name_en": "Vietnam"},
     {"slug": "id", "name_ru": "Индонезия", "name_en": "Indonesia"},
     {"slug": "th", "name_ru": "Таиланд", "name_en": "Thailand"},
-    {"slug": "ru", "name_ru": "Россия", "name_en": "Russia"},
-    {"slug": "other", "name_ru": "Другие страны", "name_en": "Other countries"},
+    {"slug": "ph", "name_ru": "Филиппины", "name_en": "Philippines"},
 ]
 
 # ── Cities ──
@@ -43,117 +42,138 @@ CITIES = {
         {"slug": "koh-samui", "name_ru": "Самуи", "name_en": "Koh Samui"},
         {"slug": "chiang-mai", "name_ru": "Чиангмай", "name_en": "Chiang Mai"},
     ],
-    "ru": [
-        {"slug": "moscow", "name_ru": "Москва", "name_en": "Moscow"},
-        {"slug": "spb", "name_ru": "Санкт-Петербург", "name_en": "St. Petersburg"},
-        {"slug": "sochi", "name_ru": "Сочи", "name_en": "Sochi"},
+    "ph": [
+        {"slug": "manila", "name_ru": "Манила", "name_en": "Manila"},
+        {"slug": "cebu", "name_ru": "Себу", "name_en": "Cebu"},
     ],
 }
 
-# ── Segments (abbreviated, full list in segment_seed.md) ──
+# ── Categories (16) ──
 
-SEGMENTS = [
-    {"slug": "catering", "emoji": "🍜", "title_ru": "Кейтеринг / Повара", "title_en": "Catering / Chefs", "sort": 1},
-    {"slug": "massage", "emoji": "💆", "title_ru": "Массаж", "title_en": "Massage", "sort": 2},
-    {"slug": "bike-rental", "emoji": "🛵", "title_ru": "Аренда байков", "title_en": "Bike rental", "sort": 3},
-    {"slug": "moto-purchase", "emoji": "🏍", "title_ru": "Покупка мотоцикла", "title_en": "Motorcycle purchase", "sort": 4},
-    {"slug": "car-rental", "emoji": "🚗", "title_ru": "Аренда авто", "title_en": "Car rental", "sort": 5},
-    {"slug": "cleaning", "emoji": "🧹", "title_ru": "Клининг", "title_en": "Cleaning", "sort": 6},
-    {"slug": "beauty", "emoji": "💅", "title_ru": "Красота и уход", "title_en": "Beauty & care", "sort": 7},
-    {"slug": "real-estate-rent", "emoji": "🏠", "title_ru": "Аренда жилья", "title_en": "Rental housing", "sort": 8},
-    {"slug": "real-estate-buy", "emoji": "🏡", "title_ru": "Покупка жилья", "title_en": "Buying housing", "sort": 9},
-    {"slug": "job-hiring", "emoji": "💼", "title_ru": "Работа (вакансии)", "title_en": "Jobs (hiring)", "sort": 10},
-    {"slug": "job-seeking", "emoji": "🔎", "title_ru": "Работа (соискатели)", "title_en": "Jobs (seeking)", "sort": 11},
-    {"slug": "tattoo", "emoji": "🎨", "title_ru": "Тату / Татуировки", "title_en": "Tattoo", "sort": 12},
-    {"slug": "tourism", "emoji": "✈️", "title_ru": "Туризм / Экскурсии", "title_en": "Tourism / Excursions", "sort": 13},
-    {"slug": "visa", "emoji": "📄", "title_ru": "Визы и документы", "title_en": "Visas & documents", "sort": 14},
-    {"slug": "translation", "emoji": "🗣", "title_ru": "Переводчики", "title_en": "Translation", "sort": 15},
-    {"slug": "repair", "emoji": "🔧", "title_ru": "Ремонт / Мастера", "title_en": "Repair / Handyman", "sort": 16},
-    {"slug": "photo-video", "emoji": "📸", "title_ru": "Фото / Видео", "title_en": "Photo / Video", "sort": 17},
-    {"slug": "fitness", "emoji": "💪", "title_ru": "Фитнес и спорт", "title_en": "Fitness & sport", "sort": 18},
-    {"slug": "pets", "emoji": "🐾", "title_ru": "Услуги для животных", "title_en": "Pet services", "sort": 19},
-    {"slug": "education", "emoji": "📚", "title_ru": "Обучение / Репетиторы", "title_en": "Education / Tutors", "sort": 20},
-    {"slug": "medical", "emoji": "🏥", "title_ru": "Медицина / Врачи", "title_en": "Medical / Doctors", "sort": 21},
-    {"slug": "legal", "emoji": "⚖️", "title_ru": "Юридические услуги", "title_en": "Legal services", "sort": 22},
-    {"slug": "it-services", "emoji": "💻", "title_ru": "IT-услуги", "title_en": "IT services", "sort": 23},
-    {"slug": "design", "emoji": "🎨", "title_ru": "Дизайн / Креатив", "title_en": "Design / Creative", "sort": 24},
-    {"slug": "logistics", "emoji": "🚚", "title_ru": "Логистика / Доставка", "title_en": "Logistics / Delivery", "sort": 25},
-    {"slug": "childcare", "emoji": "👶", "title_ru": "Няни / Присмотр за детьми", "title_en": "Nannies / Childcare", "sort": 26},
-    {"slug": "events", "emoji": "🎉", "title_ru": "Организация мероприятий", "title_en": "Event planning", "sort": 27},
-    {"slug": "crypto", "emoji": "₿", "title_ru": "Крипто / Обмен валют", "title_en": "Crypto / Currency exchange", "sort": 28},
-    {"slug": "other-services", "emoji": "📌", "title_ru": "Другие услуги", "title_en": "Other services", "sort": 29},
+CATEGORIES = [
+    {"slug": "transport",      "emoji": "🚗", "title_ru": "Транспорт",               "title_en": "Transport",              "sort": 1},
+    {"slug": "logistics",      "emoji": "📦", "title_ru": "Логистика",               "title_en": "Logistics",              "sort": 2},
+    {"slug": "real-estate",    "emoji": "🏠", "title_ru": "Недвижимость",            "title_en": "Real Estate",            "sort": 3},
+    {"slug": "beauty",         "emoji": "💆", "title_ru": "Красота и уход",          "title_en": "Beauty & Care",          "sort": 4},
+    {"slug": "doctor",         "emoji": "🩺", "title_ru": "Врач",                    "title_en": "Doctor",                 "sort": 5},
+    {"slug": "translator",     "emoji": "🗣️", "title_ru": "Переводчик",              "title_en": "Translator",             "sort": 6},
+    {"slug": "education",      "emoji": "📚", "title_ru": "Обучение и курсы",        "title_en": "Education & Courses",    "sort": 7},
+    {"slug": "home",           "emoji": "🧹", "title_ru": "Дом и быт",               "title_en": "Home & Household",       "sort": 8},
+    {"slug": "tourism",        "emoji": "✈️", "title_ru": "Туризм",                  "title_en": "Tourism",                "sort": 9},
+    {"slug": "catering",       "emoji": "🍽️", "title_ru": "Кейтеринг и мероприятия", "title_en": "Catering & Events",      "sort": 10},
+    {"slug": "fitness",        "emoji": "🏋️", "title_ru": "Фитнес и спорт",          "title_en": "Fitness & Sports",       "sort": 11},
+    {"slug": "media-design",   "emoji": "📸", "title_ru": "Медиа и дизайн",          "title_en": "Media & Design",         "sort": 12},
+    {"slug": "legal",          "emoji": "⚖️", "title_ru": "Консультация и Право",    "title_en": "Legal & Consulting",     "sort": 13},
+    {"slug": "finance",        "emoji": "💰", "title_ru": "Финансы",                 "title_en": "Finance",                "sort": 14},
 ]
 
-# ── Keywords per segment (abbreviated; full set in segment_seed.md) ──
+# ── Segments (66 subcategories grouped by category slug) ──
 
-SEGMENT_KEYWORDS = {
-    "catering": {
-        "demand": [
-            "ищу повара", "нужен повар", "ищу повора", "ищу шеф-повара",
-            "нужен шеф", "нужен кейтеринг", "заказать кейтеринг",
-            "ищу кейтеринг", "нужна кухня", "нужен кухонный работник",
-            "ищу повара на дом", "нужен повар на дом",
-            "looking for a chef", "need a chef", "need a cook",
-            "looking for catering", "need catering", "hire a chef",
-        ],
-        "stop": [
-            "работаю поваром", "я повар", "предлагаю кейтеринг",
-            "chef available", "catering services",
-        ],
-    },
-    "massage": {
-        "demand": [
-            "ищу массажиста", "нужен массаж", "нужен массажист",
-            "посоветуйте массаж", "где массаж", "хочу массаж",
-            "ищу мастера массажа", "ищу спа", "нужен спа",
-            "looking for massage", "need a massage", "where to get massage",
-        ],
-        "stop": [
-            "делаю массаж", "массажист с опытом", "предлагаю массаж",
-            "massage available", "massage therapist",
-        ],
-    },
-    "bike-rental": {
-        "demand": [
-            "ищу байк в аренду", "нужен байк в аренду", "сниму байк",
-            "аренда байка", "ищу скутер в аренду", "нужен скутер напрокат",
-            "хочу арендовать байк", "возьму байк напрокат",
-            "looking for bike rental", "need a bike", "rent a scooter",
-            "rent a motorbike", "where to rent a scooter",
-        ],
-        "stop": [
-            "сдаю байк", "сдаю скутер", "bike for rent", "scooter for rent",
-        ],
-    },
-    "cleaning": {
-        "demand": [
-            "ищу уборщицу", "нужна уборка", "нужен клининг",
-            "ищу клининг", "хочу уборку", "заказать уборку",
-            "нужна домработница", "ищу домработницу",
-            "looking for cleaning", "need a cleaner", "need cleaning service",
-        ],
-        "stop": [
-            "предлагаю уборку", "cleaning services", "cleaner available",
-        ],
-    },
-    "beauty": {
-        "demand": [
-            "ищу мастера маникюра", "нужен маникюр", "ищу бровиста",
-            "ищу косметолога", "нужен парикмахер", "где подстричься",
-            "ищу мастера по волосам", "нужен колорист",
-            "looking for nail tech", "need a haircut", "need a hairdresser",
-        ],
-        "stop": [
-            "делаю маникюр", "принимаю клиентов", "beauty salon",
-        ],
-    },
+SEGMENTS_BY_CATEGORY = {
+    "transport": [
+        {"slug": "scooter-rental",   "emoji": "🛵", "title_ru": "Аренда скутеров и мотоциклов", "title_en": "Scooter & motorcycle rental", "sort": 1},
+        {"slug": "car-rental",       "emoji": "🚙", "title_ru": "Аренда автомобиля",            "title_en": "Car rental",                   "sort": 2},
+        {"slug": "moto-purchase",    "emoji": "🏍️", "title_ru": "Покупка мотоцикла",             "title_en": "Motorcycle purchase",          "sort": 3},
+        {"slug": "car-purchase",     "emoji": "🚘", "title_ru": "Покупка авто",                 "title_en": "Car purchase",                 "sort": 4},
+    ],
+    "logistics": [
+        {"slug": "delivery",         "emoji": "🚚", "title_ru": "Доставка",                     "title_en": "Delivery",                     "sort": 1},
+        {"slug": "courier",          "emoji": "🛵", "title_ru": "Курьер",                       "title_en": "Courier",                      "sort": 2},
+        {"slug": "cargo",            "emoji": "📦", "title_ru": "Грузоперевозки",               "title_en": "Cargo transportation",         "sort": 3},
+    ],
+    "real-estate": [
+        {"slug": "housing-rent",     "emoji": "🏠", "title_ru": "Аренда жилья",                 "title_en": "Housing rental",               "sort": 1},
+        {"slug": "housing-buy",      "emoji": "🏡", "title_ru": "Покупка жилья",                "title_en": "Housing purchase",             "sort": 2},
+    ],
+    "beauty": [
+        {"slug": "massage",          "emoji": "💆", "title_ru": "Массаж",                       "title_en": "Massage",                      "sort": 1},
+        {"slug": "manicure",         "emoji": "💅", "title_ru": "Маникюр / Педикюр",            "title_en": "Manicure / Pedicure",          "sort": 2},
+        {"slug": "cosmetology",      "emoji": "🧖", "title_ru": "Косметолог",                   "title_en": "Cosmetology",                  "sort": 3},
+        {"slug": "hairdresser",      "emoji": "💇", "title_ru": "Парикмахер",                   "title_en": "Hairdresser",                  "sort": 4},
+        {"slug": "hair-color",       "emoji": "🎨", "title_ru": "Покраска и колорирование",     "title_en": "Hair coloring",                "sort": 5},
+        {"slug": "tattoo",           "emoji": "🖊️", "title_ru": "Татуировки",                   "title_en": "Tattoo",                       "sort": 6},
+        {"slug": "lashes",           "emoji": "👁️", "title_ru": "Ресницы",                      "title_en": "Lashes",                       "sort": 7},
+        {"slug": "brows",            "emoji": "✏️", "title_ru": "Брови",                        "title_en": "Brows",                        "sort": 8},
+        {"slug": "makeup",           "emoji": "💄", "title_ru": "Визажист",                     "title_en": "Makeup artist",                "sort": 9},
+        {"slug": "barber",           "emoji": "💈", "title_ru": "Барбер",                       "title_en": "Barber",                       "sort": 10},
+        {"slug": "epilation",        "emoji": "✨", "title_ru": "Эпиляция",                     "title_en": "Epilation",                    "sort": 11},
+    ],
+    "doctor": [
+        {"slug": "therapist",        "emoji": "🩺", "title_ru": "Терапевт",                     "title_en": "Therapist",                    "sort": 1},
+        {"slug": "dentist",          "emoji": "🦷", "title_ru": "Стоматолог",                  "title_en": "Dentist",                      "sort": 2},
+        {"slug": "psychologist",     "emoji": "🧠", "title_ru": "Психолог",                    "title_en": "Psychologist",                 "sort": 3},
+        {"slug": "dermatologist",    "emoji": "🔬", "title_ru": "Дерматолог",                  "title_en": "Dermatologist",                "sort": 4},
+        {"slug": "gynecologist",     "emoji": "👩‍⚕️", "title_ru": "Гинеколог",                   "title_en": "Gynecologist",                 "sort": 5},
+        {"slug": "pediatrician",     "emoji": "👶", "title_ru": "Педиатр",                      "title_en": "Pediatrician",                 "sort": 6},
+        {"slug": "surgeon",          "emoji": "🏥", "title_ru": "Хирург",                       "title_en": "Surgeon",                      "sort": 7},
+        {"slug": "orthopedist",      "emoji": "🦴", "title_ru": "Ортопед",                      "title_en": "Orthopedist",                  "sort": 8},
+        {"slug": "neurologist",      "emoji": "🧬", "title_ru": "Невролог",                     "title_en": "Neurologist",                  "sort": 9},
+        {"slug": "nutritionist",     "emoji": "🥗", "title_ru": "Нутрициолог",                  "title_en": "Nutritionist",                 "sort": 10},
+    ],
+    "translator": [
+        {"slug": "translator",       "emoji": "🗣️", "title_ru": "Переводчик",                   "title_en": "Translator",                   "sort": 1},
+    ],
+    "education": [
+        {"slug": "language-courses", "emoji": "🌐", "title_ru": "Курсы иностранных языков",     "title_en": "Language courses",             "sort": 1},
+        {"slug": "driving-instructor","emoji": "🚗", "title_ru": "Автоинструктор",              "title_en": "Driving instructor",           "sort": 2},
+        {"slug": "moto-instructor",  "emoji": "🏍️", "title_ru": "Мотоинструктор",               "title_en": "Moto instructor",              "sort": 3},
+        {"slug": "tutor",            "emoji": "📝", "title_ru": "Репетитор",                    "title_en": "Tutor",                        "sort": 4},
+    ],
+    "home": [
+        {"slug": "cleaning",         "emoji": "🧹", "title_ru": "Клининг",                      "title_en": "Cleaning",                     "sort": 1},
+        {"slug": "repair",           "emoji": "🔨", "title_ru": "Ремонт и отделка",             "title_en": "Repair & renovation",          "sort": 2},
+        {"slug": "plumber",          "emoji": "🔧", "title_ru": "Сантехник",                    "title_en": "Plumber",                      "sort": 3},
+        {"slug": "electrician",      "emoji": "⚡", "title_ru": "Электрик",                     "title_en": "Electrician",                  "sort": 4},
+        {"slug": "nanny",            "emoji": "👶", "title_ru": "Няни и присмотр",              "title_en": "Nanny & babysitting",          "sort": 5},
+        {"slug": "pets",             "emoji": "🐾", "title_ru": "Услуги для животных",          "title_en": "Pet services",                 "sort": 6},
+    ],
+    "tourism": [
+        {"slug": "guide",            "emoji": "🗺️", "title_ru": "Гид",                          "title_en": "Guide",                        "sort": 1},
+        {"slug": "excursions",       "emoji": "🏖️", "title_ru": "Экскурсии",                    "title_en": "Excursions",                   "sort": 2},
+        {"slug": "visa-support",     "emoji": "🛂", "title_ru": "Визовая поддержка",            "title_en": "Visa support",                 "sort": 3},
+        {"slug": "travel-agent",     "emoji": "✈️", "title_ru": "Туристический агент",          "title_en": "Travel agent",                 "sort": 4},
+        {"slug": "taxi-transfer",    "emoji": "🚕", "title_ru": "Такси / Трансфер",             "title_en": "Taxi / Transfer",              "sort": 5},
+        {"slug": "driver",           "emoji": "🚗", "title_ru": "Водитель с авто",              "title_en": "Driver with car",              "sort": 6},
+    ],
+    "catering": [
+        {"slug": "catering",         "emoji": "🍽️", "title_ru": "Кейтеринг",                    "title_en": "Catering",                     "sort": 1},
+        {"slug": "private-chef",     "emoji": "👨‍🍳", "title_ru": "Повар на дом",                "title_en": "Private chef",                 "sort": 2},
+        {"slug": "pastry-chef",      "emoji": "🍰", "title_ru": "Кондитер",                     "title_en": "Pastry chef",                  "sort": 3},
+        {"slug": "event-management", "emoji": "🎉", "title_ru": "Организация мероприятий",      "title_en": "Event management",             "sort": 4},
+        {"slug": "music",            "emoji": "🎵", "title_ru": "Музыкальное сопровождение",    "title_en": "Music accompaniment",          "sort": 5},
+    ],
+    "fitness": [
+        {"slug": "fitness",          "emoji": "💪", "title_ru": "Фитнес",                        "title_en": "Fitness",                      "sort": 1},
+        {"slug": "yoga",             "emoji": "🧘", "title_ru": "Йога",                          "title_en": "Yoga",                         "sort": 2},
+        {"slug": "martial-arts",     "emoji": "🥋", "title_ru": "Единоборства",                  "title_en": "Martial arts",                 "sort": 3},
+        {"slug": "pilates",          "emoji": "🤸", "title_ru": "Пилатес",                       "title_en": "Pilates",                      "sort": 4},
+        {"slug": "padel",            "emoji": "🎾", "title_ru": "Падел",                         "title_en": "Padel",                        "sort": 5},
+        {"slug": "tennis",           "emoji": "🎾", "title_ru": "Теннис",                        "title_en": "Tennis",                       "sort": 6},
+        {"slug": "basketball",       "emoji": "🏀", "title_ru": "Баскетбол",                     "title_en": "Basketball",                   "sort": 7},
+        {"slug": "football",         "emoji": "⚽", "title_ru": "Футбол",                        "title_en": "Football",                     "sort": 8},
+    ],
+    "media-design": [
+        {"slug": "photo",            "emoji": "📷", "title_ru": "Фото",                          "title_en": "Photography",                  "sort": 1},
+        {"slug": "video",            "emoji": "🎬", "title_ru": "Видео",                         "title_en": "Videography",                  "sort": 2},
+        {"slug": "design",           "emoji": "🎨", "title_ru": "Дизайн",                        "title_en": "Design",                       "sort": 3},
+        {"slug": "graphics",         "emoji": "🖼️", "title_ru": "Графика",                      "title_en": "Graphics",                     "sort": 4},
+    ],
+    "legal": [
+        {"slug": "notary",           "emoji": "📜", "title_ru": "Нотариус",                      "title_en": "Notary",                       "sort": 1},
+        {"slug": "company-registration","emoji": "🏢", "title_ru": "Открытие компании",          "title_en": "Company registration",         "sort": 2},
+        {"slug": "lawyer",           "emoji": "⚖️", "title_ru": "Адвокат",                       "title_en": "Lawyer",                       "sort": 3},
+        {"slug": "accountant",       "emoji": "📊", "title_ru": "Бухгалтер",                     "title_en": "Accountant",                   "sort": 4},
+    ],
+    "finance": [
+        {"slug": "currency-exchange","emoji": "💱", "title_ru": "Обмен валют",                   "title_en": "Currency exchange",            "sort": 1},
+    ],
 }
 
 
 async def seed():
     async with async_session_factory() as session:
-        # Clear existing seed data (preserve users)
-        for model in [SegmentKeyword, City, Country, Segment]:
+        # Clear existing seed data (preserve users/catalog_channels)
+        for model in [SegmentKeyword, Segment, Category, City, Country]:
             await session.execute(delete(model))
 
         # Countries
@@ -173,34 +193,38 @@ async def seed():
                 session.add(City(**city_data, country_id=country.id))
         await session.flush()
 
-        # Segments
-        segment_map: dict[str, Segment] = {}
-        for seg in SEGMENTS:
-            obj = Segment(
-                slug=seg["slug"],
-                title_ru=seg["title_ru"],
-                title_en=seg["title_en"],
-                emoji=seg["emoji"],
-                sort_order=seg["sort"],
+        # Categories
+        cat_map: dict[str, Category] = {}
+        for cat in CATEGORIES:
+            obj = Category(
+                slug=cat["slug"],
+                title_ru=cat["title_ru"],
+                title_en=cat["title_en"],
+                emoji=cat["emoji"],
+                sort_order=cat["sort"],
             )
             session.add(obj)
-            segment_map[seg["slug"]] = obj
+            cat_map[cat["slug"]] = obj
         await session.flush()
 
-        # Segment keywords
-        for slug, kw_data in SEGMENT_KEYWORDS.items():
-            segment = segment_map.get(slug)
-            if not segment:
+        # Segments (subcategories)
+        seg_map: dict[str, Segment] = {}
+        for cat_slug, segs in SEGMENTS_BY_CATEGORY.items():
+            cat = cat_map.get(cat_slug)
+            if not cat:
                 continue
-            for kw_type in ("demand", "stop", "synonym"):
-                for text in kw_data.get(kw_type, []):
-                    session.add(
-                        SegmentKeyword(
-                            segment_id=segment.id,
-                            text=text,
-                            keyword_type=kw_type,
-                        )
-                    )
+            for seg in segs:
+                obj = Segment(
+                    slug=seg["slug"],
+                    title_ru=seg["title_ru"],
+                    title_en=seg["title_en"],
+                    emoji=seg["emoji"],
+                    sort_order=seg["sort"],
+                    category_id=cat.id,
+                )
+                session.add(obj)
+                seg_map[seg["slug"]] = obj
+        await session.flush()
 
         await session.commit()
         print("Seed complete!")
