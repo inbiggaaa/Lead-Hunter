@@ -9,6 +9,7 @@ from app.db.models import (
     Keyword,
     Country,
     City,
+    Category,
     Segment,
     SegmentKeyword,
     UserSubscription,
@@ -141,8 +142,15 @@ class TestCityModel:
 
 
 class TestSegmentModel:
+    async def _create_test_category(self, session):
+        cat = Category(slug="test-cat", title_ru="Тест", title_en="Test")
+        session.add(cat)
+        await session.flush()
+        return cat
+
     async def test_create_segment(self, session):
-        seg = Segment(slug="test-catering", title_ru="Кейтеринг", title_en="Catering", emoji="🍜", sort_order=1)
+        cat = await self._create_test_category(session)
+        seg = Segment(slug="test-catering", title_ru="Кейтеринг", title_en="Catering", emoji="🍜", sort_order=1, category_id=cat.id)
         session.add(seg)
         await session.flush()
 
@@ -151,7 +159,8 @@ class TestSegmentModel:
         assert seg.emoji == "🍜"
 
     async def test_segment_keywords_relationship(self, session):
-        seg = Segment(slug="test-seg", title_ru="Тест", title_en="Test")
+        cat = await self._create_test_category(session)
+        seg = Segment(slug="test-seg", title_ru="Тест", title_en="Test", category_id=cat.id)
         session.add(seg)
         await session.flush()
 
@@ -168,9 +177,16 @@ class TestSegmentModel:
 
 
 class TestUserSubscriptionModel:
+    async def _create_test_category(self, session):
+        cat = Category(slug="sub-test-cat", title_ru="Тест", title_en="Test")
+        session.add(cat)
+        await session.flush()
+        return cat
+
     async def test_create_subscription(self, session):
+        cat = await self._create_test_category(session)
         user = User(telegram_id=50001)
-        seg = Segment(slug="sub-test", title_ru="Тест", title_en="Test")
+        seg = Segment(slug="sub-test", title_ru="Тест", title_en="Test", category_id=cat.id)
         country = Country(slug="sub-country", name_ru="Страна", name_en="Country")
         session.add_all([user, seg, country])
         await session.flush()
@@ -185,8 +201,9 @@ class TestUserSubscriptionModel:
         assert sub.mode == "all"
 
     async def test_unique_user_segment_country(self, session):
+        cat = await self._create_test_category(session)
         user = User(telegram_id=60001)
-        seg = Segment(slug="unique-test", title_ru="Уник", title_en="Unique")
+        seg = Segment(slug="unique-test", title_ru="Уник", title_en="Unique", category_id=cat.id)
         country = Country(slug="unique-country", name_ru="Уник", name_en="Unique")
         session.add_all([user, seg, country])
         await session.flush()
