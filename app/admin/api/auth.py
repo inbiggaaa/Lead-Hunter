@@ -4,7 +4,6 @@ import time
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from redis.asyncio import Redis
 
 from app.config import settings
 
@@ -32,7 +31,6 @@ class LoginRequest(BaseModel):
 
 @router.post("/login")
 async def login(request: Request, body: LoginRequest):
-    redis: Redis | None = None
     client_ip = _get_ip(request)
 
     try:
@@ -89,9 +87,6 @@ async def login(request: Request, body: LoginRequest):
             raise HTTPException(status_code=401, detail="Invalid password")
         request.session["authenticated"] = True
         return {"ok": True}
-    finally:
-        if redis:
-            await redis.aclose()
 
 
 @router.post("/logout")

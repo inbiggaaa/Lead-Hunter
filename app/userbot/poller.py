@@ -147,7 +147,6 @@ class ChannelPoller:
                 from app.cache import get_redis
                 redis = await get_redis()
                 expires_raw = await redis.get(f"circuit:expires:{acc.account_id}")
-                await redis.aclose()
                 if expires_raw:
                     until_ts = int(expires_raw)
                     remaining = until_ts - int(time.time())
@@ -302,7 +301,6 @@ class ChannelPoller:
             from app.cache import get_redis
             redis = await get_redis()
             val = await redis.get(f"{CURSOR_PREFIX}{chat_username}")
-            await redis.aclose()
             return int(val) if val else 0
         except Exception:
             return 0
@@ -316,7 +314,6 @@ class ChannelPoller:
             await redis.set(f"{CURSOR_PREFIX}{chat_username}", str(msg_id))
             # TTL: 30 days — stale cursors auto-clean
             await redis.expire(f"{CURSOR_PREFIX}{chat_username}", 30 * 86400)
-            await redis.aclose()
         except Exception:
             pass
 
@@ -595,7 +592,6 @@ class ChannelPoller:
                         f"📊 Аккаунт #{account.account_id} исчерпал суточный бюджет "
                         f"API-запросов. Поллинг остановлен до следующих суток."
                     )
-                await redis.aclose()
                 break  # budget exhausted, no point polling remaining channels
             if result:
                 ok += 1
@@ -616,7 +612,6 @@ class ChannelPoller:
         try:
             redis = await get_redis()
             await redis.set(f"stats:last_poll_at:{account.account_id}", str(time.time()))
-            await redis.aclose()
         except Exception:
             pass
 
@@ -991,7 +986,6 @@ class ChannelPoller:
             redis = await get_redis()
             state = await redis.get(f"session:state:{account_id}")
             until_raw = await redis.get(f"session:until:{account_id}")
-            await redis.aclose()
 
             now = time.time()
 
@@ -1034,7 +1028,6 @@ class ChannelPoller:
             redis = await get_redis()
             await redis.set(f"session:state:{account_id}", new_state)
             await redis.set(f"session:until:{account_id}", str(new_until))
-            await redis.aclose()
 
             logger.info(
                 "Account %d: transitioned to %s (until %s UTC)",
@@ -1046,7 +1039,6 @@ class ChannelPoller:
         """Read current session state. Tiers call this — no side effects."""
         redis = await get_redis()
         state = await redis.get(f"session:state:{account_id}")
-        await redis.aclose()
         return state if state else "ACTIVE"  # decode_responses=True → already str
 
     def _next_session_state(
@@ -1157,7 +1149,6 @@ class ChannelPoller:
         key = f"alert:last:{alert_type}"
         redis = await get_redis()
         last_raw = await redis.get(key)
-        await redis.aclose()
 
         now = time.time()
         cooldown = 15 * 60  # all levels: at most once per 15 min
@@ -1170,12 +1161,10 @@ class ChannelPoller:
 
         redis = await get_redis()
         await redis.setex(key, cooldown + 60, str(now))
-        await redis.aclose()
 
     async def _check_queue_backlog(self) -> tuple[str | None, str | None]:
         redis = await get_redis()
         length = await redis.llen("queue:notifications")
-        await redis.aclose()
         if length > 100:
             return ("WARNING", f"Очередь уведомлений: {length} шт (порог 100)")
         return (None, None)
@@ -1183,7 +1172,6 @@ class ChannelPoller:
     async def _check_dlq(self) -> tuple[str | None, str | None]:
         redis = await get_redis()
         length = await redis.llen("dlq:notifications")
-        await redis.aclose()
         if length > 0:
             return ("WARNING", f"Dead-letter очередь: {length} неотправленных уведомлений")
         return (None, None)
@@ -1198,7 +1186,6 @@ class ChannelPoller:
                 continue
             redis = await get_redis()
             expires_raw = await redis.get(f"circuit:expires:{acc.account_id}")
-            await redis.aclose()
             if expires_raw:
                 remaining = int(expires_raw) - int(time.time())
                 if remaining > 0:
@@ -1225,7 +1212,6 @@ class ChannelPoller:
                 continue
             redis = await get_redis()
             used_raw = await redis.get(f"budget:used:{acc.account_id}:{today}")
-            await redis.aclose()
             if used_raw and int(used_raw) >= settings.daily_request_budget:
                 return (
                     "WARNING",
@@ -1269,7 +1255,6 @@ class ChannelPoller:
             if silence < min_silence:
                 min_silence = silence
 
-        await redis.aclose()
 
         if can_poll_count == 0:
             return (None, None)  # no accounts expected to poll
@@ -1803,7 +1788,6 @@ class ChannelPoller:
             redis = await get_redis()
             msg_hash = build_message_hash(chat_username, msg_id)
             if await redis.sadd("stats:unmatched:seen", msg_hash) == 0:
-                await redis.aclose()
                 return
             await redis.expire("stats:unmatched:seen", 7 * 86400)
 
@@ -1818,7 +1802,6 @@ class ChannelPoller:
             }, ensure_ascii=False)
             await redis.lpush("stats:unmatched", entry)
             await redis.ltrim("stats:unmatched", 0, 9999)
-            await redis.aclose()
         except Exception:
             pass
 

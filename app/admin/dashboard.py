@@ -59,7 +59,6 @@ async def _redis_listener(ws: WebSocket):
                     break
     finally:
         await pubsub.unsubscribe("chat:new_msg")
-        await redis.aclose()
 
 
 # ═══════════════ DASHBOARD ═══════════════

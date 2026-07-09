@@ -17,11 +17,8 @@ async def list_unmatched(
     import json
 
     redis = await get_redis()
-    try:
-        # Get all entries (LRANGE is O(N) but limited to 10000)
-        raw = await redis.lrange("stats:unmatched", 0, -1)
-    finally:
-        await redis.aclose()
+    # Get all entries (LRANGE is O(N) but limited to 10000)
+    raw = await redis.lrange("stats:unmatched", 0, -1)
 
     items: list[dict] = []
     for entry in raw:
@@ -65,10 +62,7 @@ async def list_unmatched_chats():
     import json
 
     redis = await get_redis()
-    try:
-        raw = await redis.lrange("stats:unmatched", 0, -1)
-    finally:
-        await redis.aclose()
+    raw = await redis.lrange("stats:unmatched", 0, -1)
 
     chats: set[str] = set()
     for entry in raw:
@@ -89,8 +83,5 @@ async def list_unmatched_chats():
 async def unmatched_count():
     """Return total count of unmatched messages."""
     redis = await get_redis()
-    try:
-        count = await redis.llen("stats:unmatched")
-    finally:
-        await redis.aclose()
+    count = await redis.llen("stats:unmatched")
     return {"count": count}

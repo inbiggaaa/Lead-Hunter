@@ -220,7 +220,6 @@ class DiscoveryWorker:
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             redis = await get_redis()
             used = int(await redis.get(f"discovery:budget:{today}") or 0)
-            await redis.aclose()
             return max(0, self._daily_limit - used)
         except Exception:
             return 0
@@ -232,7 +231,6 @@ class DiscoveryWorker:
             redis = await get_redis()
             await redis.incr(f"discovery:budget:{today}")
             await redis.expire(f"discovery:budget:{today}", 172800)
-            await redis.aclose()
         except Exception:
             pass
 
@@ -243,7 +241,6 @@ class DiscoveryWorker:
         try:
             redis = await get_redis()
             val = await redis.get("discovery:pause")
-            await redis.aclose()
             return val == b"1"
         except Exception:
             return False
@@ -253,7 +250,6 @@ class DiscoveryWorker:
         try:
             redis = await get_redis()
             state = await redis.get("session:state:1")
-            await redis.aclose()
             return state and state.decode() == "ACTIVE"
         except Exception:
             return True  # assume active if can't check
@@ -292,11 +288,9 @@ class DiscoveryWorker:
         """Restore saved query index, reset if query set changed."""
         redis = await get_redis()
         saved_hash = await redis.get("discovery:queries_hash")
-        await redis.aclose()
         if saved_hash and saved_hash.decode() == queries_hash:
             redis = await get_redis()
             val = await redis.get("discovery:cursor:query_index")
-            await redis.aclose()
             return int(val) if val else 0
         return 0  # queries changed — reset
 
@@ -305,7 +299,6 @@ class DiscoveryWorker:
         try:
             redis = await get_redis()
             await redis.set("discovery:cursor:query_index", str(index))
-            await redis.aclose()
         except Exception:
             pass
 
@@ -318,7 +311,6 @@ class DiscoveryWorker:
             redis = await get_redis()
             await redis.incr(f"discovery:metrics:{today}:{name}")
             await redis.expire(f"discovery:metrics:{today}:{name}", 7 * 86400)
-            await redis.aclose()
         except Exception:
             pass
 
@@ -334,7 +326,6 @@ class DiscoveryWorker:
             await redis.setex(key, 900, str(now))
             from app.worker.notify_admin import notify_admin
             await notify_admin(text)
-        await redis.aclose()
 
     # ── Main loop ──
 
@@ -386,7 +377,6 @@ class DiscoveryWorker:
             logger.info("Discovery: resuming from query %d/%d", cursor, len(queries))
         redis = await get_redis()
         await redis.set("discovery:queries_hash", queries_hash)
-        await redis.aclose()
 
         consecutive_errors = 0
         consecutive_flood = 0

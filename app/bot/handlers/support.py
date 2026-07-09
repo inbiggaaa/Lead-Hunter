@@ -43,7 +43,6 @@ async def on_support_message(message: Message):
             "text": message.text,
             "direction": "incoming",
         }))
-        await redis.aclose()
 
     await message.answer(
         "📩 Сообщение передано в поддержку. Ответим в ближайшее время."

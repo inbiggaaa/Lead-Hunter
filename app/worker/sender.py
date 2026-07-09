@@ -34,7 +34,6 @@ async def push_dead_letter(payload: dict) -> None:
 
     redis = await get_redis()
     await redis.lpush(QUEUE_DEAD_LETTER, json.dumps(payload, default=str))
-    await redis.aclose()
 
 
 async def mark_user_blocked(user_id: int) -> None:
@@ -114,12 +113,10 @@ class NotificationSender:
             redis = await get_redis()
             limit_key = LIMIT_REACHED_KEY.format(user_id=user_id, date=today)
             already_warned = await redis.get(limit_key)
-            await redis.aclose()
 
             if not already_warned:
                 redis = await get_redis()
                 await redis.set(limit_key, "1")
-                await redis.aclose()
                 await self._send_limit_warning(telegram_id, payload.get("lang", "ru"))
             return
 

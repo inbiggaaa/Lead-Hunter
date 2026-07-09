@@ -95,16 +95,13 @@ class TelegramRateLimiter:
                 divisor = self._ban_budget_divisor(ban_count)
                 effective_budget = max(1, self.daily_budget // divisor)
             redis = await get_redis()
-            try:
-                key = _budget_key(account_id)
-                used = await redis.incr(key)
-                if used == 1:
-                    # First use today — set TTL for cleanup (2 days)
-                    await redis.expire(key, 172800)
-                if used > effective_budget:
-                    raise BudgetExceeded(account_id, used, effective_budget)
-            finally:
-                await redis.aclose()
+            key = _budget_key(account_id)
+            used = await redis.incr(key)
+            if used == 1:
+                # First use today — set TTL for cleanup (2 days)
+                await redis.expire(key, 172800)
+            if used > effective_budget:
+                raise BudgetExceeded(account_id, used, effective_budget)
 
         # 2. Per-account rate limiting
         lock = self._get_lock(account_id)
@@ -122,13 +119,10 @@ class TelegramRateLimiter:
         if self.daily_budget <= 0:
             return -1
         redis = await get_redis()
-        try:
-            key = _budget_key(account_id)
-            raw = await redis.get(key)
-            used = int(raw) if raw else 0
-            return max(0, self.daily_budget - used)
-        finally:
-            await redis.aclose()
+        key = _budget_key(account_id)
+        raw = await redis.get(key)
+        used = int(raw) if raw else 0
+        return max(0, self.daily_budget - used)
 
     async def get_ban_count(self, account_id: int) -> int:
         """Return number of FloodWait bans in the last 7 days.
@@ -146,13 +140,10 @@ class TelegramRateLimiter:
                 return bc
 
         redis = await get_redis()
-        try:
-            raw = await redis.get(_ban_count_key(account_id))
-            count = int(raw) if raw else 0
-            self._ban_count_cache[account_id] = count
-            return count
-        finally:
-            await redis.aclose()
+        raw = await redis.get(_ban_count_key(account_id))
+        count = int(raw) if raw else 0
+        self._ban_count_cache[account_id] = count
+        return count
 
     def _ban_budget_divisor(self, ban_count: int) -> int:
         """Escalating budget divisor: 1→2, 2→4, 3+→8."""
@@ -183,7 +174,6 @@ class TelegramRateLimiter:
 
         redis = await get_redis()
         val = await redis.get(f"post_ban_until:{account_id}")
-        await redis.aclose()
         active = val is not None and now < float(val)
         self._post_ban_cache[account_id] = (now, active)
         return active
@@ -196,29 +186,26 @@ class TelegramRateLimiter:
         while the worker was down.
         """
         redis = await get_redis()
-        try:
-            existing = await redis.get(f"post_ban_until:{account_id}")
-            if existing and time.time() < float(existing):
-                return False
+        existing = await redis.get(f"post_ban_until:{account_id}")
+        if existing and time.time() < float(existing):
+            return False
 
-            last_ban = await redis.get(f"last_ban_at:{account_id}")
-            if not last_ban:
-                return False
+        last_ban = await redis.get(f"last_ban_at:{account_id}")
+        if not last_ban:
+            return False
 
-            ban_ago = time.time() - float(last_ban)
-            if ban_ago > 48 * 3600:
-                return False
+        ban_ago = time.time() - float(last_ban)
+        if ban_ago > 48 * 3600:
+            return False
 
-            until = int(time.time() + 48 * 3600)
-            await redis.set(f"post_ban_until:{account_id}", str(until))
-            await redis.expire(f"post_ban_until:{account_id}", 52 * 3600)
-            logger.info(
-                "Account %d: post-ban activated for 48h (was banned %.1fh ago at startup)",
-                account_id, ban_ago / 3600,
-            )
-            return True
-        finally:
-            await redis.aclose()
+        until = int(time.time() + 48 * 3600)
+        await redis.set(f"post_ban_until:{account_id}", str(until))
+        await redis.expire(f"post_ban_until:{account_id}", 52 * 3600)
+        logger.info(
+            "Account %d: post-ban activated for 48h (was banned %.1fh ago at startup)",
+            account_id, ban_ago / 3600,
+        )
+        return True
 
     def _get_lock(self, account_id: int) -> asyncio.Lock:
         """Get or create a per-account asyncio.Lock."""
@@ -256,7 +243,6 @@ class TelegramRateLimiter:
         should_alert = not last_alert or (time.time() - float(last_alert)) >= 900
         if should_alert:
             await redis.set(alert_key, str(time.time()))
-        await redis.aclose()
 
         hours = seconds // 3600
         mins = (seconds % 3600) // 60
@@ -302,10 +288,8 @@ class TelegramRateLimiter:
         if account_id == 0:
             val = await redis.get("circuit:open")
             if val:
-                await redis.aclose()
                 return True
         val = await redis.get(_circuit_key(account_id))
-        await redis.aclose()
         return val is not None
 
     async def is_any_circuit_open(self) -> bool:
@@ -314,18 +298,15 @@ class TelegramRateLimiter:
         # Check legacy global key
         val = await redis.get("circuit:open")
         if val:
-            await redis.aclose()
             return True
         # Scan for any per-account keys
         cursor = 0
         while True:
             cursor, keys = await redis.scan(cursor, match="circuit:open:*", count=10)
             if keys:
-                await redis.aclose()
                 return True
             if cursor == 0:
                 break
-        await redis.aclose()
         return False
 
     async def wait_if_circuit_open(self, account_id: int = 0) -> bool:
@@ -343,7 +324,6 @@ class TelegramRateLimiter:
         val = await redis.get(key)
 
         if not val and not global_val:
-            await redis.aclose()
             return False
 
         # Find the longest wait needed
@@ -396,7 +376,6 @@ class TelegramRateLimiter:
         await notify_admin(notify_text)
         # Clear keys to prevent duplicate notifications
         await redis.delete(key, expires_key, "circuit:open", "circuit:expires_at")
-        await redis.aclose()
         return True
 
 
