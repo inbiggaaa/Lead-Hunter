@@ -151,8 +151,8 @@ class PendingMatch:
 # Validator
 # ═══════════════════════════════════════════════════════════════
 
-MAX_BATCH_SIZE = 25       # max messages per LLM API call
-BATCH_MAX_TOKENS = 800    # max output tokens per batch call
+MAX_BATCH_SIZE = 20       # max messages per LLM API call (reduced for reliable JSON)
+BATCH_MAX_TOKENS = 2000   # max output tokens per batch call (~20 msgs × ~40t + markdown)
 
 
 class LLMValidator:
@@ -291,10 +291,16 @@ class LLMValidator:
                     # Parse JSON — accept both array and single object
                     try:
                         cleaned = content.strip()
+                        # Remove markdown code fences (```json or ```)
                         if cleaned.startswith("```"):
-                            cleaned = cleaned.split("\n", 1)[-1]
-                            if cleaned.endswith("```"):
-                                cleaned = cleaned[:-3]
+                            first_nl = cleaned.find("\n")
+                            if first_nl != -1:
+                                cleaned = cleaned[first_nl + 1:]
+                            if cleaned.rstrip().endswith("```"):
+                                cleaned = cleaned.rstrip()[:-3]
+                        # Balance brackets (LLM may truncate mid-response)
+                        if cleaned.count("[") > cleaned.count("]"):
+                            cleaned = cleaned.rstrip() + "]" * (cleaned.count("[") - cleaned.count("]"))
                         parsed = json.loads(cleaned)
                     except json.JSONDecodeError:
                         logger.warning(
