@@ -40,7 +40,8 @@
 
 ## ФАЗА 0 — Подготовка и baseline (полдня)
 
-### [ ] 0.1 Зафиксировать baseline качества матчинга
+### [x] 0.1 Зафиксировать baseline качества матчинга
+**Выполнено: 09.07.2026 (docs/eval/baseline_2026-07.*.jsonl + tools/export_baseline.py). Примечания: выгружено 500 llm_decisions + 259 feedback + 500 unmatched, read-only через localhost-порты, worker не тронут. ⚠️ КЛЮЧЕВАЯ ЦИФРА BASELINE: feedback = 44 relevant / 215 not_relevant — 83% оценённых уведомлений нерелевантны. Это метрика, которую фазы A и C должны улучшить.**
 **Зачем:** после правок классификатора (A2, C2) нужно доказуемое «стало лучше, не хуже».
 **Что сделать:**
 - Read-only скриптом (без остановки worker, только SELECT/Redis GET) выгрузить: последние 500 записей `llm_decisions` (verdict, rule_segments, текст), последние 500 `stats:unmatched` из Redis, все записи `feedback`.
