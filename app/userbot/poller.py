@@ -21,6 +21,7 @@ from app.userbot.llm_validator import (
     llm_validator, sanitize_text, PendingMatch, is_high_confidence_demand,
     LLMResult,
 )
+from app.userbot.discovery_v2 import is_discovery_window
 from app.userbot.pool import UserbotPool
 from app.userbot.rate_limiter import limiter, BudgetExceeded
 from app.config import settings
@@ -88,6 +89,7 @@ class ChannelPoller:
         self.pool = UserbotPool()
         self._keyword_map: dict[str, dict[str, list[str]]] = {}
         self._universal_stops: list[str] = []
+        self._domain_word_map: dict[str, list[str]] = {}  # reality filter
         self._channel_segments: dict[str, list[str]] = {}
         self._active_countries: set[int] = set()  # country IDs with subscribers
         # Per-tier channel lists — rebuilt on keyword reload and periodically
@@ -136,7 +138,7 @@ class ChannelPoller:
             # Activate post-ban if recently unbanned while worker was down (layer 3)
             await limiter.activate_post_ban_if_recent(acc.account_id)
         if not self._keyword_map:
-            self._keyword_map, self._universal_stops = await self._load_keywords()
+            self._keyword_map, self._universal_stops, self._domain_word_map = await self._load_keywords()
             await self._load_channel_segments()
             await self._rebuild_tiers()
             await self._tag_new_channels()  # tag any new channels from discovery
@@ -422,12 +424,24 @@ class ChannelPoller:
                     )
 
             if result.matched_segments:
+                # ── Reality filter: require at least one domain-specific word ──
+                # Prevents LLM calls for messages with no relation to the segment.
+                # e.g. "продам гантели" matched moto-purchase → filtered out.
+                verified = self._filter_by_domain(msg.message, result.matched_segments)
+                if not verified:
+                    logger.debug(
+                        "Reality filter blocked in @%s (msg %d): %s → no domain words",
+                        channel_username, msg_id, result.matched_segments,
+                    )
+                    await self._log_unmatched(channel_username, msg.message, msg_id)
+                    continue
+
                 # Queue for batch LLM validation (flushed after poll batch completes)
                 self._pending_matches.append(PendingMatch(
                     chat_username=channel_username,
                     message_id=msg_id,
                     text=msg.message,
-                    candidate_segments=result.matched_segments,
+                    candidate_segments=verified,
                     account_id=account.account_id,
                     is_urgent=result.is_urgent,
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
@@ -640,6 +654,29 @@ class ChannelPoller:
                 "%d passed, %d blocked, %d skipped (high-conf)",
                 len(matches), elapsed, passed, blocked, skipped_llm,
             )
+
+    # ── Reality filter (zero-cost LLM bypass) ──
+
+    def _filter_by_domain(self, text: str, segments: list[str]) -> list[str]:
+        """Return only segments that have at least one domain word in the text.
+        
+        Uses the synonym-based domain word map loaded from DB.
+        Segments with no domain words defined pass through unchanged.
+        """
+        text_lower = text.lower()
+        verified = []
+        for slug in segments:
+            words = self._domain_word_map.get(slug)
+            if not words:
+                # No domain words defined for this segment → pass through
+                verified.append(slug)
+                continue
+            # Check if any domain word appears in the text
+            for w in words:
+                if w in text_lower:
+                    verified.append(slug)
+                    break
+        return verified
 
     # ── Tier attribute mapping: each tier name maps to a self.* attribute ──
     # _run_tier_loop re-reads channels from self each cycle so that
@@ -855,6 +892,10 @@ class ChannelPoller:
                     "Account %d excluded from distribution — circuit breaker open",
                     a.account_id,
                 )
+                continue
+            # Exclude account #3 during discovery night window (it's searching)
+            if a.account_id == settings.discovery_account_id and is_discovery_window():
+                logger.debug("Account %d excluded — discovery window active", a.account_id)
                 continue
             available.append(a)
 
@@ -1309,7 +1350,7 @@ class ChannelPoller:
 
             if now - last_reload > keyword_reload_interval:
                 try:
-                    self._keyword_map, self._universal_stops = await self._load_keywords()
+                    self._keyword_map, self._universal_stops, self._domain_word_map = await self._load_keywords()
                     await self._load_channel_segments()
                     last_reload = now
                 except Exception as e:
@@ -1567,8 +1608,13 @@ class ChannelPoller:
 
     # ═══════════════ KEYWORD LOADING ═══════════════
 
-    async def _load_keywords(self) -> tuple[dict[str, dict[str, list[str]]], list[str]]:
-        """Load all segment keywords from DB into memory."""
+    async def _load_keywords(self) -> tuple[dict, list, dict]:
+        """Load all segment keywords from DB into memory.
+        
+        Returns (keyword_map, universal_stops, domain_word_map).
+        domain_word_map: {slug: [specific words]} — used by reality filter
+        to skip LLM when no domain-specific word appears in the text.
+        """
         async with async_session_factory() as session:
             result = await session.execute(
                 select(SegmentKeyword).where(SegmentKeyword.is_active == True)
@@ -1580,6 +1626,7 @@ class ChannelPoller:
             segments = {s.id: s.slug for s in seg_result.scalars().all()}
 
         keyword_map: dict[str, dict[str, list[str]]] = {}
+        domain_word_map: dict[str, list[str]] = {}
         universal_stops: list[str] = []
         for kw in keywords:
             if kw.segment_id is None:
@@ -1592,12 +1639,18 @@ class ChannelPoller:
             if slug not in keyword_map:
                 keyword_map[slug] = {"demand": [], "stop": [], "synonym": []}
             keyword_map[slug][kw.keyword_type].append(kw.text)
+            # Build domain word map from synonyms (specific domain words)
+            if kw.keyword_type == "synonym":
+                if slug not in domain_word_map:
+                    domain_word_map[slug] = []
+                domain_word_map[slug].append(kw.text.lower())
 
         logger.info(
-            "Loaded %d keywords across %d segments, %d universal stops",
+            "Loaded %d keywords across %d segments, %d universal stops, %d domain words",
             len(keywords), len(keyword_map), len(universal_stops),
+            sum(len(v) for v in domain_word_map.values()),
         )
-        return keyword_map, universal_stops
+        return keyword_map, universal_stops, domain_word_map
 
     async def _load_channel_segments(self) -> None:
         """Pre-tag channels with segments based on their titles."""
