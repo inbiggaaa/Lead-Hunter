@@ -356,19 +356,19 @@ class ChannelPoller:
         return entity
 
     async def _poll_channel(
-        self, account, channel_username: str, tier_name: str, initial: bool = False,
+        self, account, channel_username: str, tier_name: str,
     ) -> None:
         """Poll a single channel: get all new messages since cursor, classify, dispatch.
 
-        Uses tier-specific limits with automatic pagination — if a batch returns
-        exactly TIER_LIMITS[tier] messages, we keep fetching until caught up.
-        Guarantees no message loss while adding API calls only for busy channels.
+        First-acquaintance mode is derived from the Redis cursor, not from a
+        restart flag: cursor == 0 (channel never polled) → fetch the last
+        FETCH_LIMIT messages and set the cursor; cursor > 0 → incremental.
+        A worker restart therefore never re-reads (and re-classifies) history.
 
         Args:
             account: UserbotAccount to use
             channel_username: @username of the channel
             tier_name: "Hot" | "Warm" | "Cold" — picks TIER_LIMITS[tier]
-            initial: True on first-ever poll (get last N messages, set cursor, no pagination)
         """
         try:
             entity = await self._resolve_entity(account, channel_username)
@@ -387,7 +387,7 @@ class ChannelPoller:
                 logger.info("Skipping broadcast channel @%s (not a chat)", channel_username)
                 return
 
-        cursor = await self._get_cursor(channel_username) if not initial else 0
+        cursor = await self._get_cursor(channel_username)
 
         # Fetch ALL messages since cursor, paginating if needed
         all_messages = await self._fetch_all_since(
@@ -523,7 +523,7 @@ class ChannelPoller:
     # ═══════════════ BATCH & TIER LOOPS ═══════════════
 
     async def _poll_batch(
-        self, account, channels: list[dict], tier_name: str, initial: bool = False,
+        self, account, channels: list[dict], tier_name: str,
     ) -> tuple[int, int]:
         """Poll channels sequentially with log-normal pauses — human-like rhythm.
 
@@ -542,7 +542,7 @@ class ChannelPoller:
             try:
                 await self._poll_channel(
                     account, ch["chat_username"].strip().lstrip("@"),
-                    tier_name=tier_name, initial=initial,
+                    tier_name=tier_name,
                 )
                 return True
             except FloodWaitError as e:
@@ -752,7 +752,6 @@ class ChannelPoller:
             )
             await asyncio.sleep(startup_delay)
 
-        initial = True
         cycle_num = 0
         logged_start = False
         _zero_logged = False
@@ -839,9 +838,7 @@ class ChannelPoller:
                     )
 
                 # Delegate to testable once()-method
-                initial = await self._run_tier_once(
-                    tier_name, tier_channels, initial,
-                )
+                await self._run_tier_once(tier_name, tier_channels)
 
                 # Dynamic interval + jitter
                 # Post-ban multiplier is now inside _get_effective_interval —
@@ -862,12 +859,14 @@ class ChannelPoller:
             await asyncio.sleep(sleep_time)
 
     async def _run_tier_once(
-        self, tier_name: str, tier_channels: list[dict], initial: bool,
-    ) -> bool:
-        """One polling cycle: distribute → guards → poll. Returns new `initial`.
+        self, tier_name: str, tier_channels: list[dict],
+    ) -> None:
+        """One polling cycle: distribute → guards → poll.
 
         Extracted for testability — real _run_tier_once is the integration
         test target for session skip, try-lock skip, and degradation.
+        First-acquaintance vs incremental mode is per-channel (cursor == 0
+        in _poll_channel), not a loop-level flag.
         """
         start = time.time()
 
@@ -881,7 +880,7 @@ class ChannelPoller:
                 "%s tier: paused (only %d CB-free account(s) — need 2+)",
                 tier_name, available,
             )
-            return initial  # skip this cycle, initial unchanged
+            return  # skip this cycle
 
         for account, chunk in account_chunks:
             if not chunk:
@@ -906,16 +905,13 @@ class ChannelPoller:
                 continue
 
             async with lock:
-                limit_tag = "(initial)" if initial else "(incremental + pagination)"
-                ok, err = await self._poll_batch(account, chunk, tier_name=tier_name, initial=initial)
+                ok, err = await self._poll_batch(account, chunk, tier_name=tier_name)
                 elapsed = time.time() - start
                 if ok + err > 0:
                     logger.info(
-                        "%s tier: %d ok, %d errors in %.1fs %s",
-                        tier_name, ok, err, elapsed, limit_tag,
+                        "%s tier: %d ok, %d errors in %.1fs",
+                        tier_name, ok, err, elapsed,
                     )
-
-        return False  # after first real cycle, initial becomes False
 
     async def _distribute(self, channels: list[dict]) -> list[tuple]:
         """Distribute channels across available accounts (healthy + circuit breaker closed).

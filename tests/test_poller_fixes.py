@@ -302,7 +302,7 @@ async def test_run_tier_once_active_calls_poll_batch(mock_get_redis):
     mock_batch = AsyncMock(return_value=(1, 0))
     poller._poll_batch = mock_batch
 
-    await poller._run_tier_once("Hot", mock_batch, initial=True)
+    await poller._run_tier_once("Hot", mock_batch)
     mock_batch.assert_called_once()
 
 
@@ -321,7 +321,7 @@ async def test_run_tier_once_try_lock_skips_polling(mock_get_redis):
     lock = poller._account_locks.setdefault(1, asyncio.Lock())
     await lock.acquire()
 
-    await poller._run_tier_once("Hot", mock_batch, initial=True)
+    await poller._run_tier_once("Hot", mock_batch)
     mock_batch.assert_not_called()
     lock.release()
 
@@ -339,7 +339,7 @@ async def test_run_tier_once_unlocked_calls_poll_batch(mock_get_redis):
     mock_batch = AsyncMock(return_value=(1, 0))
     poller._poll_batch = mock_batch
 
-    await poller._run_tier_once("Hot", mock_batch, initial=True)
+    await poller._run_tier_once("Hot", mock_batch)
     mock_batch.assert_called_once()
 
 
@@ -900,12 +900,11 @@ async def test_run_tier_loop_survives_once_crash(mock_sleep):
 
     call_count = 0
 
-    async def crash_once(tier_name, channels, initial):
+    async def crash_once(tier_name, channels):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise RuntimeError("Redis connection lost")
-        return False
 
     poller._run_tier_once = crash_once
     poller._get_available_account_count = AsyncMock(return_value=1)
@@ -1004,7 +1003,7 @@ async def test_warmup_skipped_when_one_cb_free(mock_limiter):
 
     # _run_tier_once should be called with all 217 channels (no warmup limit)
     call = poller._run_tier_once.call_args
-    tier_name, tier_channels, initial = call[0]
+    tier_name, tier_channels = call[0]
     assert len(tier_channels) == 217, f"Expected 217 channels, got {len(tier_channels)}"
 
 
@@ -1034,7 +1033,7 @@ async def test_warmup_normal_when_two_cb_free(mock_limiter):
             pass
 
     call = poller._run_tier_once.call_args
-    tier_name, tier_channels, initial = call[0]
+    tier_name, tier_channels = call[0]
     # 2 CB-free → skip_warmup = True → all 217 channels used (no warmup ramp)
     assert len(tier_channels) == 217, f"Expected 217 (skip warmup), got {len(tier_channels)}"
 
@@ -1200,7 +1199,7 @@ async def test_t1_fresh_messages_classified_cursor_is_server_max(
 
     poller = ChannelPoller()
     acc = _make_account(1)
-    await poller._poll_channel(acc, "test_ch", "Hot", initial=False)
+    await poller._poll_channel(acc, "test_ch", "Hot")
 
     # Все 3 должны быть классифицированы
     assert mock_classify.call_count == 3
@@ -1243,7 +1242,7 @@ async def test_t2_old_batch_cursor_advances_no_classify(
 
     poller = ChannelPoller()
     acc = _make_account(1)
-    await poller._poll_channel(acc, "test_ch", "Hot", initial=False)
+    await poller._poll_channel(acc, "test_ch", "Hot")
 
     # Classify НЕ вызывается — все отфильтрованы по дате
     mock_classify.assert_not_called()
@@ -1286,7 +1285,7 @@ async def test_t3_mixed_batch_partial_classify_cursor_server_max(
 
     poller = ChannelPoller()
     acc = _make_account(1)
-    await poller._poll_channel(acc, "test_ch", "Hot", initial=False)
+    await poller._poll_channel(acc, "test_ch", "Hot")
 
     # Только 2 свежих дошли до classify
     assert mock_classify.call_count == 2
@@ -1308,7 +1307,7 @@ async def test_t4_empty_batch_cursor_unchanged(
 
     poller = ChannelPoller()
     acc = _make_account(1)
-    await poller._poll_channel(acc, "test_ch", "Hot", initial=False)
+    await poller._poll_channel(acc, "test_ch", "Hot")
 
     # Early return на пустом батче — курсор не трогаем
     mock_set_cursor.assert_not_called()
@@ -1345,7 +1344,91 @@ async def test_t5_msg_date_none_does_not_crash(
 
     poller = ChannelPoller()
     acc = _make_account(1)
-    await poller._poll_channel(acc, "test_ch", "Hot", initial=False)
+    await poller._poll_channel(acc, "test_ch", "Hot")
 
     # Не упало, сообщение без даты дошло до classify
     mock_classify.assert_called_once()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# A6 (fable_audit.md) — рестарт не перечитывает историю
+# Режим «первого знакомства» определяется по cursor == 0, а не по
+# флагу initial, который раньше сбрасывался в True на каждом рестарте.
+# ═══════════════════════════════════════════════════════════════════
+
+
+@patch("app.userbot.poller.Message", MagicMock)
+@patch("app.userbot.poller.llm_validator")
+@patch("app.userbot.poller.classify_message")
+@patch("app.userbot.poller.ChannelPoller._log_llm_decision")
+@patch("app.userbot.poller.ChannelPoller._log_unmatched")
+@patch("app.userbot.poller.ChannelPoller._dispatch")
+@patch("app.userbot.poller.ChannelPoller._set_cursor")
+@patch("app.userbot.poller.ChannelPoller._fetch_all_since")
+@patch("app.userbot.poller.ChannelPoller._get_cursor")
+@patch("app.userbot.poller.ChannelPoller._resolve_entity")
+async def test_a6_restart_does_not_reread_history(
+    mock_resolve, mock_get_cursor, mock_fetch, mock_set_cursor,
+    mock_dispatch, mock_log_unmatched, mock_log_llm,
+    mock_classify, mock_llm,
+):
+    """Канал с курсором в Redis: опрос после рестарта идёт инкрементально.
+
+    Старый код: _run_tier_loop передавал initial=True после КАЖДОГО рестарта
+    → _poll_channel игнорировал курсор → до 100 старых сообщений × ~218
+    каналов повторно уходили в blocking-LLM. Теперь курсор читается всегда.
+    """
+    mock_resolve.return_value = MagicMock(broadcast=False)
+    mock_get_cursor.return_value = 500  # channel was polled before restart
+    mock_fetch.return_value = []  # nothing new since cursor
+
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    await poller._poll_channel(acc, "test_ch", "Hot")
+
+    # Курсор прочитан и передан в fetch — не сброшен в 0 «initial»-режимом
+    mock_get_cursor.assert_awaited_once_with("test_ch")
+    fetch_cursor = mock_fetch.call_args[0][3]
+    assert fetch_cursor == 500, f"fetch got cursor={fetch_cursor}, expected 500"
+    # Старые сообщения не перечитаны → ничего не классифицировано
+    mock_classify.assert_not_called()
+    mock_set_cursor.assert_not_called()
+
+
+@patch("app.userbot.poller.Message", MagicMock)
+@patch("app.userbot.poller.llm_validator")
+@patch("app.userbot.poller.classify_message")
+@patch("app.userbot.poller.ChannelPoller._log_llm_decision")
+@patch("app.userbot.poller.ChannelPoller._log_unmatched")
+@patch("app.userbot.poller.ChannelPoller._dispatch")
+@patch("app.userbot.poller.ChannelPoller._set_cursor")
+@patch("app.userbot.poller.ChannelPoller._fetch_all_since")
+@patch("app.userbot.poller.ChannelPoller._get_cursor")
+@patch("app.userbot.poller.ChannelPoller._resolve_entity")
+async def test_a6_zero_cursor_first_acquaintance(
+    mock_resolve, mock_get_cursor, mock_fetch, mock_set_cursor,
+    mock_dispatch, mock_log_unmatched, mock_log_llm,
+    mock_classify, mock_llm,
+):
+    """Канал без курсора (cursor=0): первое знакомство — берём последние
+    сообщения и ставим курсор, как раньше делал initial=True."""
+    mock_resolve.return_value = MagicMock(broadcast=False)
+    mock_get_cursor.return_value = 0  # never polled
+    mock_llm.validate = AsyncMock(return_value=MagicMock(verdict="OK", reason=""))
+    mock_llm.should_block = MagicMock(return_value=False)
+    mock_classify.return_value = _fresh_classification()
+
+    msgs = [
+        _make_msg_with_date(103, days_ago=1),
+        _make_msg_with_date(102, days_ago=1),
+    ]
+    mock_fetch.return_value = msgs
+
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    await poller._poll_channel(acc, "test_ch", "Hot")
+
+    fetch_cursor = mock_fetch.call_args[0][3]
+    assert fetch_cursor == 0
+    assert mock_classify.call_count == 2
+    mock_set_cursor.assert_called_once_with("test_ch", 103)
