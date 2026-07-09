@@ -55,9 +55,24 @@
 **Приёмка:** `git status` на main чист; ветка существует.
 **Выполнено: 09.07.2026, коммит ecb818a (ветка feat/discovery-shared-account). Примечания: main чист; попутно замечено — main опережает origin/main на 23 коммита (push не делался, решение за владельцем).**
 
-### [ ] 0.3 Прогнать полный тест-сьют, зафиксировать зелёный baseline
+### [x] 0.3 Прогнать полный тест-сьют, зафиксировать зелёный baseline
 **Что сделать:** `pytest` локально (как в предыдущих задачах — в Docker-окружении тестов, НЕ через exec в прод-worker). Записать число тестов и упавшие (если есть pre-existing red — задокументировать, не чинить).
 **Приёмка:** список пройденных/упавших в session log.
+**Выполнено: 09.07.2026. BASELINE: 155 passed / 4 failed / 1 hanging (все 5 — pre-existing проблемы ТЕСТОВОГО кода, продукт не задет):**
+- `test_session_sleeping_skips_tiers`, `test_session_paused_skips_polling` — вызывают `_should_poll_tier` без await (метод стал async 04.07, тесты не обновлены);
+- `test_run_tier_once_active_calls_poll_batch` — мок не вызывается (тот же сигнатурный mismatch, упомянут в session log 04.07);
+- `test_alert_poller_stuck` — написан под старую одно-аккаунтную логику, не обновлён вместе с коммитом 5ae3f67; будет переписан в задаче A5;
+- `test_session_ticker_transitions` — ВИСНЕТ: тест напрямую await-ит `_session_ticker` (бесконечный while True); при недоступном Redis падал быстро, с живым — вешает весь сьют. Исключать через `--deselect`.
+**РЕЦЕПТ ПРОГОНА ТЕСТОВ НА ХОСТЕ (для всех фаз, прод не трогается):**
+```
+docker run -d --name lh_test_db --memory=200m -p 127.0.0.1:5433:5432 \
+  -e POSTGRES_USER=lhtest -e POSTGRES_PASSWORD=lhtest -e POSTGRES_DB=lhtest postgres:16-alpine
+docker run -d --name lh_test_redis --memory=50m -p 127.0.0.1:6380:6379 redis:7-alpine
+POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 POSTGRES_USER=lhtest POSTGRES_PASSWORD=lhtest \
+  POSTGRES_DB=lhtest REDIS_HOST=127.0.0.1 REDIS_PORT=6380 timeout 150 venv/bin/python -m pytest tests/ \
+  --deselect tests/test_poller_fixes.py::test_session_ticker_transitions -q
+docker rm -f lh_test_db lh_test_redis   # после прогона
+```
 
 ---
 
@@ -244,4 +259,6 @@
 
 ## Найдено попутно (заполняется исполнителем по ходу работ)
 
-_(пусто)_
+- **09.07 (0.1):** feedback-статистика хуже ожиданий — 215 из 259 оценок (83%) «не релевантно». FP-проблема из аудита подтверждена количественно; это главная baseline-метрика для фаз A/C.
+- **09.07 (0.3):** `test_session_ticker_transitions` вешает весь тест-сьют при живом Redis (await бесконечного цикла). Кандидат на починку при работах над тестами poller'а (A5/A6), до тех пор — deselect.
+- **09.07 (0.3):** тесты никогда не изолировались от прод-Redis: часть тестов ходит в Redis по `settings` без моков — в Docker-прогонах прошлых сессий они могли писать в ПРОД-Redis (ключи session:state и т.п.). На хосте решено одноразовыми контейнерами (порты 5433/6380) — рецепт в задаче 0.3.
