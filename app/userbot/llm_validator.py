@@ -145,6 +145,9 @@ class PendingMatch:
     llm_result: LLMResult | None = None
     # High-confidence demand — skip LLM
     skip_llm: bool = False
+    # Matched only by a personal user keyword (no segments) — always skips
+    # LLM and the reality filter: personal keywords work unconditionally.
+    keyword_only: bool = False
 
 
 # ═══════════════════════════════════════════════════════════════

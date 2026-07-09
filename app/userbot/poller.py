@@ -16,7 +16,9 @@ from datetime import datetime, timedelta, timezone
 from telethon.errors import FloodWaitError, ChannelInvalidError
 from telethon.tl.types import Message, InputPeerChannel
 
-from app.userbot.classifier import classify_message, _has_demand_signal, _match_keyword
+from app.userbot.classifier import (
+    classify_message, _has_demand_signal, _match_keyword, _lemmatize_text,
+)
 from app.userbot.llm_validator import (
     llm_validator, sanitize_text, PendingMatch, is_high_confidence_demand,
     LLMResult,
@@ -62,6 +64,24 @@ INTERVAL_JITTER = 0.15
 CURSOR_PREFIX = "cursor:msg:"
 
 
+def _personal_keyword_hits(keyword: str, text_lower: str, text_lemma: str) -> bool:
+    """Word-boundary match of a personal keyword, tolerant to Russian inflection.
+
+    Same strategy as the classifier's _match_kw: exact form first, then the
+    lemmatized text, then the lemmatized keyword against the lemmatized text
+    («фотограф» matches «фотографа»). Word boundaries prevent substring false
+    positives («кот» does not match «который»).
+    """
+    if _match_keyword(keyword, text_lower):
+        return True
+    if text_lemma != text_lower and _match_keyword(keyword, text_lemma):
+        return True
+    kw_lemma = _lemmatize_text(keyword)
+    if kw_lemma != keyword and _match_keyword(kw_lemma, text_lemma):
+        return True
+    return False
+
+
 def next_delay() -> float:
     """Log-normal delay between channel polls — human-like rhythm.
 
@@ -89,6 +109,7 @@ class ChannelPoller:
         self.pool = UserbotPool()
         self._keyword_map: dict[str, dict[str, list[str]]] = {}
         self._universal_stops: list[str] = []
+        self._personal_keywords: list[str] = []  # active user keywords (Вариант Б)
         self._domain_word_map: dict[str, list[str]] = {}  # reality filter
         self._channel_segments: dict[str, list[str]] = {}
         self._active_countries: set[int] = set()  # country IDs with subscribers
@@ -139,6 +160,7 @@ class ChannelPoller:
             await limiter.activate_post_ban_if_recent(acc.account_id)
         if not self._keyword_map:
             self._keyword_map, self._universal_stops, self._domain_word_map = await self._load_keywords()
+            self._personal_keywords = await self._load_personal_keywords()
             await self._load_channel_segments()
             await self._rebuild_tiers()
             await self._tag_new_channels()  # tag any new channels from discovery
@@ -446,6 +468,22 @@ class ChannelPoller:
                     is_urgent=result.is_urgent,
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
                     skip_llm=is_high_confidence_demand(msg.message),
+                ))
+            elif self._matches_personal_keyword(msg.message):
+                # Вариант Б: no segment match, but a personal user keyword hit.
+                # Personal keywords work unconditionally (spec §5а) — bypass
+                # the reality filter (it is segment-based) and the LLM.
+                # _dispatch narrows delivery to users whose own keyword matched.
+                self._pending_matches.append(PendingMatch(
+                    chat_username=channel_username,
+                    message_id=msg_id,
+                    text=msg.message,
+                    candidate_segments=[],
+                    account_id=account.account_id,
+                    is_urgent=result.is_urgent,
+                    sender=getattr(msg.sender, "username", None) if msg.sender else None,
+                    skip_llm=True,
+                    keyword_only=True,
                 ))
             else:
                 await self._log_unmatched(channel_username, msg.message, msg_id)
@@ -1359,6 +1397,7 @@ class ChannelPoller:
             if now - last_reload > keyword_reload_interval:
                 try:
                     self._keyword_map, self._universal_stops, self._domain_word_map = await self._load_keywords()
+                    self._personal_keywords = await self._load_personal_keywords()
                     await self._load_channel_segments()
                     last_reload = now
                 except Exception as e:
@@ -1523,19 +1562,20 @@ class ChannelPoller:
                 )
             )).scalar_one_or_none()
 
-        if ch is not None:
-            channel_country_id = ch.auto_matched_country_id
-            channel_city_id = ch.auto_matched_city_id
-            effective_city_ids = {channel_city_id} if channel_city_id else set()
-            cc_rows = (await session.execute(
-                sa_select(ChannelCity.city_id).where(ChannelCity.channel_id == ch.id)
-            )).scalars().all()
-            effective_city_ids.update(cc_rows)
-        else:
-            # Channel not in catalog (e.g. user-added via watched_chats).
-            # No geo metadata available — match regardless of country/city filters.
-            channel_country_id = None
-            effective_city_ids = set()
+            if ch is not None:
+                channel_country_id = ch.auto_matched_country_id
+                channel_city_id = ch.auto_matched_city_id
+                effective_city_ids = {channel_city_id} if channel_city_id else set()
+                cc_rows = (await session.execute(
+                    sa_select(ChannelCity.city_id).where(ChannelCity.channel_id == ch.id)
+                )).scalars().all()
+                effective_city_ids.update(cc_rows)
+            else:
+                # Channel not in catalog (user-added via watched_chats) — no geo
+                # metadata exists. Geo filters are skipped entirely below:
+                # subscriptions match by segment alone.
+                channel_country_id = None
+                effective_city_ids = set()
 
         async with async_session_factory() as session:
             segs = (await session.execute(sa_select(Segment))).scalars().all()
@@ -1551,6 +1591,9 @@ class ChannelPoller:
         matched_segment_ids = {seg_by_slug.get(s) for s in matched_segments}
         matched_segment_ids.discard(None)
 
+        message_lower = message_text.lower()
+        message_lemma = _lemmatize_text(message_lower)
+
         for user in users:
             subscriptions = user.get("subscriptions", [])
             personal_kws = user.get("keyword_texts", [])
@@ -1558,30 +1601,34 @@ class ChannelPoller:
 
             interested = False
             match_type = None  # "segment" or "keyword"
-            for sub in subscriptions:
-                if sub["country_id"] != channel_country_id:
-                    continue
-                if sub.get("city_ids") and effective_city_ids:
-                    if not (effective_city_ids & set(sub["city_ids"])):
-                        continue
-                if sub["segment_id"] in matched_segment_ids:
-                    interested = True
-                    match_type = "segment"
-                    break
 
-            if not interested:
+            # ── Segment branch (Вариант А) ──
+            # Geo filters apply only to catalog channels (ch found); user-added
+            # channels have no geo metadata → match by segment alone.
+            # Skipped for keyword_only messages (matched_segment_ids empty).
+            if matched_segment_ids:
                 for sub in subscriptions:
-                    if sub["country_id"] != channel_country_id:
-                        continue
-                    if sub.get("city_ids") and effective_city_ids:
-                        if not (effective_city_ids & set(sub["city_ids"])):
+                    if ch is not None:
+                        if sub["country_id"] != channel_country_id:
                             continue
-                    if personal_kws and any(
-                        kw.lower() in message_text.lower() for kw in personal_kws
-                    ):
+                        if sub.get("city_ids") and effective_city_ids:
+                            if not (effective_city_ids & set(sub["city_ids"])):
+                                continue
+                    if sub["segment_id"] in matched_segment_ids:
                         interested = True
-                        match_type = "keyword"
+                        match_type = "segment"
                         break
+
+            # ── Personal keyword branch (Вариант Б) ──
+            # Works unconditionally (spec §5а): no subscription required,
+            # no geo filtering. Word-boundary + lemma matching (A1.4).
+            if not interested and personal_kws:
+                if any(
+                    _personal_keyword_hits(kw.lower(), message_lower, message_lemma)
+                    for kw in personal_kws
+                ):
+                    interested = True
+                    match_type = "keyword"
 
             if not interested:
                 continue
@@ -1659,6 +1706,40 @@ class ChannelPoller:
             sum(len(v) for v in domain_word_map.values()),
         )
         return keyword_map, universal_stops, domain_word_map
+
+    async def _load_personal_keywords(self) -> list[str]:
+        """Load all active personal user keywords (Вариант Б).
+
+        A flat deduplicated list across all users — used by _poll_channel to
+        decide whether a message with no segment match still needs dispatch.
+        Per-user filtering happens later in _dispatch. Reloaded every
+        KEYWORD_RELOAD by _maintenance_loop.
+        """
+        from app.db.models import Keyword
+
+        async with async_session_factory() as session:
+            rows = await session.execute(
+                select(Keyword.text).where(Keyword.is_active == True).distinct()
+            )
+            keywords = [
+                text.strip().lower()
+                for (text,) in rows.all()
+                if text and text.strip()
+            ]
+
+        logger.info("Loaded %d personal keywords", len(keywords))
+        return keywords
+
+    def _matches_personal_keyword(self, text: str) -> bool:
+        """Check text against all active personal keywords (word-boundary + lemma)."""
+        if not self._personal_keywords:
+            return False
+        text_lower = text.lower()
+        text_lemma = _lemmatize_text(text_lower)
+        return any(
+            _personal_keyword_hits(kw, text_lower, text_lemma)
+            for kw in self._personal_keywords
+        )
 
     async def _load_channel_segments(self) -> None:
         """Pre-tag channels with segments based on their titles."""
