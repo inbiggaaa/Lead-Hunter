@@ -429,9 +429,9 @@ class ChannelPoller:
                 # e.g. "продам гантели" matched moto-purchase → filtered out.
                 verified = self._filter_by_domain(msg.message, result.matched_segments)
                 if not verified:
-                    logger.debug(
-                        "Reality filter blocked in @%s (msg %d): %s → no domain words",
-                        channel_username, msg_id, result.matched_segments,
+                    logger.info(
+                        "Reality filter: @%s msg %d blocked (%s) — no domain words",
+                        channel_username, msg_id, ",".join(result.matched_segments),
                     )
                     await self._log_unmatched(channel_username, msg.message, msg_id)
                     continue
