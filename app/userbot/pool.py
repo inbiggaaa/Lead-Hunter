@@ -85,7 +85,7 @@ class UserbotPool:
 
     @staticmethod
     async def discover_sessions() -> list[str]:
-        """Discover available session files in sessions directory."""
+        """List session files on disk — diagnostics only, never assigns IDs."""
         if not SESSIONS_DIR.exists():
             return []
         sessions = []
@@ -95,18 +95,35 @@ class UserbotPool:
         return sorted(sessions)
 
     async def initialize(self):
-        """Initialize pool from available session files."""
-        session_names = await self.discover_sessions()
+        """Initialize pool from the explicit account_id → session map.
 
-        if not session_names:
-            # Fall back to default single session
-            session_names = ["userbot"]
+        IDs come from settings.userbot_session_map, NOT from directory
+        listing: a new file on disk (e.g. discovery.session) must never
+        renumber existing accounts — Redis keys (budgets, circuit breaker,
+        ban counts, session windows) are bound to account IDs.
+        """
+        mapping = settings.userbot_sessions
 
-        for i, name in enumerate(session_names):
-            account = UserbotAccount(account_id=i + 1, session_name=name)
+        for account_id in sorted(mapping):
+            name = mapping[account_id]
+            if not (SESSIONS_DIR / f"{name}.session").exists():
+                logger.warning(
+                    "Account %d: session file %s.session not found — skipped",
+                    account_id, name,
+                )
+                continue
+            account = UserbotAccount(account_id=account_id, session_name=name)
             await account.start()
             if account.is_healthy:
                 self.accounts.append(account)
+
+        unknown = [
+            s for s in await self.discover_sessions() if s not in mapping.values()
+        ]
+        if unknown:
+            logger.warning(
+                "Session files not in userbot_session_map (ignored): %s", unknown,
+            )
 
         logger.info("Pool initialized: %d healthy accounts", len(self.accounts))
 

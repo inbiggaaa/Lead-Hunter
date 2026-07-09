@@ -150,7 +150,8 @@ docker rm -f lh_test_db lh_test_redis   # после прогона
 
 ## ФАЗА B — Инфраструктура и производительность (P1)
 
-### [ ] B1. Явная идентичность аккаунтов (баг C5) — БЛОКИРУЕТ добавление discovery-аккаунта
+### [x] B1. Явная идентичность аккаунтов (баг C5) — DONE 09.07.2026
+`userbot_session_map: str = "1:userbot,2:userbot2"` в config.py + property `userbot_sessions` (парсер с валидацией дублей/пустых имён). `pool.initialize` идёт по маппингу: файл отсутствует → warning + skip; неизвестные файлы на диске → диагностический warning (ID не получают). Дефолт сохраняет прод-идентичность — Redis-ключи не слетают. `_get_sleep_start_hour` дыры в ID переживает (позиция в списке). USERBOT_SESSION_MAP задокументирован в .env.example. 7 тестов test_pool_identity.py, главный — `aaa.session` не сдвигает ID (старый код дал бы aaa=1 и уронил get_userbot_creds(3)).
 **Контекст:** `UserbotPool.initialize` нумерует аккаунты по алфавиту session-файлов. Файл `discovery.session` сдвинет все ID → поедут бюджеты, CB, ban_count, sleep-окна, исключение `account_id == 3` в `_distribute`.
 **Что сделать:**
 - В `config.py` — явный маппинг: account_id → session_name. Минимально: `userbot_session_map: str = "1:userbot,2:userbot2,3:discovery"` (парсер в property) либо три поля `userbot_N_session`. Выбрать вариант, согласующийся с существующим `get_userbot_creds(account_id)`.

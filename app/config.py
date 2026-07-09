@@ -26,6 +26,30 @@ class Settings(BaseSettings):
             return (api_id, api_hash, self.userbot_2_phone)
         raise ValueError(f"No credentials configured for account {account_id}")
 
+    # Explicit account identity: "id:session_name" pairs, comma-separated.
+    # Account IDs are baked into Redis keys (budget:used:{id}, circuit:*:{id},
+    # ban_count:{id}, session:*:{id}) — they must stay stable no matter what
+    # session files appear on disk. NEVER renumber existing accounts.
+    userbot_session_map: str = "1:userbot,2:userbot2"
+
+    @property
+    def userbot_sessions(self) -> dict[int, str]:
+        """Parse userbot_session_map into {account_id: session_name}."""
+        mapping: dict[int, str] = {}
+        for pair in self.userbot_session_map.split(","):
+            pair = pair.strip()
+            if not pair:
+                continue
+            account_id_raw, _, name = pair.partition(":")
+            account_id = int(account_id_raw)
+            name = name.strip()
+            if not name:
+                raise ValueError(f"Empty session name in userbot_session_map: {pair!r}")
+            if account_id in mapping:
+                raise ValueError(f"Duplicate account_id in userbot_session_map: {account_id}")
+            mapping[account_id] = name
+        return mapping
+
     # Database
     postgres_host: str = "db"
     postgres_port: int = 5432
