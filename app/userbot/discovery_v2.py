@@ -28,7 +28,7 @@ from telethon.tl.functions.contacts import SearchRequest
 from app.config import settings
 from app.db.session import async_session_factory
 from app.db.models import CatalogChannel, Country, City
-from app.userbot.rate_limiter import TelegramRateLimiter
+from app.userbot.rate_limiter import limiter  # GLOBAL limiter — shared with poller
 from app.cache import get_redis
 from sqlalchemy import select
 
@@ -81,6 +81,21 @@ COMMUNITY_EN = [
 DIASPORA_PREFIXES = ["kz", "by", "ua", "uz", "kg", "am", "az", "md"]
 
 SEARCH_LIMIT = 10
+
+
+def is_discovery_window() -> bool:
+    """Check if current UTC hour is within the discovery night window.
+    
+    Window wraps around midnight: e.g., 20:00-05:00 UTC.
+    Outside window → account #3 belongs to poller, discovery sleeps.
+    """
+    hour = datetime.now(timezone.utc).hour
+    start = settings.discovery_window_start
+    end = settings.discovery_window_end
+    if start <= end:
+        return start <= hour < end
+    else:
+        return hour >= start or hour < end
 
 
 def _slugify(text: str | None) -> str:
@@ -167,24 +182,18 @@ async def _generate_queries() -> list[dict]:
 # ── DiscoveryWorker ──
 
 class DiscoveryWorker:
-    """Autonomous discovery loop with full poller isolation.
+    """Night-only discovery loop, shares account #3 with poller.
 
-    Uses a dedicated Telegram account (DISCOVERY_ACCOUNT_ID=3) with its own
-    rate limiter and circuit breaker. Falls back to manual/test mode if the
-    dedicated account is unavailable (polls only when poller is inactive).
+    Daytime: account #3 polls channels (managed by ChannelPoller).
+    Night window: account #3 searches for new channels.
+    
+    Shares the GLOBAL rate limiter with poller — one circuit breaker
+    for the account. Has its own daily search budget (Redis counter).
     """
 
     def __init__(self):
         self._account_id = settings.discovery_account_id
-        self._is_dedicated = (self._account_id == 3)
-        self._daily_limit = (
-            settings.discovery_daily_limit if self._is_dedicated
-            else settings.discovery_manual_daily_limit
-        )
-        self._limiter = TelegramRateLimiter(
-            min_interval=2.0,
-            daily_budget=self._daily_limit,
-        )
+        self._daily_limit = settings.discovery_daily_limit
         self._client: TelegramClient | None = None
         self._stop_flag = False
 
@@ -202,6 +211,30 @@ class DiscoveryWorker:
         me = await client.get_me()
         logger.info("Discovery: account %d authorised as @%s", self._account_id, me.username)
         return client
+
+    # ── Discovery-only budget (separate from poller's limiter budget) ──
+
+    async def _discovery_budget_remaining(self) -> int:
+        """Remaining discovery search requests for today (Redis counter)."""
+        try:
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            redis = await get_redis()
+            used = int(await redis.get(f"discovery:budget:{today}") or 0)
+            await redis.aclose()
+            return max(0, self._daily_limit - used)
+        except Exception:
+            return 0
+
+    async def _discovery_record_request(self) -> None:
+        """Increment today's discovery request counter."""
+        try:
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            redis = await get_redis()
+            await redis.incr(f"discovery:budget:{today}")
+            await redis.expire(f"discovery:budget:{today}", 172800)
+            await redis.aclose()
+        except Exception:
+            pass
 
     # ── Pause helpers ──
 
@@ -362,6 +395,11 @@ class DiscoveryWorker:
         try:
             idx = cursor
             while not self._stop_flag:
+                # ── Time window: only search at night ──
+                if not is_discovery_window():
+                    await asyncio.sleep(300)  # check every 5 min
+                    continue
+
                 # ── Check pause flag ──
                 if await self._is_paused():
                     await asyncio.sleep(60)
@@ -373,7 +411,7 @@ class DiscoveryWorker:
                     continue
 
                 # ── Check daily budget ──
-                remaining = await self._limiter.budget_remaining(self._account_id)
+                remaining = await self._discovery_budget_remaining()
                 if remaining <= 0:
                     logger.info("Discovery: daily budget exhausted — sleeping 1h")
                     await self._notify(
@@ -398,7 +436,7 @@ class DiscoveryWorker:
                 q = queries[idx]
 
                 # ── Circuit breaker check (per-account, isolated from poller) ──
-                if await self._limiter.is_circuit_open(self._account_id):
+                if await limiter.is_circuit_open(self._account_id):
                     logger.warning("Discovery: circuit breaker OPEN — sleeping 1h")
                     await self._notify(
                         "🔍 Discovery: circuit breaker OPEN — остановка на 1 час",
@@ -409,7 +447,7 @@ class DiscoveryWorker:
 
                 # ── Rate limit + search ──
                 try:
-                    await self._limiter.acquire(account_id=self._account_id)
+                    await limiter.acquire(account_id=self._account_id)
                     result = await self._client(SearchRequest(q=q["query"], limit=SEARCH_LIMIT))
                     consecutive_errors = 0
                     consecutive_flood = 0
@@ -417,6 +455,7 @@ class DiscoveryWorker:
                     # ── Process results ──
                     await self._store_results(result, q)
                     await self._incr_metric("requests")
+                    await self._discovery_record_request()
                     query_count += 1
 
                     # ── Random long break (3% chance) ──
@@ -428,7 +467,7 @@ class DiscoveryWorker:
                 except FloodWaitError as e:
                     consecutive_flood += 1
                     logger.warning("Discovery FloodWait: %ds on '%s'", e.seconds, q["query"])
-                    await self._limiter.report_flood_wait(
+                    await limiter.report_flood_wait(
                         e.seconds, context=f"discovery:{q['query']}",
                         account_id=self._account_id,
                     )
@@ -475,16 +514,45 @@ class DiscoveryWorker:
             logger.info("Discovery: stopped")
 
     async def _store_results(self, result, q: dict) -> None:
-        """Store newly found channels in catalog_channels with geo-matching."""
+        """Store newly found channels in catalog_channels with geo-matching.
+        
+        Filters out irrelevant channels: title/username must contain
+        location-specific words from the query (not generic community words).
+        """
+        # ── Build location-specific filter words ──
+        loc_words: list[str] = []
+        if q.get("city_name"):
+            loc_words.append(q["city_name"].lower())
+        if q.get("country_name"):
+            loc_words.append(q["country_name"].lower())
+        # Also add words from query that are NOT generic community words
+        query_words = q["query"].lower().split()
+        generic = {w.lower() for w in COMMUNITY_RU + COMMUNITY_EN}
+        for w in query_words:
+            if w not in generic and len(w) >= 2:
+                loc_words.append(w)
+
         candidates: list[dict] = []
         for chat in result.chats:
             username = getattr(chat, "username", None)
-            if username:
-                candidates.append({
-                    "username": username,
-                    "title": getattr(chat, "title", username),
-                    "participants": getattr(chat, "participants_count", None),
-                })
+            if not username:
+                continue
+            title = (getattr(chat, "title", None) or "").lower()
+            title_plus_username = f"{title} {username.lower()}"
+
+            # Relevance check: must contain at least one location-specific word
+            if loc_words and not any(w in title_plus_username for w in loc_words):
+                logger.debug(
+                    "Discovery: skip @%s — no location words in '%s'",
+                    username, title[:60],
+                )
+                continue
+
+            candidates.append({
+                "username": username,
+                "title": getattr(chat, "title", username),
+                "participants": getattr(chat, "participants_count", None),
+            })
 
         if not candidates:
             return
