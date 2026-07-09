@@ -240,7 +240,6 @@ SYNONYM = [
     "подержанный",
     "бэушный",
     "с пробегом",
-    "новый",
     # Action synonyms
     "продам",
     "продаю",
@@ -249,13 +248,6 @@ SYNONYM = [
     "на продажу",
     "for sale",
     "selling",
-    # Price signals (strengthen classifier confidence)
-    "цена",
-    "недорого",
-    "дёшево",
-    "срочно",
-    "торг",
-    "обмен",
     # Brand names (help match brand-specific listings)
     "хонда",
     "ямаха",
