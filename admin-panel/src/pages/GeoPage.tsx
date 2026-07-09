@@ -121,7 +121,7 @@ export default function GeoPage() {
     queryKey: ["admin-countries"],
     queryFn: async () => {
       const res = await api.get("/countries?per_page=200");
-      return (res.data.items ?? res.data ?? []) as Country[];
+      return (res.items ?? []) as Country[];
     },
   });
 
@@ -157,7 +157,7 @@ export default function GeoPage() {
     queryKey: ["admin-cities"],
     queryFn: async () => {
       const res = await api.get("/cities?per_page=500");
-      return (res.data.items ?? res.data ?? []) as City[];
+      return (res.items ?? []) as City[];
     },
   });
 
