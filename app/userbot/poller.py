@@ -562,10 +562,10 @@ class ChannelPoller:
             if (i + 1) % FLUSH_EVERY_N_CHANNELS == 0:
                 await self._flush_pending_matches(account.account_id)
 
-        # Update last_poll_at for alert_loop liveness check
+        # Update last_poll_at for alert_loop liveness check (per-account)
         try:
             redis = await get_redis()
-            await redis.set("stats:last_poll_at", str(time.time()))
+            await redis.set(f"stats:last_poll_at:{account.account_id}", str(time.time()))
             await redis.aclose()
         except Exception:
             pass
@@ -1189,13 +1189,17 @@ class ChannelPoller:
         return (None, None)
 
     async def _check_poller_stuck(self) -> tuple[str | None, str | None]:
-        """Check poller liveness: last_poll_at within healthy bounds.
+        """Check poller liveness per-account.
 
-        Only fires when at least one account is ACTIVE AND has a clear
-        circuit breaker. PAUSED/SLEEPING/CB-blocked accounts are skipped
-        because they cannot poll by design.
+        Only alerts when ALL accounts that CAN poll (healthy + ACTIVE + CB clear)
+        have been silent > threshold. PAUSED/SLEEPING accounts are excluded.
+        If at least one account is polling normally → no alert.
         """
-        any_can_poll = False
+        redis = await get_redis()
+
+        # Collect per-account silence times for accounts that CAN poll
+        max_silence = 0.0
+        can_poll_count = 0
         for acc in self.pool.accounts:
             if not acc.is_healthy:
                 continue
@@ -1204,32 +1208,36 @@ class ChannelPoller:
                 continue
             if await limiter.is_circuit_open(acc.account_id):
                 continue
-            any_can_poll = True
-            break
 
-        if not any_can_poll:
-            return (None, None)
+            can_poll_count += 1
+            last_raw = await redis.get(f"stats:last_poll_at:{acc.account_id}")
+            if last_raw:
+                silence = time.time() - float(last_raw)
+                if silence > max_silence:
+                    max_silence = silence
+            else:
+                # No poll data yet for this account — system may be freshly started
+                max_silence = float("inf")
 
-        redis = await get_redis()
-        last_raw = await redis.get("stats:last_poll_at")
         await redis.aclose()
 
-        if not last_raw:
-            return (None, None)  # no polls yet — system just started
+        if can_poll_count == 0:
+            return (None, None)  # no accounts expected to poll
 
-        silence = time.time() - float(last_raw)
+        if max_silence == float("inf"):
+            return (None, None)  # freshly started, no data yet
 
-        if silence > 60 * 60:
+        if max_silence > 60 * 60:
             return (
                 "CRITICAL",
-                f"Поллер не завершил ни одного батча {silence/60:.0f} мин "
-                f"при ACTIVE-сессии — возможная остановка",
+                f"Все {can_poll_count} активных аккаунта не завершали батчей "
+                f">{max_silence/60:.0f} мин — возможная остановка поллера",
             )
-        elif silence > 30 * 60:
+        elif max_silence > 30 * 60:
             return (
                 "WARNING",
-                f"Поллер не завершил батчей {silence/60:.0f} мин "
-                f"при ACTIVE-сессии",
+                f"Все {can_poll_count} активных аккаунта без батчей "
+                f"{max_silence/60:.0f} мин",
             )
         return (None, None)
 
