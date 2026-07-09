@@ -120,7 +120,7 @@ export default function GeoPage() {
   const { data: countriesData, isLoading: countriesLoading } = useQuery({
     queryKey: ["admin-countries"],
     queryFn: async () => {
-      const res = await api.get("/countries?per_page=200");
+      const res = await api.get("/api/countries?per_page=200");
       return (res.items ?? []) as Country[];
     },
   });
@@ -131,9 +131,9 @@ export default function GeoPage() {
   const countryMutation = useMutation({
     mutationFn: async (data: EditRecord) => {
       if (data.id) {
-        await api.put(`/countries/${data.id}`, data);
+        await api.put(`/api/countries/${data.id}`, data);
       } else {
-        await api.post("/countries", data);
+        await api.post("/api/countries", data);
       }
     },
     onSuccess: () => {
@@ -144,7 +144,7 @@ export default function GeoPage() {
   });
 
   const deleteCountry = useMutation({
-    mutationFn: (id: number) => api.delete(`/countries/${id}`),
+    mutationFn: (id: number) => api.delete(`/api/countries/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-countries"] });
       toast.success("Страна удалена");
@@ -156,7 +156,7 @@ export default function GeoPage() {
   const { data: citiesData, isLoading: citiesLoading } = useQuery({
     queryKey: ["admin-cities"],
     queryFn: async () => {
-      const res = await api.get("/cities?per_page=500");
+      const res = await api.get("/api/cities?per_page=500");
       return (res.items ?? []) as City[];
     },
   });
@@ -167,9 +167,9 @@ export default function GeoPage() {
   const cityMutation = useMutation({
     mutationFn: async (data: EditRecord) => {
       if (data.id) {
-        await api.put(`/cities/${data.id}`, data);
+        await api.put(`/api/cities/${data.id}`, data);
       } else {
-        await api.post("/cities", data);
+        await api.post("/api/cities", data);
       }
     },
     onSuccess: () => {
@@ -180,7 +180,7 @@ export default function GeoPage() {
   });
 
   const deleteCity = useMutation({
-    mutationFn: (id: number) => api.delete(`/cities/${id}`),
+    mutationFn: (id: number) => api.delete(`/api/cities/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-cities"] });
       toast.success("Город удалён");
