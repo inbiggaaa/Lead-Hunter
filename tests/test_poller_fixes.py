@@ -745,26 +745,86 @@ async def test_alert_flood_wait_critical(mock_get_redis):
     assert level == "CRITICAL"
 
 
+def _stuck_redis(last_poll_by_account: dict[int, float | None]):
+    """Fake redis for _check_poller_stuck: per-account last_poll + ACTIVE sessions."""
+    def _get(k):
+        for acc_id, ts in last_poll_by_account.items():
+            if k == f"stats:last_poll_at:{acc_id}":
+                return str(ts) if ts is not None else None
+            if k == f"session:state:{acc_id}":
+                return "ACTIVE"
+        if k.startswith("session:state:"):
+            return "ACTIVE"
+        return None
+
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(side_effect=_get)
+    mock_redis.aclose = AsyncMock()
+    return mock_redis
+
+
 @patch("app.userbot.poller.limiter")
 @patch("app.userbot.poller.get_redis")
 async def test_alert_poller_stuck(mock_get_redis, mock_limiter):
-    """ACTIVE + CB clear + last_poll старый → CRITICAL."""
+    """Единственный аккаунт ACTIVE + CB clear + last_poll старый → CRITICAL."""
     mock_limiter.is_circuit_open = AsyncMock(return_value=False)
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(
-        side_effect=lambda k: (
-            str(time.time() - 4000).encode() if k == "stats:last_poll_at"
-            else "ACTIVE" if k == "session:state:1"
-            else None
-        )
-    )
-    mock_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = mock_redis
+    mock_get_redis.return_value = _stuck_redis({1: time.time() - 4000})
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     level, text = await poller._check_poller_stuck()
     assert level == "CRITICAL"
+
+
+@patch("app.userbot.poller.limiter")
+@patch("app.userbot.poller.get_redis")
+async def test_alert_poller_stuck_one_silent_one_fresh_no_alert(
+    mock_get_redis, mock_limiter,
+):
+    """Один аккаунт молчит 90 мин, второй поллил минуту назад → алерта НЕТ.
+
+    Регресс бага «max вместо min»: алерт "Все аккаунты" срабатывал,
+    когда молчал хотя бы один.
+    """
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
+    mock_get_redis.return_value = _stuck_redis({
+        1: time.time() - 5400,  # молчит 90 мин
+        2: time.time() - 60,    # поллил минуту назад
+    })
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    level, text = await poller._check_poller_stuck()
+    assert level is None
+
+
+@patch("app.userbot.poller.limiter")
+@patch("app.userbot.poller.get_redis")
+async def test_alert_poller_stuck_all_silent_critical(mock_get_redis, mock_limiter):
+    """ОБА аккаунта молчат > 60 мин → CRITICAL."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
+    mock_get_redis.return_value = _stuck_redis({
+        1: time.time() - 5400,
+        2: time.time() - 4200,
+    })
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    level, text = await poller._check_poller_stuck()
+    assert level == "CRITICAL"
+
+
+@patch("app.userbot.poller.limiter")
+@patch("app.userbot.poller.get_redis")
+async def test_alert_poller_stuck_no_data_is_fresh_start(mock_get_redis, mock_limiter):
+    """Ни у одного аккаунта нет last_poll (свежий старт) → алерта нет."""
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
+    mock_get_redis.return_value = _stuck_redis({1: None, 2: None})
+
+    poller = ChannelPoller()
+    poller.pool.accounts = [_make_account(1), _make_account(2)]
+    level, text = await poller._check_poller_stuck()
+    assert level is None
 
 
 @patch("app.userbot.poller.limiter")

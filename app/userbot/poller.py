@@ -1236,8 +1236,11 @@ class ChannelPoller:
         """
         redis = await get_redis()
 
-        # Collect per-account silence times for accounts that CAN poll
-        max_silence = 0.0
+        # "All accounts stuck" ⟺ even the FRESHEST can-poll account is silent
+        # longer than the threshold → take the MIN silence across accounts.
+        # (max would fire when ANY single account is silent — false CRITICALs
+        # while the other account polls normally.)
+        min_silence = float("inf")
         can_poll_count = 0
         for acc in self.pool.accounts:
             if not acc.is_healthy:
@@ -1252,31 +1255,32 @@ class ChannelPoller:
             last_raw = await redis.get(f"stats:last_poll_at:{acc.account_id}")
             if last_raw:
                 silence = time.time() - float(last_raw)
-                if silence > max_silence:
-                    max_silence = silence
             else:
-                # No poll data yet for this account — system may be freshly started
-                max_silence = float("inf")
+                # No poll data for this account yet — silent "forever";
+                # never the minimum unless ALL accounts lack data.
+                silence = float("inf")
+            if silence < min_silence:
+                min_silence = silence
 
         await redis.aclose()
 
         if can_poll_count == 0:
             return (None, None)  # no accounts expected to poll
 
-        if max_silence == float("inf"):
-            return (None, None)  # freshly started, no data yet
+        if min_silence == float("inf"):
+            return (None, None)  # freshly started, no poll data at all yet
 
-        if max_silence > 60 * 60:
+        if min_silence > 60 * 60:
             return (
                 "CRITICAL",
                 f"Все {can_poll_count} активных аккаунта не завершали батчей "
-                f">{max_silence/60:.0f} мин — возможная остановка поллера",
+                f">{min_silence/60:.0f} мин — возможная остановка поллера",
             )
-        elif max_silence > 30 * 60:
+        elif min_silence > 30 * 60:
             return (
                 "WARNING",
                 f"Все {can_poll_count} активных аккаунта без батчей "
-                f"{max_silence/60:.0f} мин",
+                f"{min_silence/60:.0f} мин",
             )
         return (None, None)
 
