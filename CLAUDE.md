@@ -1132,3 +1132,14 @@ Handoff: .rpiv/artifacts/handoffs/2026-07-05_channels-ux-overhaul.md.
 - 4 unit-теста исправлены (Segment теперь требует category_id)
 - Worker стабилен: 1491 keywords, 69 segments, 33 universal stops
 - Следующее: Фаза 3 (бот — двухуровневый выбор категорий/подкатегорий)
+
+**09.07.2026 — Аудит: Фаза A завершена целиком (ветка audit/fable-fixes, прод НЕ трогался).**
+План и пометки — fable_audit.md. Все 6 задач закрыты, по коммиту на задачу:
+- A1 (439c3fe): «Вариант Б» работает end-to-end — keyword-матчи без сегментов идут в dispatch (PendingMatch.keyword_only, минуя reality-фильтр и LLM), keyword-ветка в _dispatch вне цикла подписок и без гео, word-boundary+леммы вместо substring. 5 тестов test_variant_b.py.
+- A2 (код в 439c3fe/5bf079d, отчёт ea33854): обход stop-слов через «?» закрыт — _has_strong_demand_signal для Pass 2 и pre-tag boost, «?» остался только в Pass 3. Corpus-diff 1000 сообщений: 20 BLOCKED + 4 PARTIAL — все офферы, newly_matched=0, лидов не потеряно (docs/eval/a2_diff.md). 7 тестов test_stop_bypass.py.
+- A3 (5a17a5d): sender — html.escape всего пользовательского контента + retry/DLQ по DECISIONS #26 (403→is_blocked_bot, 429→sleep+повтор, прочее→3 ретрая 1/4/9с→dlq). 6 тестов test_sender.py.
+- A4 (5bf079d): invalidate_all_subscription_caches() (SCAN collect-then-delete) во всех CRUD-точках: keywords, channels, catalog_nav (создание/удаление подписок), admin users PUT, mark_user_blocked. 3 теста test_cache_invalidation.py.
+- A5 (b3cbafa): stuck-алерт — min-семантика («все молчат ⟺ даже самый свежий молчит»), 4 теста; убран ложный алерт при одном молчащем аккаунте.
+- A6 (e82f972): параметр initial удалён из цепочки поллинга, режим первого знакомства по cursor==0 — рестарт worker больше не гонит до 100×218 старых сообщений в blocking-LLM. 2 теста.
+Итог сьюта: 182 passed / 3 pre-existing failed (baseline 0.3: 155/4; один из старых failed заменён в A5) / 1 hanging deselected (test_session_ticker_transitions). Тест-окружение: одноразовые контейнеры lh_test_db (5433) + lh_test_redis (6380), снесены после прогона. Ветка запушена (e82f972). Деплой фазы НЕ выполнялся — по git-стратегии офлайн-верификация, живое переключение отдельным решением владельца.
+Уроки: pymorphy3 отсутствовал в хостовом venv — классификатор тихо деградировал (try/except на импорте); corpus-diff как приёмка правок классификатора работает отлично (ловит и регрессии, и подтверждает пользу).
