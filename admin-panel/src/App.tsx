@@ -6,7 +6,6 @@ import AppLayout from "@/components/layout/AppLayout";
 import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/pages/DashboardPage";
 import UsersPage from "@/pages/UsersPage";
-import CatalogPage from "@/pages/CatalogPage";
 import CategoriesPage from "@/pages/CategoriesPage";
 import GeoPage from "@/pages/GeoPage";
 import ChannelsPage from "@/pages/ChannelsPage";

@@ -138,6 +138,7 @@ class PendingMatch:
     message_id: int
     text: str
     candidate_segments: list[str]
+    account_id: int = 0  # which userbot account found this match
     is_urgent: bool = False
     sender: str | None = None
     # Set after validation

@@ -111,6 +111,17 @@ URGENCY_WORDS = [
     "сейчас", "прямо сейчас", "сегодня же",
 ]
 
+# ── Purchase/rental segments (user is seller/agent searching for buyers/renters) ──
+# For these segments, competitors post sale/rental listings with price, phone, documents.
+# These are blocked by stop-words in Pass 2 — but if a buyer's message contains similar
+# signals (e.g. "сниму квартиру, бюджет 500$, звоните 8..."), Pass 3 would incorrectly
+# suppress it. Skipping Pass 3 prevents false negatives on legitimate buyer/renter demand.
+# Note: housing-buy/housing-rent have the same pattern — stop-words block landlord/seller
+# ads, and buyer/renter messages may contain phone numbers or price mentions.
+
+PURCHASE_SEGMENTS: set[str] = {'moto-purchase', 'car-purchase', 'housing-buy', 'housing-rent'}
+
+
 # ── Short anchors (match ONLY with contextual demand signal) ──
 
 SHORT_ANCHORS = {
@@ -298,21 +309,24 @@ def classify_message(
             continue
 
         # Pass 3: structural signals
-        # Offer signal without demand signal → suppress
-        if has_offer_context and not has_demand_context:
-            continue
-
-        # Strong offer (price+contact) even with demand → suppress
-        # unless demand is a strong verb at the START of the message.
-        # A "?" alone is NOT enough — rhetorical ad questions ("Ищешь байк?") are offers.
-        if has_offer_context and has_demand_context:
-            strong_demand = bool(re.search(
-                r"^(ищу|нужен|нужна|нужны|сниму|возьму|ищем|посоветуйте|подскажите|кто знает|помогите|требуется|требуются)\b",
-                text_lower,
-                re.UNICODE,
-            ))
-            if not strong_demand:
+        # For purchase segments, offer signals (price, phone, documents) are
+        # EXPECTED in sale listings — skip Pass 3 entirely.
+        if segment_slug not in PURCHASE_SEGMENTS:
+            # Offer signal without demand signal → suppress
+            if has_offer_context and not has_demand_context:
                 continue
+
+            # Strong offer (price+contact) even with demand → suppress
+            # unless demand is a strong verb at the START of the message.
+            # A "?" alone is NOT enough — rhetorical ad questions ("Ищешь байк?") are offers.
+            if has_offer_context and has_demand_context:
+                strong_demand = bool(re.search(
+                    r"^(ищу|нужен|нужна|нужны|сниму|возьму|ищем|посоветуйте|подскажите|кто знает|помогите|требуется|требуются)\b",
+                    text_lower,
+                    re.UNICODE,
+                ))
+                if not strong_demand:
+                    continue
 
         matched.append(segment_slug)
 

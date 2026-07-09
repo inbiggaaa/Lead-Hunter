@@ -424,6 +424,7 @@ class ChannelPoller:
                     message_id=msg_id,
                     text=msg.message,
                     candidate_segments=result.matched_segments,
+                    account_id=account.account_id,
                     is_urgent=result.is_urgent,
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
                     skip_llm=is_high_confidence_demand(msg.message),
@@ -546,18 +547,21 @@ class ChannelPoller:
         except Exception:
             pass
 
-        # Flush pending LLM validations collected during this batch
-        await self._flush_pending_matches()
+        # Flush pending LLM validations for this account only
+        await self._flush_pending_matches(account.account_id)
 
         return ok, errors
 
-    async def _flush_pending_matches(self) -> None:
-        """Batch-validate all queued matches and dispatch those that pass."""
-        if not self._pending_matches:
+    async def _flush_pending_matches(self, account_id: int) -> None:
+        """Batch-validate queued matches for one account and dispatch those that pass."""
+        # Pop only matches for this account (other tiers may be collecting concurrently)
+        my_matches = [m for m in self._pending_matches if m.account_id == account_id]
+        self._pending_matches = [m for m in self._pending_matches if m.account_id != account_id]
+
+        if not my_matches:
             return
 
-        matches = self._pending_matches
-        self._pending_matches = []
+        matches = my_matches
 
         t0 = time.monotonic()
         results = await llm_validator.validate_batch(matches)

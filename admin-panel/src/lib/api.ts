@@ -2,7 +2,7 @@
 
 const BASE = "";
 
-export async function api<T = unknown>(
+async function request<T = unknown>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
@@ -30,3 +30,14 @@ export async function api<T = unknown>(
 
   return res.json();
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const api = Object.assign(request, {
+  get: <T = any>(path: string) => request<T>(path),
+  post: <T = any>(path: string, body?: unknown) =>
+    request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
+  put: <T = any>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
+  delete: <T = any>(path: string) =>
+    request<T>(path, { method: "DELETE" }),
+});
