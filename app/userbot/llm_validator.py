@@ -30,7 +30,40 @@ logger = logging.getLogger(__name__)
 # Prompt — compact, tested at 92.5% accuracy (batch-adapted)
 # ═══════════════════════════════════════════════════════════════
 
-LLM_SYSTEM_PROMPT = """You are a message classifier for LeadHunter, a lead generation service.
+# Segments where the LEAD is a SELLER («продам байк» + цена = лид, «куплю» =
+# конкурент-покупатель) — DEMAND/OFFER inverted in the prompt. Loaded from DB
+# (segments.lead_direction = 'supply') via set_supply_segments(); this default
+# matches the migration values. NOTE: housing-buy was wrongly listed here
+# before B4 — its actual demand keywords are «куплю квартиру» (lead = buyer).
+DEFAULT_SUPPLY_SEGMENTS: frozenset[str] = frozenset({"moto-purchase", "car-purchase"})
+
+
+def build_system_prompt(supply_segments: "set[str] | frozenset[str]") -> str:
+    """Render the system prompt with the supply-direction segment list.
+
+    The inverted DEMAND/OFFER block is generated from DB-driven slugs so new
+    segments (e.g. moto-sale) never silently fall into the wrong semantics.
+    """
+    if supply_segments:
+        slugs = ", ".join(sorted(supply_segments))
+        supply_block = f"""SUPPLY-DIRECTION SEGMENTS ({slugs}) — the lead is a SELLER:
+- "продам байк"+price → DEMAND (seller = LEAD for buyer-user)
+- "куплю/ищу мотоцикл"+budget → OFFER (competing buyer)
+
+ALL OTHER SEGMENTS (rental, services, buy/sale where the lead is the buyer):
+- "ищу парикмахера", "сниму квартиру", "куплю авто", "нужен сантехник" → DEMAND
+- "предлагаю услуги", "сдам квартиру", "сдаю скутер" → OFFER
+
+"""
+        supply_examples = (
+            '"продам байк, 3 млн" / ["moto-purchase"] → DEMAND, high (seller=lead for buyer)\n'
+            '"куплю мотоцикл до 2000$" / ["moto-purchase"] → OFFER, high (competing buyer)\n'
+        )
+    else:
+        supply_block = ""
+        supply_examples = ""
+
+    return f"""You are a message classifier for LeadHunter, a lead generation service.
 Classify each message as: DEMAND | OFFER | MIXED | OTHER.
 
 DEMAND — author is LOOKING FOR a product/service/contractor. Markers: "ищу + service", "нужен + specialist", "кто делает/знает + job", "посоветуйте", "где купить/заказать", "сколько стоит", "сниму", "требуется", "кто может + verb", "подберите", "порекомендуйте".
@@ -42,31 +75,24 @@ MIXED — both demand and offer. Treat as DEMAND.
 
 OTHER — news, discussions, travel companions, game partners, memes, weather.
 
-PURCHASE SEGMENTS (moto-purchase, car-purchase, housing-buy):
-- "продам байк"+price → DEMAND (seller = LEAD for buyer-user)
-- "куплю/ищу мотоцикл"+budget → OFFER (competing buyer)
-
-RENTAL & SERVICE SEGMENTS (housing-rent, scooter-rental, everything else):
-- "ищу парикмахера", "сниму квартиру", "нужен сантехник" → DEMAND
-- "предлагаю услуги", "сдам квартиру", "сдаю скутер" → OFFER
-
-CRITICAL: When UNCERTAIN between DEMAND and OFFER → DEMAND. Fail-open: never lose a lead.
+{supply_block}CRITICAL: When UNCERTAIN between DEMAND and OFFER → DEMAND. Fail-open: never lose a lead.
 
 EXAMPLES:
 "ищу повара, Нячанг" / ["catering"] → DEMAND, high
-"продам байк, 3 млн" / ["moto-purchase"] → DEMAND, high (seller=lead for buyer)
-"куплю мотоцикл до 2000$" / ["moto-purchase"] → OFFER, high (competing buyer)
-"сдам квартиру, 10 млн" / ["housing-rent"] → OFFER, high (competing landlord)
+{supply_examples}"сдам квартиру, 10 млн" / ["housing-rent"] → OFFER, high (competing landlord)
 "сниму квартиру, бюджет 10 млн" / ["housing-rent"] → DEMAND, high (renter=lead)
 "ищу с кем поиграть в теннис" / ["tennis"] → OTHER, high (social, not commercial)
 
 Return a JSON array with one object per message:
-[{"index": N, "category": "DEMAND"|"OFFER"|"MIXED"|"OTHER", "relevant_segments": [...], "certainty": "high"|"medium"|"low", "reason": "..."}, ...]
+[{{"index": N, "category": "DEMAND"|"OFFER"|"MIXED"|"OTHER", "relevant_segments": [...], "certainty": "high"|"medium"|"low", "reason": "..."}}, ...]
 
 RULES:
 - relevant_segments: DEMAND/MIXED → confirmed segments (subset of candidates OK); OFFER/OTHER → []
 - certainty: "high" = clear markers; "medium" = some markers; "low" = borderline → treat as DEMAND
 - "index" must match the message number exactly"""
+
+
+LLM_SYSTEM_PROMPT = build_system_prompt(DEFAULT_SUPPLY_SEGMENTS)
 
 # ═══════════════════════════════════════════════════════════════
 # Confidence gate — skip LLM for obvious demand signals
@@ -164,6 +190,20 @@ class LLMValidator:
     def __init__(self) -> None:
         self._endpoint = "https://api.deepseek.com/v1/chat/completions"
         self._timeout = aiohttp.ClientTimeout(total=30)  # longer for batches
+        self._system_prompt = LLM_SYSTEM_PROMPT
+        self._supply_segments: frozenset[str] = DEFAULT_SUPPLY_SEGMENTS
+
+    def set_supply_segments(self, slugs: "set[str] | frozenset[str]") -> None:
+        """Rebuild the cached system prompt from DB-driven supply segments.
+
+        Called by the poller after every keyword reload — prompt follows
+        segments.lead_direction without a code change.
+        """
+        slugs = frozenset(slugs)
+        if slugs != self._supply_segments:
+            self._supply_segments = slugs
+            self._system_prompt = build_system_prompt(slugs)
+            logger.info("LLM prompt rebuilt: supply segments = %s", sorted(slugs))
 
     @property
     def enabled(self) -> bool:
@@ -258,7 +298,7 @@ class LLMValidator:
                 payload = {
                     "model": settings.deepseek_model,
                     "messages": [
-                        {"role": "system", "content": LLM_SYSTEM_PROMPT},
+                        {"role": "system", "content": self._system_prompt},
                         {"role": "user", "content": user_message},
                     ],
                     "temperature": 0.0,

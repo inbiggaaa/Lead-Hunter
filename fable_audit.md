@@ -177,7 +177,8 @@ docker rm -f lh_test_db lh_test_redis   # после прогона
 **Тесты:** существующие (fakeredis-фикстуры адаптировать — вероятно, добавить сброс синглтона в conftest).
 **Риск:** широкое, но механическое изменение; катить отдельным коммитом, прогнать ВЕСЬ сьют.
 
-### [ ] B4. Конфигурация «инвертированных» сегментов из БД (M4)
+### [x] B4. Конфигурация «инвертированных» сегментов из БД (M4) — DONE 09.07.2026
+Миграция `lead_direction01` (обратимая, проверена up/down на scratch-БД): `segments.lead_direction` с ТРЕМЯ значениями (уточнение плана после сверки с demand-keywords БД): `demand` (лид ищет, Pass 3 активен), `buy` (лид покупает/снимает с бюджетом — housing-buy/rent, moto/car-sale; Pass 3 skip), `supply` (лид продаёт «продам» — moto/car-purchase; Pass 3 skip + LLM-инверсия). `classify_message(+purchase_segments=None→константа)`; `_load_keywords` строит оба set'а и зовёт `llm_validator.set_supply_segments()`; промпт генерируется `build_system_prompt()` с кэшем. **Попутный баг найден и исправлен:** housing-buy стоял в инвертированном блоке промпта, хотя его keywords — «куплю квартиру» (лид-покупатель): LLM в blocking-режиме гасил бы реальные лиды housing-buy. moto-sale/car-sale теперь минуют Pass 3 (раньше «не учтены нигде»). 8 тестов test_lead_direction.py. ⚠️ Миграцию применить на прод при переключении (до старта нового worker).
 **Контекст:** `PURCHASE_SEGMENTS` хардкод в classifier.py, инверсия DEMAND/OFFER — в LLM-промпте; новые `moto-sale`/`car-sale` уже не учтены нигде.
 **Что сделать:**
 - Миграция (обратимая): колонка `lead_direction VARCHAR(10) DEFAULT 'demand'` в `segments`; проставить значения для moto-purchase, car-purchase, housing-buy, housing-rent, moto-sale, car-sale по фактической семантике — свериться с seed_sale_segments.py и задокументировать в миграции словами, кто является лидом для каждого сегмента.

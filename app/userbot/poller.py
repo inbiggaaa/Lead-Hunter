@@ -115,6 +115,9 @@ class ChannelPoller:
         self._compiled_keywords: CompiledKeywordMap | None = None
         self._personal_keywords: list[str] = []  # active user keywords (Вариант Б)
         self._domain_word_map: dict[str, list[str]] = {}  # reality filter
+        # B4: lead direction from DB (segments.lead_direction), set by _load_keywords
+        self._pass3_skip_segments: set[str] = set()   # 'buy' + 'supply'
+        self._supply_segments: set[str] = set()       # 'supply' → LLM prompt inversion
         self._channel_segments: dict[str, list[str]] = {}
         self._active_countries: set[int] = set()  # country IDs with subscribers
         # Per-tier channel lists — rebuilt on keyword reload and periodically
@@ -439,6 +442,7 @@ class ChannelPoller:
                 msg.message,
                 self._compiled_keywords or self._keyword_map,
                 self._universal_stops,
+                purchase_segments=self._pass3_skip_segments,
             )
 
             # Channel pre-tagging boost — STRONG demand only (a bare «?» is
@@ -1678,7 +1682,18 @@ class ChannelPoller:
 
         async with async_session_factory() as session:
             seg_result = await session.execute(select(Segment))
-            segments = {s.id: s.slug for s in seg_result.scalars().all()}
+            seg_rows = seg_result.scalars().all()
+            segments = {s.id: s.slug for s in seg_rows}
+
+        # B4: lead direction from DB — replaces hardcoded PURCHASE_SEGMENTS
+        # and the static LLM prompt block. See migration lead_direction01.
+        self._supply_segments = {
+            s.slug for s in seg_rows if s.lead_direction == "supply"
+        }
+        self._pass3_skip_segments = self._supply_segments | {
+            s.slug for s in seg_rows if s.lead_direction == "buy"
+        }
+        llm_validator.set_supply_segments(self._supply_segments)
 
         keyword_map: dict[str, dict[str, list[str]]] = {}
         domain_word_map: dict[str, list[str]] = {}

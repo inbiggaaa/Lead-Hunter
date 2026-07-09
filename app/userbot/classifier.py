@@ -378,6 +378,7 @@ def classify_message(
     text: str,
     segment_keywords: "dict[str, dict[str, list[str]]] | CompiledKeywordMap",
     universal_stops: list[str] | None = None,
+    purchase_segments: set[str] | None = None,
 ) -> ClassificationResult:
     """
     Classify a text message against segment keywords.
@@ -390,12 +391,18 @@ def classify_message(
             built once via compile_keyword_map().
         universal_stops: Global stop-phrases (ignored when a CompiledKeywordMap
             is passed — they are baked in at compile time).
+        purchase_segments: Slugs whose leads legitimately write offer-shaped
+            messages (price/phone/docs) — Pass 3 is skipped for them. None →
+            module default PURCHASE_SEGMENTS; the poller passes the DB-driven
+            set (segments.lead_direction in 'buy'/'supply', task B4).
 
     Returns:
         ClassificationResult with matched segment slugs and urgency flag.
     """
     if not text or not segment_keywords:
         return ClassificationResult(matched_segments=[], is_urgent=False)
+
+    pass3_skip = PURCHASE_SEGMENTS if purchase_segments is None else purchase_segments
 
     if isinstance(segment_keywords, CompiledKeywordMap):
         compiled = segment_keywords
@@ -439,7 +446,7 @@ def classify_message(
         # Pass 3: structural signals
         # For purchase segments, offer signals (price, phone, documents) are
         # EXPECTED in sale listings — skip Pass 3 entirely.
-        if segment_slug not in PURCHASE_SEGMENTS:
+        if segment_slug not in pass3_skip:
             # Offer signal without demand signal → suppress
             if has_offer_context and not has_demand_context:
                 continue

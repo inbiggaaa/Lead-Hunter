@@ -198,6 +198,15 @@ class Segment(Base):
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Who the lead is / what shape their message has (B4, migration lead_direction01):
+    #   'demand' — лид ищет услугу («ищу мастера»); Pass 3 активен
+    #   'buy'    — лид покупает/снимает с бюджетом+контактом («куплю авто»,
+    #              «сниму квартиру») — Pass 3 пропускается
+    #   'supply' — лид продаёт («продам байк» + цена/доки) — Pass 3
+    #              пропускается И DEMAND/OFFER инвертируется в LLM-промпте
+    lead_direction: Mapped[str] = mapped_column(
+        String(10), nullable=False, server_default="demand"
+    )
 
     keywords: Mapped[list["SegmentKeyword"]] = relationship(back_populates="segment")
     category: Mapped["Category"] = relationship(back_populates="segments")
