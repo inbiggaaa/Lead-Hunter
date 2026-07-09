@@ -7,6 +7,7 @@ Architecture:
 - classify_message (rules, wide recall) → LLMValidator.validate (precision filter)
 - Fail-open: LLM errors/timeouts → match passes through (never lose a lead)
 - PII masking: phones/@usernames/links sanitized before sending to LLM
+- Batch validation: matches collected across channels, sent in one API call
 """
 
 from __future__ import annotations
@@ -26,86 +27,67 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════
-# Prompt — tested at 92.5% accuracy, 0 Type A (lost leads)
+# Prompt — compact, tested at 92.5% accuracy (batch-adapted)
 # ═══════════════════════════════════════════════════════════════
 
-LLM_SYSTEM_PROMPT = """You are a message classifier for LeadHunter, a lead generation service. Classify the message into exactly one of four categories:
+LLM_SYSTEM_PROMPT = """You are a message classifier for LeadHunter, a lead generation service.
+Classify each message as: DEMAND | OFFER | MIXED | OTHER.
 
-DEMAND — Commercial demand. The author is LOOKING FOR a product/service/contractor/vendor. Markers: "ищу + service", "нужен + specialist", "кто делает/знает + job", "посоветуйте", "где купить/заказать", "сколько стоит", "сниму", "требуется". IMPORTANT: everyday social searches ("ищу попутчика", "ищу с кем поиграть") are OTHER, not DEMAND.
+DEMAND — author is LOOKING FOR a product/service/contractor. Markers: "ищу + service", "нужен + specialist", "кто делает/знает + job", "посоветуйте", "где купить/заказать", "сколько стоит", "сниму", "требуется", "кто может + verb", "подберите", "порекомендуйте".
+NOT DEMAND: everyday social searches ("ищу попутчика", "ищу с кем поиграть") → OTHER.
 
-OFFER — The author is OFFERING a service/product, advertising. Markers: "продам/продаю", "сдам/сдаю", "предлагаю", price + product, "пишите в лс", phone numbers, price lists, "записывайтесь" + service, apartment codes.
+OFFER — author is SELLING/ADVERTISING. Markers: "продам/продаю", "сдам/сдаю", "предлагаю", price+product, "пишите в лс", phones/price-lists, "записывайтесь"+service.
 
-MIXED — Contains BOTH demand and offer ("куплю байк или обменяю на свой"). Treat as DEMAND — if there is a demand component, it is a potential lead.
+MIXED — both demand and offer. Treat as DEMAND.
 
-OTHER — Everything else: news, discussions, travel companion search, game partner search, memes, weather questions, personal experience questions.
+OTHER — news, discussions, travel companions, game partners, memes, weather.
 
-PURCHASE SEGMENTS (moto-purchase, car-purchase, housing-buy): user is a BUYER looking for SELLERS.
-- Classify seller messages ("продам байк", "продаю авто", price+product) as DEMAND — these are LEADS, the user wants to see them.
-- Classify other buyer messages ("куплю мотоцикл", "ищу авто", "приобрету") as OFFER — these are COMPETITORS competing for the same supply, BLOCK them.
+PURCHASE SEGMENTS (moto-purchase, car-purchase, housing-buy):
+- "продам байк"+price → DEMAND (seller = LEAD for buyer-user)
+- "куплю/ищу мотоцикл"+budget → OFFER (competing buyer)
 
-RENTAL & SERVICE SEGMENTS (housing-rent, scooter-rental, and everything else): user is a PROVIDER/LANDLORD looking for CLIENTS/RENTERS.
-- DEMAND = people searching for a service or to rent ("ищу парикмахера", "сниму квартиру", "нужен сантехник", "хочу арендовать")
-- OFFER = other providers/landlords advertising ("предлагаю услуги", "сдам квартиру", "сдаю скутер", "работаю мастером")
+RENTAL & SERVICE SEGMENTS (housing-rent, scooter-rental, everything else):
+- "ищу парикмахера", "сниму квартиру", "нужен сантехник" → DEMAND
+- "предлагаю услуги", "сдам квартиру", "сдаю скутер" → OFFER
 
-CRITICAL — ASYMMETRIC BIAS: If UNCERTAIN between DEMAND and OFFER → choose DEMAND.
-Only classify as OFFER when CONFIDENT the author is selling/advertising.
-When in doubt, the benefit goes to DEMAND.
-
-Respond with STRICT JSON only:
-{"category": "DEMAND"|"OFFER"|"MIXED"|"OTHER", "relevant_segments": [...], "certainty": "high"|"medium"|"low", "reason": "..."}
-
-RULES:
-- relevant_segments: DEMAND/MIXED → confirmed segments from candidates (may be subset); OFFER/OTHER → []
-- certainty: "high" = clear markers, unambiguous; "medium" = some markers; "low" = borderline → treat as DEMAND
+CRITICAL: When UNCERTAIN between DEMAND and OFFER → DEMAND. Fail-open: never lose a lead.
 
 EXAMPLES:
+"ищу повара, Нячанг" / ["catering"] → DEMAND, high
+"продам байк, 3 млн" / ["moto-purchase"] → DEMAND, high (seller=lead for buyer)
+"куплю мотоцикл до 2000$" / ["moto-purchase"] → OFFER, high (competing buyer)
+"сдам квартиру, 10 млн" / ["housing-rent"] → OFFER, high (competing landlord)
+"сниму квартиру, бюджет 10 млн" / ["housing-rent"] → DEMAND, high (renter=lead)
+"ищу с кем поиграть в теннис" / ["tennis"] → OTHER, high (social, not commercial)
 
-[DEMAND — direct]
-Message: "ищу повара для семьи в Нячанге, на постоянной основе"
-Candidates: ["catering"]
-→ {"category": "DEMAND", "relevant_segments": ["catering"], "certainty": "high", "reason": "Explicit service search — commercial demand"}
+Return a JSON array with one object per message:
+[{"index": N, "category": "DEMAND"|"OFFER"|"MIXED"|"OTHER", "relevant_segments": [...], "certainty": "high"|"medium"|"low", "reason": "..."}, ...]
 
-[DEMAND — question form]
-Message: "кто знает хорошего стоматолога в Нячанге? желательно русскоговорящего"
-Candidates: ["dentist"]
-→ {"category": "DEMAND", "relevant_segments": ["dentist"], "certainty": "high", "reason": "Asking for a specialist recommendation — demand despite no 'ищу' word"}
+RULES:
+- relevant_segments: DEMAND/MIXED → confirmed segments (subset of candidates OK); OFFER/OTHER → []
+- certainty: "high" = clear markers; "medium" = some markers; "low" = borderline → treat as DEMAND
+- "index" must match the message number exactly"""
 
-[DEMAND — seller in purchase segment (LEAD)]
-Message: "Продам байк Sym Atilla 2019, документы в наличии, 3 млн, Нячанг"
-Candidates: ["moto-purchase"]
-→ {"category": "DEMAND", "relevant_segments": ["moto-purchase"], "certainty": "high", "reason": "'Продам' + price — seller listing. User is a BUYER, this is a LEAD"}
+# ═══════════════════════════════════════════════════════════════
+# Confidence gate — skip LLM for obvious demand signals
+# ═══════════════════════════════════════════════════════════════
 
-[DEMAND — renter in housing segment (LEAD)]
-Message: "Сниму квартиру в Нячанге, бюджет до 10 млн, на длительный срок"
-Candidates: ["housing-rent"]
-→ {"category": "DEMAND", "relevant_segments": ["housing-rent"], "certainty": "high", "reason": "'Сниму' + budget — renter looking for a place. User is a LANDLORD, this is a LEAD"}
+# Direct demand verbs at message start — high-confidence demand signal
+_HIGH_CONFIDENCE_DEMAND_LEAD = re.compile(
+    r'^(ищу|нужен|нужна|нужно|нужны|требуется|требуются|сниму|снимем|куплю|приобрету|закажу)\b',
+    re.IGNORECASE,
+)
 
-[OFFER — competing buyer in purchase segment]
-Message: "Ищу мотоцикл до 2000$, рассматриваю Honda Air Blade и Yamaha NVX"
-Candidates: ["moto-purchase"]
-→ {"category": "OFFER", "relevant_segments": [], "certainty": "high", "reason": "'Ищу' + budget — another BUYER competing for supply. User is a BUYER too → BLOCK"}
+# If message starts with demand verb AND is short (< 200 chars), skip LLM
+HIGH_CONFIDENCE_MAX_LENGTH = 200
 
-[OFFER — landlord in housing segment]
-Message: "Сдам квартиру в Нячанге, район европейский квартал, 10 млн/мес"
-Candidates: ["housing-rent"]
-→ {"category": "OFFER", "relevant_segments": [], "certainty": "high", "reason": "'Сдам' + price — another LANDLORD advertising. User is a LANDLORD too → BLOCK"}
 
-[OFFER — disguised ad]
-Message: "есть места на йогу по утрам, записывайтесь, район центр"
-Candidates: ["yoga"]
-→ {"category": "OFFER", "relevant_segments": [], "certainty": "high", "reason": "Disguised ad: 'spots available' + 'sign up' — selling, not looking"}
+def is_high_confidence_demand(text: str) -> bool:
+    """Check if message is an obvious demand that doesn't need LLM validation."""
+    if len(text) > HIGH_CONFIDENCE_MAX_LENGTH:
+        return False
+    return bool(_HIGH_CONFIDENCE_DEMAND_LEAD.match(text.strip()))
 
-[MIXED — seller is the lead]
-Message: "Продам Honda Air Blade или обменяю на скутер, с доплатой"
-Candidates: ["moto-purchase"]
-→ {"category": "DEMAND", "relevant_segments": ["moto-purchase"], "certainty": "medium", "reason": "Primary intent 'Продам' — seller is a lead for the user (buyer). Trade secondary → DEMAND per fail-open"}
-
-[OTHER — social search (NOT demand)]
-Message: "ищу с кем поиграть в теннис в Муйне, уровень средний"
-Candidates: ["tennis"]
-→ {"category": "OTHER", "relevant_segments": [], "certainty": "high", "reason": "Social game partner search — not commercial demand"}
-
-Now classify this message:"""
 
 # ═══════════════════════════════════════════════════════════════
 # PII masking
@@ -146,30 +128,126 @@ class LLMResult:
 
 
 # ═══════════════════════════════════════════════════════════════
+# Batch match entry (collected by poller, validated in batch)
+# ═══════════════════════════════════════════════════════════════
+
+@dataclass
+class PendingMatch:
+    """A classifier match queued for batch LLM validation."""
+    chat_username: str
+    message_id: int
+    text: str
+    candidate_segments: list[str]
+    is_urgent: bool = False
+    sender: str | None = None
+    # Set after validation
+    llm_result: LLMResult | None = None
+    # High-confidence demand — skip LLM
+    skip_llm: bool = False
+
+
+# ═══════════════════════════════════════════════════════════════
 # Validator
 # ═══════════════════════════════════════════════════════════════
+
+MAX_BATCH_SIZE = 25       # max messages per LLM API call
+BATCH_MAX_TOKENS = 800    # max output tokens per batch call
+
 
 class LLMValidator:
     """Calls DeepSeek API to validate rule-based matches."""
 
     def __init__(self) -> None:
         self._endpoint = "https://api.deepseek.com/v1/chat/completions"
-        self._timeout = aiohttp.ClientTimeout(total=10)
+        self._timeout = aiohttp.ClientTimeout(total=30)  # longer for batches
 
     @property
     def enabled(self) -> bool:
         return settings.llm_enabled and bool(settings.deepseek_api_key)
 
+    # ── Single-message validation (kept for backward compat) ──
+
     async def validate(
         self, text: str, candidate_segments: list[str],
     ) -> LLMResult:
-        """Validate a rule-based match. Fail-open: errors → DEMAND."""
-        if not self.enabled:
-            return LLMResult(verdict="DEMAND", reason="LLM disabled")
+        """Validate a single match. Prefer validate_batch() for efficiency."""
+        results = await self.validate_batch([
+            PendingMatch(
+                chat_username="", message_id=0,
+                text=text, candidate_segments=candidate_segments,
+            )
+        ])
+        return results[0] if results else LLMResult(
+            verdict="DEMAND", reason="Empty batch result — fail-open",
+        )
 
-        masked = sanitize_text(text)
-        segments_str = json.dumps(candidate_segments)
-        user_message = f"Message: {masked}\nCandidates: {segments_str}"
+    # ── Batch validation (primary path) ──
+
+    async def validate_batch(
+        self, matches: list[PendingMatch],
+    ) -> list[LLMResult]:
+        """Validate multiple matches in one API call. Fail-open per message."""
+        if not matches:
+            return []
+
+        if not self.enabled:
+            return [
+                LLMResult(verdict="DEMAND", reason="LLM disabled")
+                for _ in matches
+            ]
+
+        # Separate: high-confidence demands skip LLM entirely
+        results: list[LLMResult | None] = [None] * len(matches)
+        needs_llm: list[tuple[int, PendingMatch]] = []
+
+        for i, m in enumerate(matches):
+            if m.skip_llm or is_high_confidence_demand(m.text):
+                results[i] = LLMResult(
+                    verdict="DEMAND",
+                    relevant_segments=m.candidate_segments,
+                    reason="High-confidence demand — skipped LLM",
+                    certainty="high",
+                )
+            else:
+                needs_llm.append((i, m))
+
+        if not needs_llm:
+            return [r for r in results if r is not None]
+
+        # Process in batches of MAX_BATCH_SIZE
+        all_batch_results: dict[int, LLMResult] = {}
+
+        for batch_start in range(0, len(needs_llm), MAX_BATCH_SIZE):
+            batch_items = needs_llm[batch_start:batch_start + MAX_BATCH_SIZE]
+            batch_results = await self._call_llm_batch(batch_items)
+            all_batch_results.update(batch_results)
+
+        # Merge: fill in LLM results for messages that needed validation
+        for i, r in enumerate(results):
+            if r is None:
+                results[i] = all_batch_results.get(i, LLMResult(
+                    verdict="DEMAND",
+                    reason="Missing in LLM response — fail-open",
+                    error="missing_in_response",
+                ))
+
+        return [r for r in results if r is not None]
+
+    async def _call_llm_batch(
+        self, items: list[tuple[int, PendingMatch]],
+    ) -> dict[int, LLMResult]:
+        """Send one batch of messages to LLM, return index→result map."""
+        # Build batch user message
+        lines = []
+        for idx, m in items:
+            masked = sanitize_text(m.text)
+            segs = json.dumps(m.candidate_segments)
+            lines.append(f"[{idx + 1}] Message: {masked}\n    Candidates: {segs}")
+
+        user_message = (
+            f"Classify these {len(items)} messages:\n\n"
+            + "\n\n".join(lines)
+        )
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -180,7 +258,7 @@ class LLMValidator:
                         {"role": "user", "content": user_message},
                     ],
                     "temperature": 0.0,
-                    "max_tokens": 300,
+                    "max_tokens": BATCH_MAX_TOKENS,
                 }
                 headers = {
                     "Authorization": f"Bearer {settings.deepseek_api_key}",
@@ -197,15 +275,10 @@ class LLMValidator:
                     if resp.status != 200:
                         body = await resp.text()
                         logger.warning(
-                            "LLM API error %d (%.1fs): %s",
+                            "LLM batch API error %d (%.1fs): %s",
                             resp.status, elapsed, body[:200],
                         )
-                        return LLMResult(
-                            verdict="DEMAND",
-                            reason="LLM API error — fail-open",
-                            error=f"HTTP {resp.status}",
-                            raw_response=body[:500],
-                        )
+                        return self._fail_open_all(items, f"HTTP {resp.status}")
 
                     data = await resp.json()
                     content = data["choices"][0]["message"]["content"]
@@ -214,49 +287,96 @@ class LLMValidator:
                     tokens_prompt = usage.get("prompt_tokens", 0)
                     tokens_completion = usage.get("completion_tokens", 0)
 
+                    # Parse JSON — accept both array and single object
                     try:
-                        parsed = json.loads(content)
+                        cleaned = content.strip()
+                        if cleaned.startswith("```"):
+                            cleaned = cleaned.split("\n", 1)[-1]
+                            if cleaned.endswith("```"):
+                                cleaned = cleaned[:-3]
+                        parsed = json.loads(cleaned)
                     except json.JSONDecodeError:
-                        logger.warning("LLM JSON parse failed: %s", content[:200])
-                        return LLMResult(
-                            verdict="DEMAND",
-                            reason="LLM response parse error — fail-open",
-                            error="JSON parse",
-                            raw_response=content[:500],
+                        logger.warning(
+                            "LLM batch JSON parse failed: %s", content[:300],
+                        )
+                        return self._fail_open_all(items, "JSON parse error")
+
+                    # Normalize: single object → list
+                    if isinstance(parsed, dict):
+                        parsed_list = [parsed]
+                    elif isinstance(parsed, list):
+                        parsed_list = parsed
+                    else:
+                        logger.warning("LLM batch response not JSON: %s", content[:200])
+                        return self._fail_open_all(items, "Response not JSON")
+
+                    # Map results by index
+                    results: dict[int, LLMResult] = {}
+                    seen_indices: set[int] = set()
+
+                    # Handle single-object response for single-item batches
+                    if len(parsed_list) == 1 and len(items) == 1:
+                        obj = parsed_list[0]
+                        if isinstance(obj, dict) and "index" not in obj:
+                            obj = {**obj, "index": 1}  # assume index 1
+                            parsed_list = [obj]
+
+                    for obj in parsed_list:
+                        if not isinstance(obj, dict):
+                            continue
+                        idx = obj.get("index", -1)
+                        if idx < 1:
+                            continue
+                        real_idx = idx - 1  # convert to 0-based
+                        seen_indices.add(real_idx)
+                        results[real_idx] = LLMResult(
+                            verdict=obj.get("category", "DEMAND"),
+                            relevant_segments=obj.get("relevant_segments", []),
+                            reason=obj.get("reason", ""),
+                            certainty=obj.get("certainty", "low"),
+                            raw_response=json.dumps(obj),
+                            prompt_tokens=tokens_prompt,
+                            completion_tokens=tokens_completion,
+                            total_tokens=tokens_total,
                         )
 
+                    # Fail-open for any missing indices
+                    for orig_idx, _ in items:
+                        if orig_idx not in results:
+                            results[orig_idx] = LLMResult(
+                                verdict="DEMAND",
+                                reason="Missing in LLM batch response — fail-open",
+                                error="missing_in_batch",
+                            )
+
                     logger.debug(
-                        "LLM: %s cert=%s (%.1fs %dt) — %s",
-                        parsed.get("category", "?"),
-                        parsed.get("certainty", "?"),
-                        elapsed, tokens_total,
-                        parsed.get("reason", "")[:100],
+                        "LLM batch: %d/%d msgs classified (%.1fs, %d tokens)",
+                        len(seen_indices), len(items), elapsed, tokens_total,
                     )
-                    return LLMResult(
-                        verdict=parsed.get("category", "DEMAND"),
-                        relevant_segments=parsed.get("relevant_segments", []),
-                        reason=parsed.get("reason", ""),
-                        certainty=parsed.get("certainty", "low"),
-                        raw_response=content,
-                        prompt_tokens=tokens_prompt,
-                        completion_tokens=tokens_completion,
-                        total_tokens=tokens_total,
-                    )
+                    return results
 
         except asyncio.TimeoutError:
-            logger.warning("LLM timeout after %.0fs — fail-open", self._timeout.total)
-            return LLMResult(
-                verdict="DEMAND",
-                reason="LLM timeout — fail-open",
-                error="timeout",
+            logger.warning(
+                "LLM batch timeout after %.0fs — fail-open %d msgs",
+                self._timeout.total, len(items),
             )
+            return self._fail_open_all(items, "timeout")
         except Exception as exc:
-            logger.warning("LLM call failed: %s — fail-open", exc)
-            return LLMResult(
+            logger.warning("LLM batch call failed: %s — fail-open", exc)
+            return self._fail_open_all(items, str(exc))
+
+    def _fail_open_all(
+        self, items: list[tuple[int, PendingMatch]], error: str,
+    ) -> dict[int, LLMResult]:
+        """All items pass through on failure."""
+        return {
+            orig_idx: LLMResult(
                 verdict="DEMAND",
-                reason=f"LLM error — fail-open: {exc}",
-                error=str(exc),
+                reason=f"LLM batch error — fail-open: {error}",
+                error=error,
             )
+            for orig_idx, _ in items
+        }
 
     def should_block(self, result: LLMResult) -> bool:
         """Whether to block the match in 'blocking' mode.

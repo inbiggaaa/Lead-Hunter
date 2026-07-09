@@ -17,7 +17,10 @@ from telethon.errors import FloodWaitError, ChannelInvalidError
 from telethon.tl.types import Message, InputPeerChannel
 
 from app.userbot.classifier import classify_message, _has_demand_signal, _match_keyword
-from app.userbot.llm_validator import llm_validator, sanitize_text
+from app.userbot.llm_validator import (
+    llm_validator, sanitize_text, PendingMatch, is_high_confidence_demand,
+    LLMResult,
+)
 from app.userbot.pool import UserbotPool
 from app.userbot.rate_limiter import limiter, BudgetExceeded
 from app.config import settings
@@ -94,6 +97,8 @@ class ChannelPoller:
         # Entity cache: {chat_username: {account_id: (channel_id, access_hash)}}
         # access_hash is per-account — avoids ResolveUsername on every poll cycle
         self._entity_cache: dict[str, dict[int, tuple[int, int]]] = {}
+        # Pending matches queued for batch LLM validation (flushed after each poll batch)
+        self._pending_matches: list[PendingMatch] = []
 
     # ═══════════════ INIT ═══════════════
 
@@ -413,43 +418,16 @@ class ChannelPoller:
                     )
 
             if result.matched_segments:
-                # ── LLM validation (shadow or blocking) ──
-                llm_result = await llm_validator.validate(
-                    msg.message, result.matched_segments,
-                )
-                await self._log_llm_decision(
-                    channel_username, msg_id, msg.message,
-                    result.matched_segments, llm_result,
-                )
-
-                blocked = (
-                    settings.llm_mode == "blocking"
-                    and llm_validator.should_block(llm_result)
-                )
-
-                urgency = "🔥 " if result.is_urgent else ""
-                llm_tag = f" [LLM: {llm_result.verdict}]"
-                if blocked:
-                    logger.info(
-                        "%s[Acc %d] BLOCKED by LLM in @%s (msg %d): %s",
-                        urgency, account.account_id, channel_username, msg_id,
-                        llm_result.reason[:120],
-                    )
-                    continue  # skip dispatch
-
-                logger.info(
-                    "%s[Acc %d] Match in @%s (msg %d): segments=%s%s",
-                    urgency, account.account_id, channel_username, msg_id,
-                    result.matched_segments, llm_tag,
-                )
-                await self._dispatch(
+                # Queue for batch LLM validation (flushed after poll batch completes)
+                self._pending_matches.append(PendingMatch(
                     chat_username=channel_username,
-                    message_text=msg.message,
                     message_id=msg_id,
-                    matched_segments=result.matched_segments,
+                    text=msg.message,
+                    candidate_segments=result.matched_segments,
                     is_urgent=result.is_urgent,
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
-                )
+                    skip_llm=is_high_confidence_demand(msg.message),
+                ))
             else:
                 await self._log_unmatched(channel_username, msg.message, msg_id)
 
@@ -568,7 +546,99 @@ class ChannelPoller:
         except Exception:
             pass
 
+        # Flush pending LLM validations collected during this batch
+        await self._flush_pending_matches()
+
         return ok, errors
+
+    async def _flush_pending_matches(self) -> None:
+        """Batch-validate all queued matches and dispatch those that pass."""
+        if not self._pending_matches:
+            return
+
+        matches = self._pending_matches
+        self._pending_matches = []
+
+        t0 = time.monotonic()
+        results = await llm_validator.validate_batch(matches)
+        elapsed = time.monotonic() - t0
+
+        if len(results) != len(matches):
+            logger.error(
+                "LLM batch returned %d results for %d matches — filling DEMAND fallbacks",
+                len(results), len(matches),
+            )
+            # Pad with fail-open results
+            while len(results) < len(matches):
+                results.append(LLMResult(
+                    verdict="DEMAND", reason="Missing result — fail-open", error="pad",
+                ))
+
+        blocked = 0
+        passed = 0
+        skipped_llm = 0
+
+        for match, llm_result in zip(matches, results):
+            match.llm_result = llm_result
+
+            # Log decision to DB
+            await self._log_llm_decision(
+                match.chat_username, match.message_id, match.text,
+                match.candidate_segments, llm_result,
+            )
+
+            # Check if blocked
+            if (
+                settings.llm_mode == "blocking"
+                and llm_validator.should_block(llm_result)
+            ):
+                urgency = "🔥 " if match.is_urgent else ""
+                logger.info(
+                    "%sBLOCKED by LLM in @%s (msg %d): %s",
+                    urgency, match.chat_username, match.message_id,
+                    llm_result.reason[:120],
+                )
+                blocked += 1
+                continue
+
+            # Dispatch
+            if match.skip_llm or is_high_confidence_demand(match.text):
+                skipped_llm += 1
+            passed += 1
+
+            urgency = "🔥 " if match.is_urgent else ""
+            logger.info(
+                "%sMatch in @%s (msg %d): segments=%s [LLM: %s]",
+                urgency, match.chat_username, match.message_id,
+                match.candidate_segments, llm_result.verdict,
+            )
+            await self._dispatch(
+                chat_username=match.chat_username,
+                message_text=match.text,
+                message_id=match.message_id,
+                matched_segments=match.candidate_segments,
+                is_urgent=match.is_urgent,
+                sender=match.sender,
+            )
+
+        if matches:
+            logger.info(
+                "LLM batch flush: %d msgs validated in %.1fs — "
+                "%d passed, %d blocked, %d skipped (high-conf)",
+                len(matches), elapsed, passed, blocked, skipped_llm,
+            )
+
+    # ── Tier attribute mapping: each tier name maps to a self.* attribute ──
+    # _run_tier_loop re-reads channels from self each cycle so that
+    # _maintenance_loop's _rebuild_tiers() changes are picked up immediately.
+    # This prevents the bug where a tier loop launched with 0 channels
+    # would return and never recover (July 9, 2026 production outage).
+    _TIER_ATTRS = {
+        "Hot": "_hot_channels",
+        "Warm": "_warm_channels",
+        "Cold": "_cold_channels",
+        "Dormant": "_dormant_channels",
+    }
 
     async def _run_tier_loop(
         self, tier_name: str, channels: list[dict], interval: int,
@@ -578,12 +648,13 @@ class ChannelPoller:
 
         Never crashes: a single-cycle failure is caught and logged;
         the loop continues with the next cycle after a short backoff.
-        """
-        total_channels = len(channels)
 
-        if total_channels == 0:
-            logger.info("Tier '%s': 0 channels — loop not started", tier_name)
-            return
+        Re-reads channels from self each cycle via _TIER_ATTRS mapping —
+        if _maintenance_loop rebuilds tiers, the loop picks up new channels
+        without restart. Zero channels is handled with a sleep loop rather
+        than an early return.
+        """
+        tier_attr = self._TIER_ATTRS.get(tier_name)
 
         if startup_delay > 0:
             logger.info(
@@ -592,15 +663,50 @@ class ChannelPoller:
             )
             await asyncio.sleep(startup_delay)
 
-        logger.info(
-            "Tier '%s' loop started: %d channels, every %ds (stagger=%ds, warmup=%d steps)",
-            tier_name, total_channels, interval, startup_delay, len(WARMUP_STEPS),
-        )
-
         initial = True
         cycle_num = 0
+        logged_start = False
+        _zero_logged = False
+        _zero_cycle_count = 0
 
         while True:
+            # ── Re-read channels from source attribute each cycle ──
+            # _maintenance_loop calls _rebuild_tiers() which replaces
+            # self._hot_channels etc. with a fresh list. Re-reading here
+            # ensures we pick up changes without restarting the worker.
+            # Fallback: if tier_name is not in _TIER_ATTRS (test tiers),
+            # use the static channels parameter passed at call time.
+            if tier_attr is not None:
+                channels = getattr(self, tier_attr)
+            total_channels = len(channels)
+
+            if total_channels == 0:
+                _zero_cycle_count += 1
+                if not _zero_logged:
+                    logger.info(
+                        "Tier '%s': 0 channels — sleeping until channels appear "
+                        "(maintenance rebuilds tiers every hour)",
+                        tier_name,
+                    )
+                    _zero_logged = True
+                elif _zero_cycle_count % 12 == 0:  # log every ~1h
+                    logger.debug(
+                        "Tier '%s': still 0 channels after %d cycles",
+                        tier_name, _zero_cycle_count,
+                    )
+                await asyncio.sleep(300)  # Check every 5 minutes
+                continue
+
+            if not logged_start:
+                _zero_logged = False
+                logger.info(
+                    "Tier '%s' loop started: %d channels, every %ds "
+                    "(stagger=%ds, warmup=%d steps)",
+                    tier_name, total_channels, interval, startup_delay,
+                    len(WARMUP_STEPS),
+                )
+                logged_start = True
+
             cycle_num += 1
             cycle_start = time.time()
 
@@ -1354,15 +1460,20 @@ class ChannelPoller:
                     CatalogChannel.chat_username == chat_username
                 )
             )).scalar_one_or_none()
-        channel_country_id = ch.auto_matched_country_id if ch else None
-        channel_city_id = ch.auto_matched_city_id if ch else None
-        # Build effective city set: primary city + all channel_cities entries
-        effective_city_ids = {channel_city_id} if channel_city_id else set()
-        async with async_session_factory() as session:
+
+        if ch is not None:
+            channel_country_id = ch.auto_matched_country_id
+            channel_city_id = ch.auto_matched_city_id
+            effective_city_ids = {channel_city_id} if channel_city_id else set()
             cc_rows = (await session.execute(
                 sa_select(ChannelCity.city_id).where(ChannelCity.channel_id == ch.id)
             )).scalars().all()
-        effective_city_ids.update(cc_rows)
+            effective_city_ids.update(cc_rows)
+        else:
+            # Channel not in catalog (e.g. user-added via watched_chats).
+            # No geo metadata available — match regardless of country/city filters.
+            channel_country_id = None
+            effective_city_ids = set()
 
         async with async_session_factory() as session:
             segs = (await session.execute(sa_select(Segment))).scalars().all()
