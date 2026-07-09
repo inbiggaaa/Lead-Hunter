@@ -251,11 +251,17 @@ def classify_message(
             return True
 
         # Fuzzy fallback for multi-word keywords (4+ words)
-        #   4 words → ≥3/4 (75%), 5 words → ≥4/5 (80%), 6+ → miss ≤2
+        #   4 words → 4/4 (100% — no fuzziness to avoid false positives)
+        #   5 words → ≥4/5 (80%), 6+ → miss ≤2 (but min 5 required)
         #   Noise words (prepositions, particles) are excluded from counting
         words = kw.split()
         if len(words) >= 4:
-            required = len(words) - 1 if len(words) <= 5 else max(len(words) - 2, 4)
+            if len(words) == 4:
+                required = len(words)  # 4/4 — no fuzziness
+            elif len(words) == 5:
+                required = len(words) - 1  # 4/5 = 80%
+            else:
+                required = max(len(words) - 2, 5)  # 6+: miss ≤2, floor 5
             matched = 0
             total_significant = 0
             for w in words:
@@ -267,7 +273,8 @@ def classify_message(
                         or _match_keyword(w, text_lemma)
                         or _match_keyword(w_lemma, text_lemma)):
                     matched += 1
-            if total_significant >= 2 and matched / max(total_significant, 1) >= 0.7:
+            if total_significant >= 2 and matched >= required:
+                print(f"  FUZZY HIT: {kw!r} matched {matched}/{total_significant} sig words in text[:80]={text_lower[:80]!r}", file=__import__("sys").stderr)
                 return True
 
         return False
