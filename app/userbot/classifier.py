@@ -321,7 +321,7 @@ def classify_message(
             # A "?" alone is NOT enough — rhetorical ad questions ("Ищешь байк?") are offers.
             if has_offer_context and has_demand_context:
                 strong_demand = bool(re.search(
-                    r"^(ищу|нужен|нужна|нужны|сниму|возьму|ищем|посоветуйте|подскажите|кто знает|помогите|требуется|требуются)\b",
+                    r"^(ищу|нужен|нужна|нужны|сниму|возьму|ищем|посоветуйте|подскажите|кто знает|помогите|требуется|требуются|куплю|приобрету)\b",
                     text_lower,
                     re.UNICODE,
                 ))
