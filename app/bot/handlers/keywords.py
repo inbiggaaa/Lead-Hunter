@@ -146,6 +146,9 @@ async def on_keyword_text(message: Message, state: FSMContext):
         await add_keyword(session, user.id, text)
         await session.commit()
 
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()
+
     await state.clear()
     await message.answer(f"✅ Добавлено: «{text}»")
 
@@ -204,6 +207,10 @@ async def on_delete_keyword(callback: CallbackQuery):
 
         deleted = await delete_keyword(session, kw_id, user.id)
         await session.commit()
+
+    if deleted:
+        from app.cache.subscription_cache import invalidate_all_subscription_caches
+        await invalidate_all_subscription_caches()
 
     if deleted:
         await callback.answer("Удалено")

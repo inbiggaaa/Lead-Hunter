@@ -149,6 +149,9 @@ async def on_channel_username(message: Message, state: FSMContext):
         await add_watched_chat(session, user.id, raw, is_private=is_private)
         await session.commit()
 
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()
+
     await state.clear()
 
     if is_private:
@@ -212,6 +215,10 @@ async def on_delete_channel(callback: CallbackQuery):
             return
         deleted = await delete_watched_chat(session, chat_id, user.id)
         await session.commit()
+
+    if deleted:
+        from app.cache.subscription_cache import invalidate_all_subscription_caches
+        await invalidate_all_subscription_caches()
 
     if deleted:
         await callback.answer("Удалено")

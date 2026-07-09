@@ -119,7 +119,8 @@ docker rm -f lh_test_db lh_test_redis   # после прогона
 **[x] A3.2 Retry/DLQ по DECISIONS #26.** Сейчас любая ошибка отправки = потеря лида (`logger.exception` и всё). Реализовать в `_send_notification`: `TelegramForbiddenError` (403) → `is_blocked_bot=true` в users + удаление из кэша; `TelegramRetryAfter` (429) → sleep(retry_after) + один повтор; прочие ошибки → до 3 ретраев (1с/4с/9с), затем `LPUSH dlq:notifications` (полный payload). Алерт по DLQ уже существует (`_check_dlq`).
 **Тесты:** по одному на каждую ветку (мок aiogram-исключений); проверить, что payload в dlq валидный JSON.
 
-### [ ] A4. Инвалидация кэша подписок (баг C4)
+### [x] A4. Инвалидация кэша подписок (баг C4)
+**Выполнено: 09.07.2026. Примечания: `invalidate_all_subscription_caches()` в subscription_cache.py (SCAN collect-then-delete — удаление ключей во время SCAN сбивает итерацию). Вызовы после commit в 8 точках: keywords.py (add/delete), channels.py (add/delete), catalog_nav.py (create subs+trial / delete sub), admin users.py PUT (смена плана/бана), sender.mark_user_blocked (403 → «удаление из кэша» из retry-таблицы). Тесты: 3 (изоляция ключей, многостраничный SCAN 450 ключей, «после инвалидации get_interested_users пуст → lazy rebuild»). ⚠️ Находка: план "trial" РЕАЛЬНО пишется в users.plan (catalog_nav.py:620) — вывод аудита о мёртвой ветке `plan=="trial"` в sender НЕВЕРЕН, задача D2 скорректирована (ветку не удалять!).**
 **Контекст:** `rebuild_subscription_cache` перестраивается только лениво при пустом ключе (TTL 1ч). CRUD подписок/keywords не сбрасывают кэш.
 **Что сделать:**
 - Добавить в `subscription_cache.py` функцию `invalidate_all_subscription_caches()`: SCAN по `sub:by_chat:*` + DEL (кэш общий для всех чатов по содержимому — точечная инвалидация не нужна и невозможна без обратного индекса).
@@ -231,7 +232,7 @@ docker rm -f lh_test_db lh_test_redis   # после прогона
 **Тесты:** формат и клавиатура на каждый тариф (free/pro/business): Free — ни одной ссылки на чат/отправителя; Paid — ссылки на месте.
 
 ### [ ] D2. Мелочи sender/статистики
-- Убрать мёртвую ветку `plan == "trial"` (sender.py:72) — значение не существует в БД.
+- ~~Убрать мёртвую ветку `plan == "trial"`~~ ОТМЕНЕНО (09.07, A4): план "trial" реально записывается в users.plan при активации триала (catalog_nav.py:620) — ветка живая, вывод аудита ошибочен. Не трогать.
 - Начать инкрементить `stats:daily:*:matched` (вызов `increment_daily_stats(..., "matched")` в `_dispatch` при постановке в очередь) — иначе EOD/недельные отчёты пусты.
 - Тест: счётчики растут.
 
@@ -264,6 +265,8 @@ docker rm -f lh_test_db lh_test_redis   # после прогона
 ---
 
 ## Найдено попутно (заполняется исполнителем по ходу работ)
+
+- **09.07 (A4):** план `trial` — реальное значение в БД (ставится при активации триала в catalog_nav.py), аудит ошибочно счёл ветку в sender мёртвой. D2 скорректирована.
 
 - **09.07 (0.1):** feedback-статистика хуже ожиданий — 215 из 259 оценок (83%) «не релевантно». FP-проблема из аудита подтверждена количественно; это главная baseline-метрика для фаз A/C.
 - **09.07 (0.3):** `test_session_ticker_transitions` вешает весь тест-сьют при живом Redis (await бесконечного цикла). Кандидат на починку при работах над тестами poller'а (A5/A6), до тех пор — deselect.

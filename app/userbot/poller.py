@@ -17,7 +17,7 @@ from telethon.errors import FloodWaitError, ChannelInvalidError
 from telethon.tl.types import Message, InputPeerChannel
 
 from app.userbot.classifier import (
-    classify_message, _has_demand_signal, _match_keyword, _lemmatize_text,
+    classify_message, _has_strong_demand_signal, _match_keyword, _lemmatize_text,
 )
 from app.userbot.llm_validator import (
     llm_validator, sanitize_text, PendingMatch, is_high_confidence_demand,
@@ -433,10 +433,11 @@ class ChannelPoller:
 
             result = classify_message(msg.message, self._keyword_map, self._universal_stops)
 
-            # Channel pre-tagging boost
+            # Channel pre-tagging boost — STRONG demand only (a bare «?» is
+            # not enough: any question in a pre-tagged channel is not a lead)
             channel_segs = self._channel_segments.get(channel_username, [])
             if channel_segs and not result.matched_segments:
-                if _has_demand_signal(msg.message):
+                if _has_strong_demand_signal(msg.message):
                     result = result._replace(matched_segments=channel_segs)
             elif channel_segs and result.matched_segments:
                 extra = [s for s in channel_segs if s not in result.matched_segments]

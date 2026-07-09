@@ -110,4 +110,7 @@ async def update_user(user_id: int, data: dict):
                 setattr(u, k, v)
 
         await session.commit()
-        return {"ok": True}
+
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()
+    return {"ok": True}

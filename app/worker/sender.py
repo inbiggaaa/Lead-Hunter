@@ -52,6 +52,9 @@ async def mark_user_blocked(user_id: int) -> None:
         )
         await session.commit()
 
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()
+
 
 class NotificationSender:
     """Consumes notification queue and sends via Bot API."""

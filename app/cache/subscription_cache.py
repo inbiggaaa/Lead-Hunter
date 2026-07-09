@@ -90,6 +90,31 @@ async def rebuild_subscription_cache(chat_username: str) -> None:
     await redis.aclose()
 
 
+async def invalidate_all_subscription_caches() -> None:
+    """Drop every sub:by_chat:* key.
+
+    Call after COMMIT of any change to subscriptions, keywords, watched
+    chats or user plan/blocked status. The cache content is identical for
+    all chats (full user list), so per-chat invalidation is pointless —
+    drop everything, lazy rebuild in _dispatch repopulates on next match.
+    Without this, changes took up to 1h (TTL) to reach the poller.
+    """
+    redis = await get_redis()
+    # Collect first, delete after: removing keys mid-SCAN skews the iteration.
+    cursor = 0
+    keys: list[str] = []
+    while True:
+        cursor, page = await redis.scan(
+            cursor, match=CACHE_CHAT_KEY.format(chat_username="*"), count=200,
+        )
+        keys.extend(page)
+        if cursor == 0:
+            break
+    deleted = await redis.delete(*keys) if keys else 0
+    await redis.aclose()
+    logger.info("Subscription cache invalidated: %d keys dropped", deleted)
+
+
 async def get_interested_users(chat_username: str) -> list[dict]:
     """Get cached list of users interested in a given chat."""
     redis = await get_redis()

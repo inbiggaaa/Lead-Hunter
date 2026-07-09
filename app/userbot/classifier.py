@@ -144,10 +144,13 @@ def _build_word_pattern(word: str) -> str:
     return r"(?<!\w)" + escaped + r"(?!\w)"
 
 
-def _has_demand_signal(text: str) -> bool:
-    """Check if text starts with a demand signal or contains ?."""
-    if "?" in text:
-        return True
+def _has_strong_demand_signal(text: str) -> bool:
+    """Strong demand: verb patterns, question-word starts, short anchors in context.
+
+    A bare «?» is NOT a strong signal — ads routinely end with a rhetorical
+    question («Ищешь квартиру? Пиши в ЛС»). Only strong demand may override
+    stop-words (Pass 2) and trigger the channel pre-tag boost.
+    """
     text_lower = text.lower().strip()
     for pattern in DEMAND_SIGNAL_PATTERNS:
         if re.search(pattern, text_lower, re.UNICODE):
@@ -159,6 +162,14 @@ def _has_demand_signal(text: str) -> bool:
             if "подскажите" in text_lower or "посоветуйте" in text_lower or "?" in text:
                 return True
     return False
+
+
+def _has_demand_signal(text: str) -> bool:
+    """Weak demand: any «?» or a strong signal. Used by Pass 3 only —
+    there it is counter-balanced by offer signals (price/contact)."""
+    if "?" in text:
+        return True
+    return _has_strong_demand_signal(text)
 
 
 def _has_offer_signal(text: str) -> bool:
@@ -231,7 +242,8 @@ def classify_message(
 
     text_lower = text.lower()
     text_lemma = _lemmatize_text(text_lower)  # Grammatical form normalization
-    has_demand_context = _has_demand_signal(text)
+    has_strong_demand = _has_strong_demand_signal(text)
+    has_demand_context = has_strong_demand or ("?" in text)  # weak — Pass 3 only
     has_offer_context = _has_offer_signal(text)
     is_urgent = _is_urgent(text)
 
@@ -307,8 +319,9 @@ def classify_message(
         all_stops = (universal_stops or []) + stop_kws
         for stop_kw in all_stops:
             if _match_keyword(stop_kw, text_lower):
-                # If there's a strong demand signal, stop-phrase might be overridden
-                if not has_demand_context:
+                # Only a STRONG demand signal overrides a stop-phrase.
+                # A bare «?» does not (ads end with rhetorical questions).
+                if not has_strong_demand:
                     blocked = True
                     break
 

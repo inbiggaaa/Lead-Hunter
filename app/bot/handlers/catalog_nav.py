@@ -629,6 +629,9 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
 
         await session.commit()
 
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()
+
     await state.clear()
 
     # Load names for the confirmation message
@@ -757,6 +760,9 @@ async def on_delete_subscription(callback: CallbackQuery):
             return
         await delete_subscription(session, sub_id, user.id)
         await session.commit()
+
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()
 
     await callback.answer("Отписано")
     await on_show_subscriptions(callback)
