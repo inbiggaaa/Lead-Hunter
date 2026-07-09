@@ -17,7 +17,8 @@ from telethon.errors import FloodWaitError, ChannelInvalidError
 from telethon.tl.types import Message, InputPeerChannel
 
 from app.userbot.classifier import (
-    classify_message, _has_strong_demand_signal, _match_keyword, _lemmatize_text,
+    classify_message, compile_keyword_map, CompiledKeywordMap,
+    _has_strong_demand_signal, _match_keyword, _lemmatize_text,
 )
 from app.userbot.llm_validator import (
     llm_validator, sanitize_text, PendingMatch, is_high_confidence_demand,
@@ -109,6 +110,9 @@ class ChannelPoller:
         self.pool = UserbotPool()
         self._keyword_map: dict[str, dict[str, list[str]]] = {}
         self._universal_stops: list[str] = []
+        # Precompiled form of _keyword_map + _universal_stops (B2) —
+        # rebuilt on every keyword reload, used by the classify hot path
+        self._compiled_keywords: CompiledKeywordMap | None = None
         self._personal_keywords: list[str] = []  # active user keywords (Вариант Б)
         self._domain_word_map: dict[str, list[str]] = {}  # reality filter
         self._channel_segments: dict[str, list[str]] = {}
@@ -160,6 +164,9 @@ class ChannelPoller:
             await limiter.activate_post_ban_if_recent(acc.account_id)
         if not self._keyword_map:
             self._keyword_map, self._universal_stops, self._domain_word_map = await self._load_keywords()
+            self._compiled_keywords = compile_keyword_map(
+                self._keyword_map, self._universal_stops,
+            )
             self._personal_keywords = await self._load_personal_keywords()
             await self._load_channel_segments()
             await self._rebuild_tiers()
@@ -431,7 +438,11 @@ class ChannelPoller:
             if msg_id > max_msg_id:
                 max_msg_id = msg_id
 
-            result = classify_message(msg.message, self._keyword_map, self._universal_stops)
+            result = classify_message(
+                msg.message,
+                self._compiled_keywords or self._keyword_map,
+                self._universal_stops,
+            )
 
             # Channel pre-tagging boost — STRONG demand only (a bare «?» is
             # not enough: any question in a pre-tagged channel is not a lead)
@@ -1398,6 +1409,9 @@ class ChannelPoller:
             if now - last_reload > keyword_reload_interval:
                 try:
                     self._keyword_map, self._universal_stops, self._domain_word_map = await self._load_keywords()
+                    self._compiled_keywords = compile_keyword_map(
+                        self._keyword_map, self._universal_stops,
+                    )
                     self._personal_keywords = await self._load_personal_keywords()
                     await self._load_channel_segments()
                     last_reload = now

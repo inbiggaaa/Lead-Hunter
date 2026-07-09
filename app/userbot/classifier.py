@@ -144,6 +144,159 @@ def _build_word_pattern(word: str) -> str:
     return r"(?<!\w)" + escaped + r"(?!\w)"
 
 
+# ── Precompiled matching engine (B2) ──
+# The hot path used to rebuild + re-search regexes for every keyword on every
+# message (1500+ keywords → re module's 512-pattern cache thrashed) and
+# re-lemmatize every keyword per message. Everything derivable from a keyword
+# alone is now computed once, at compile_keyword_map() time.
+
+_WORD_FLAGS = re.UNICODE | re.IGNORECASE
+_NEG_PREFIX = r"(?<![а-яёa-z0-9])(не|нет|без)\s+"
+
+
+class _CompiledWord(NamedTuple):
+    rx: re.Pattern       # word-boundary match
+    neg_rx: re.Pattern   # same word preceded by не/нет/без → treated as absent
+
+
+# Explicit cache (NOT the re module's LRU): bounded by keyword vocabulary.
+_word_cache: dict[str, _CompiledWord] = {}
+
+
+def _compile_word(word: str) -> _CompiledWord:
+    cw = _word_cache.get(word)
+    if cw is None:
+        pattern = _build_word_pattern(word)
+        cw = _CompiledWord(
+            rx=re.compile(pattern, _WORD_FLAGS),
+            neg_rx=re.compile(_NEG_PREFIX + pattern, _WORD_FLAGS),
+        )
+        _word_cache[word] = cw
+    return cw
+
+
+def _cw_hit(cw: _CompiledWord, text: str) -> bool:
+    """Word present at a word boundary and not negated — mirrors _word_in_text."""
+    if not cw.rx.search(text):
+        return False
+    return not cw.neg_rx.search(text)
+
+
+def _cws_match(cws: list[_CompiledWord], text: str) -> bool:
+    """All words present — mirrors _match_keyword semantics."""
+    return all(_cw_hit(cw, text) for cw in cws)
+
+
+class CompiledKeyword:
+    """One demand/synonym keyword with every derivable artifact precomputed."""
+
+    __slots__ = ("words", "lemma_words", "fuzzy")
+
+    def __init__(self, kw: str):
+        raw_words = kw.split()
+        self.words = [_compile_word(w) for w in raw_words]
+
+        # Lemma form of the whole keyword (was recomputed per message before)
+        kw_lemma = _lemmatize_text(kw)
+        self.lemma_words = (
+            [_compile_word(w) for w in kw_lemma.split()]
+            if kw_lemma != kw else None
+        )
+
+        # Fuzzy fallback for 4+ word phrases: required count from TOTAL words,
+        # matching over significant (non-noise, len>2) words only.
+        self.fuzzy: tuple[int, list[tuple[_CompiledWord, _CompiledWord]]] | None = None
+        if len(raw_words) >= 4:
+            if len(raw_words) == 4:
+                required = 4                        # 4/4 — no fuzziness
+            elif len(raw_words) == 5:
+                required = 4                        # 4/5 = 80%
+            else:
+                required = max(len(raw_words) - 2, 5)  # 6+: miss ≤2, floor 5
+            sig_pairs = [
+                (_compile_word(w), _compile_word(_lemmatize_text(w)))
+                for w in raw_words
+                if len(w) > 2 and w.lower() not in FUZZY_NOISE
+            ]
+            if len(sig_pairs) >= 2:  # total_significant >= 2
+                self.fuzzy = (required, sig_pairs)
+
+    def match(self, text_lower: str, text_lemma: str, lemma_differs: bool) -> bool:
+        """Bit-for-bit port of the old per-message _match_kw closure."""
+        if _cws_match(self.words, text_lower):
+            return True
+        if lemma_differs and _cws_match(self.words, text_lemma):
+            return True
+        if self.lemma_words is not None and _cws_match(self.lemma_words, text_lemma):
+            return True
+        if self.fuzzy is not None:
+            required, sig_pairs = self.fuzzy
+            matched = 0
+            for w_cw, wl_cw in sig_pairs:
+                if (_cw_hit(w_cw, text_lower)
+                        or _cw_hit(w_cw, text_lemma)
+                        or _cw_hit(wl_cw, text_lemma)):
+                    matched += 1
+            if matched >= required:
+                return True
+        return False
+
+
+class CompiledKeywordMap:
+    """Precompiled {slug: {demand/stop/synonym}} + universal stops.
+
+    Built once per keyword reload (poller, every 5 min) instead of doing all
+    regex/lemma work per message. Universal stops live here so the poller
+    passes a single object to classify_message.
+    """
+
+    __slots__ = ("segments", "universal_stops")
+
+    def __init__(
+        self,
+        segment_keywords: dict[str, dict[str, list[str]]],
+        universal_stops: list[str] | None = None,
+    ):
+        # (slug, demand+synonym CompiledKeywords, stop word-lists)
+        self.segments: list[tuple[str, list[CompiledKeyword], list[list[_CompiledWord]]]] = []
+        for slug, by_type in segment_keywords.items():
+            all_demand = by_type.get("demand", []) + by_type.get("synonym", [])
+            demand = [CompiledKeyword(kw) for kw in all_demand]
+            stops = [
+                [_compile_word(w) for w in stop_kw.split()]
+                for stop_kw in by_type.get("stop", [])
+            ]
+            self.segments.append((slug, demand, stops))
+
+        self.universal_stops = [
+            [_compile_word(w) for w in stop_kw.split()]
+            for stop_kw in (universal_stops or [])
+        ]
+
+    def __bool__(self) -> bool:
+        return bool(self.segments)
+
+
+def compile_keyword_map(
+    segment_keywords: dict[str, dict[str, list[str]]],
+    universal_stops: list[str] | None = None,
+) -> CompiledKeywordMap:
+    """Precompile a raw keyword map for fast repeated classification."""
+    return CompiledKeywordMap(segment_keywords, universal_stops)
+
+
+# Module-level precompiled signal patterns (were re.search'd per call)
+_DEMAND_SIGNAL_RX = [re.compile(p, re.UNICODE) for p in DEMAND_SIGNAL_PATTERNS]
+_OFFER_SIGNAL_RX = [
+    re.compile(p, re.UNICODE | re.IGNORECASE) for p in OFFER_SIGNAL_PATTERNS
+]
+_SHORT_ANCHOR_CWS = [[_compile_word(w) for w in a.split()] for a in SHORT_ANCHORS]
+_PASS3_STRONG_DEMAND_RX = re.compile(
+    r"^(ищу|нужен|нужна|нужны|сниму|возьму|ищем|посоветуйте|подскажите|кто знает|помогите|требуется|требуются|куплю|приобрету)\b",
+    re.UNICODE,
+)
+
+
 def _has_strong_demand_signal(text: str) -> bool:
     """Strong demand: verb patterns, question-word starts, short anchors in context.
 
@@ -152,12 +305,12 @@ def _has_strong_demand_signal(text: str) -> bool:
     stop-words (Pass 2) and trigger the channel pre-tag boost.
     """
     text_lower = text.lower().strip()
-    for pattern in DEMAND_SIGNAL_PATTERNS:
-        if re.search(pattern, text_lower, re.UNICODE):
+    for rx in _DEMAND_SIGNAL_RX:
+        if rx.search(text_lower):
             return True
     # Check short anchors with context
-    for anchor in SHORT_ANCHORS:
-        if _match_keyword(anchor, text):
+    for anchor_cws in _SHORT_ANCHOR_CWS:
+        if _cws_match(anchor_cws, text):
             # Need contextual demand signal
             if "подскажите" in text_lower or "посоветуйте" in text_lower or "?" in text:
                 return True
@@ -175,8 +328,8 @@ def _has_demand_signal(text: str) -> bool:
 def _has_offer_signal(text: str) -> bool:
     """Check if text contains offer signals (price+contact, 3+ hashtags)."""
     text_lower = text.lower()
-    for pattern in OFFER_SIGNAL_PATTERNS:
-        if re.search(pattern, text_lower, re.UNICODE | re.IGNORECASE):
+    for rx in _OFFER_SIGNAL_RX:
+        if rx.search(text_lower):
             return True
     return False
 
@@ -223,7 +376,7 @@ def _is_urgent(text: str) -> bool:
 
 def classify_message(
     text: str,
-    segment_keywords: dict[str, dict[str, list[str]]],
+    segment_keywords: "dict[str, dict[str, list[str]]] | CompiledKeywordMap",
     universal_stops: list[str] | None = None,
 ) -> ClassificationResult:
     """
@@ -231,8 +384,12 @@ def classify_message(
 
     Args:
         text: The message text to classify.
-        segment_keywords: Dict of {segment_slug: {"demand": [...], "stop": [...], "synonym": [...]}}
-        universal_stops: Global stop-phrases applied to all segments (from DB, segment_id=NULL).
+        segment_keywords: Either a raw dict {segment_slug: {"demand": [...],
+            "stop": [...], "synonym": [...]}} (compiled on the fly — fine for
+            tests, wasteful for the poller hot path) or a CompiledKeywordMap
+            built once via compile_keyword_map().
+        universal_stops: Global stop-phrases (ignored when a CompiledKeywordMap
+            is passed — they are baked in at compile time).
 
     Returns:
         ClassificationResult with matched segment slugs and urgency flag.
@@ -240,93 +397,44 @@ def classify_message(
     if not text or not segment_keywords:
         return ClassificationResult(matched_segments=[], is_urgent=False)
 
+    if isinstance(segment_keywords, CompiledKeywordMap):
+        compiled = segment_keywords
+    else:
+        compiled = compile_keyword_map(segment_keywords, universal_stops)
+
     text_lower = text.lower()
     text_lemma = _lemmatize_text(text_lower)  # Grammatical form normalization
+    lemma_differs = text_lemma != text_lower
     has_strong_demand = _has_strong_demand_signal(text)
     has_demand_context = has_strong_demand or ("?" in text)  # weak — Pass 3 only
     has_offer_context = _has_offer_signal(text)
     is_urgent = _is_urgent(text)
 
-    def _match_kw(kw: str) -> bool:
-        """Match keyword against original text and lemmatized forms.
-
-        Multi-word keywords (3+ words) use fuzzy matching as fallback:
-        if ≥70% of individual words appear in text, it's a match.
-        """
-        # Exact match first
-        if _match_keyword(kw, text_lower):
-            return True
-        if text_lemma != text_lower and _match_keyword(kw, text_lemma):
-            return True
-        kw_lemma = _lemmatize_text(kw)
-        if kw_lemma != kw and _match_keyword(kw_lemma, text_lemma):
-            return True
-
-        # Fuzzy fallback for multi-word keywords (4+ words)
-        #   4 words → 4/4 (100% — no fuzziness to avoid false positives)
-        #   5 words → ≥4/5 (80%), 6+ → miss ≤2 (but min 5 required)
-        #   Noise words (prepositions, particles) are excluded from counting
-        words = kw.split()
-        if len(words) >= 4:
-            if len(words) == 4:
-                required = len(words)  # 4/4 — no fuzziness
-            elif len(words) == 5:
-                required = len(words) - 1  # 4/5 = 80%
-            else:
-                required = max(len(words) - 2, 5)  # 6+: miss ≤2, floor 5
-            matched = 0
-            total_significant = 0
-            for w in words:
-                if len(w) <= 2 or w.lower() in FUZZY_NOISE:
-                    continue
-                total_significant += 1
-                w_lemma = _lemmatize_text(w)
-                if (_match_keyword(w, text_lower)
-                        or _match_keyword(w, text_lemma)
-                        or _match_keyword(w_lemma, text_lemma)):
-                    matched += 1
-            if total_significant >= 2 and matched >= required:
-                print(f"  FUZZY HIT: {kw!r} matched {matched}/{total_significant} sig words in text[:80]={text_lower[:80]!r}", file=__import__("sys").stderr)
-                return True
-
-        return False
+    # Universal stops are identical for every segment — evaluated at most once
+    # per message (lazily: only if some segment passes Pass 1), not per segment.
+    universal_hit: bool | None = None
 
     matched: list[str] = []
 
-    for segment_slug, keywords_by_type in segment_keywords.items():
-        demand_kws = keywords_by_type.get("demand", [])
-        stop_kws = keywords_by_type.get("stop", [])
-        synonym_kws = keywords_by_type.get("synonym", [])
-
-        # Pass 1: demand phrases
-        all_demand = demand_kws + synonym_kws
-        if not all_demand:
+    for segment_slug, demand_kws, stop_cws in compiled.segments:
+        # Pass 1: demand phrases (demand + synonym, first hit wins)
+        if not demand_kws:
+            continue
+        if not any(ck.match(text_lower, text_lemma, lemma_differs) for ck in demand_kws):
             continue
 
-        demand_matched = False
-        for kw in all_demand:
-            if _match_kw(kw):
-                demand_matched = True
-                break
-
-        if not demand_matched:
-            continue
-
-        # Pass 2: stop phrases (universal + segment-specific)
+        # Pass 2: stop phrases (universal + segment-specific).
         # Stop words match against original text only — lemmatization would
-        # cause false positives (e.g. "сделано" → "сделать" blocks "сделать сайт")
-        blocked = False
-        all_stops = (universal_stops or []) + stop_kws
-        for stop_kw in all_stops:
-            if _match_keyword(stop_kw, text_lower):
-                # Only a STRONG demand signal overrides a stop-phrase.
-                # A bare «?» does not (ads end with rhetorical questions).
-                if not has_strong_demand:
-                    blocked = True
-                    break
-
-        if blocked:
-            continue
+        # cause false positives (e.g. "сделано" → "сделать" blocks "сделать сайт").
+        # Only a STRONG demand signal overrides a stop-phrase; a bare «?»
+        # does not (ads end with rhetorical questions).
+        if not has_strong_demand:
+            if universal_hit is None:
+                universal_hit = any(
+                    _cws_match(cws, text_lower) for cws in compiled.universal_stops
+                )
+            if universal_hit or any(_cws_match(cws, text_lower) for cws in stop_cws):
+                continue
 
         # Pass 3: structural signals
         # For purchase segments, offer signals (price, phone, documents) are
@@ -340,12 +448,7 @@ def classify_message(
             # unless demand is a strong verb at the START of the message.
             # A "?" alone is NOT enough — rhetorical ad questions ("Ищешь байк?") are offers.
             if has_offer_context and has_demand_context:
-                strong_demand = bool(re.search(
-                    r"^(ищу|нужен|нужна|нужны|сниму|возьму|ищем|посоветуйте|подскажите|кто знает|помогите|требуется|требуются|куплю|приобрету)\b",
-                    text_lower,
-                    re.UNICODE,
-                ))
-                if not strong_demand:
+                if not _PASS3_STRONG_DEMAND_RX.search(text_lower):
                     continue
 
         matched.append(segment_slug)
