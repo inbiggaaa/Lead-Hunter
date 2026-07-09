@@ -1,11 +1,14 @@
 """Notification sender: reads from Redis queue, sends via Bot API with throttle."""
 
 import asyncio
+import html
+import json
 import logging
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import settings
@@ -16,9 +19,38 @@ from app.cache.subscription_cache import (
     is_content_duplicate,
     check_daily_limit,
     increment_daily_stats,
+    QUEUE_DEAD_LETTER,
 )
 
 logger = logging.getLogger(__name__)
+
+# Backoff delays between delivery attempts (DECISIONS #26): 1 try + 3 retries.
+RETRY_SCHEDULE = (None, 1, 4, 9)
+
+
+async def push_dead_letter(payload: dict) -> None:
+    """Store an undeliverable notification in the dead-letter queue."""
+    from app.cache import get_redis
+
+    redis = await get_redis()
+    await redis.lpush(QUEUE_DEAD_LETTER, json.dumps(payload, default=str))
+    await redis.aclose()
+
+
+async def mark_user_blocked(user_id: int) -> None:
+    """403 from Bot API — the user blocked the bot. Stop sending to them."""
+    from datetime import datetime, timezone
+    from sqlalchemy import update
+    from app.db.session import async_session_factory
+    from app.db.models import User
+
+    async with async_session_factory() as session:
+        await session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(is_blocked_bot=True, blocked_bot_at=datetime.now(timezone.utc))
+        )
+        await session.commit()
 
 
 class NotificationSender:
@@ -92,21 +124,68 @@ class NotificationSender:
         text = self._format_notification(payload)
         kb = self._build_keyboard(payload)
 
-        try:
-            await self.bot.send_message(telegram_id, text, reply_markup=kb)
-            await mark_sent(user_id, message_hash, payload.get("is_urgent", False),
-                           content_hash=content_hash)
-            await increment_daily_stats(user_id, today, "sent")
-        except Exception:
-            logger.exception("Failed to send notification to user %d", user_id)
+        delivered = await self._deliver_with_retry(payload, text, kb)
+        if not delivered:
+            return
+
+        await mark_sent(user_id, message_hash, payload.get("is_urgent", False),
+                       content_hash=content_hash)
+        await increment_daily_stats(user_id, today, "sent")
+
+    async def _deliver_with_retry(self, payload: dict, text: str, kb) -> bool:
+        """Deliver with the DECISIONS #26 policy.
+
+        403 → mark user blocked, stop. 429 → sleep(retry_after), retry.
+        Anything else → backoff retries (1s/4s/9s), then dead-letter queue.
+        Returns True only on actual delivery.
+        """
+        telegram_id = payload["telegram_id"]
+        user_id = payload["user_id"]
+
+        for delay in RETRY_SCHEDULE:
+            if delay is not None:
+                await asyncio.sleep(delay)
+            try:
+                await self.bot.send_message(telegram_id, text, reply_markup=kb)
+                return True
+            except TelegramForbiddenError:
+                logger.info(
+                    "User %d blocked the bot — marking is_blocked_bot", user_id,
+                )
+                await mark_user_blocked(user_id)
+                return False
+            except TelegramRetryAfter as e:
+                logger.warning(
+                    "429 for user %d — sleeping %ds before retry",
+                    user_id, e.retry_after,
+                )
+                await asyncio.sleep(e.retry_after)
+            except Exception as e:
+                logger.warning(
+                    "Send attempt failed for user %d: %s: %s",
+                    user_id, type(e).__name__, e,
+                )
+
+        logger.error(
+            "Notification for user %d undeliverable after %d attempts — dead-letter",
+            user_id, len(RETRY_SCHEDULE),
+        )
+        await push_dead_letter(payload)
+        return False
 
     def _format_notification(self, payload: dict) -> str:
-        """Format notification text."""
+        """Format notification text.
+
+        All user-originated values (lead text, usernames, segment titles) are
+        HTML-escaped — the message is sent with ParseMode.HTML, and raw «<»,
+        «>», «&» would make Telegram reject the whole request (lost lead).
+        """
         urgency = "🔥 " if payload.get("is_urgent") else ""
-        chat = payload.get("chat_username", "unknown")
+        chat = html.escape(payload.get("chat_username", "unknown") or "unknown")
         msg_id = payload.get("message_id", 0)
         sender = payload.get("sender", None)
-        text_preview = (payload.get("text", "") or "")[:500]
+        sender = html.escape(sender) if sender else None
+        text_preview = html.escape((payload.get("text", "") or "")[:500])
         is_free = payload.get("plan", "free") == "free"
 
         msg = f"{urgency}🎯 <b>Я нашел нового клиента! | Lead Hunter AI</b>\n\n"
@@ -122,7 +201,7 @@ class NotificationSender:
         matched = payload.get("matched_segments", [])
         if matched:
             labels = ", ".join(
-                f"{m['emoji']} {m['title']}" if m["emoji"] else m["title"]
+                html.escape(f"{m['emoji']} {m['title']}" if m["emoji"] else m["title"])
                 for m in matched
             )
             msg += f"\n\n🏷 {labels}"
