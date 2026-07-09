@@ -71,6 +71,10 @@ def next_delay() -> float:
     return min(max(d, 0.8), 6.0)
 
 
+# ── Batch flush tuning: balance token savings vs notification speed ──
+FLUSH_EVERY_N_CHANNELS = 20  # flush pending LLM matches every ~40s (20 channels × 2s)
+
+
 class ChannelPoller:
     """Polls Telegram channels using a pool of userbot accounts.
 
@@ -538,6 +542,11 @@ class ChannelPoller:
             if i < len(shuffled) - 1:
                 delay = next_delay()
                 await asyncio.sleep(delay)
+
+            # Periodic flush: batch-validate & dispatch every N channels.
+            # Keeps notification delay to ~40s while still batching LLM calls.
+            if (i + 1) % FLUSH_EVERY_N_CHANNELS == 0:
+                await self._flush_pending_matches(account.account_id)
 
         # Update last_poll_at for alert_loop liveness check
         try:
