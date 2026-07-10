@@ -164,6 +164,7 @@ class ChannelPoller:
             self._keyword_map, self._universal_stops, self._domain_word_map = await self._load_keywords()
             self._compiled_keywords = compile_keyword_map(
                 self._keyword_map, self._universal_stops,
+                window=settings.keyword_match_window,
             )
             self._personal_keywords = await self._load_personal_keywords()
             await self._load_channel_segments()
@@ -1367,6 +1368,7 @@ class ChannelPoller:
                     self._keyword_map, self._universal_stops, self._domain_word_map = await self._load_keywords()
                     self._compiled_keywords = compile_keyword_map(
                         self._keyword_map, self._universal_stops,
+                        window=settings.keyword_match_window,
                     )
                     self._personal_keywords = await self._load_personal_keywords()
                     await self._load_channel_segments()

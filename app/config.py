@@ -117,6 +117,7 @@ class Settings(BaseSettings):
     flood_sleep_threshold: int = 60       # Telethon auto-sleep short FloodWait; longer → exception
     poll_parked_countries: bool = False  # only poll channels from countries with active subscribers
     message_max_age_days: int = 7        # skip messages older than N days (0 = disabled)
+    keyword_match_window: int = 20       # C2: multi-word phrase words must fit in N tokens
 
     # Discovery v2
     discovery_enabled: bool = False       # ENV: DISCOVERY_ENABLED=true

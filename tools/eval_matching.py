@@ -32,10 +32,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from app.userbot.classifier import (  # noqa: E402
     CompiledKeywordMap,
     _cws_match,
-    _has_demand_signal,
     _has_offer_signal,
     _has_strong_demand_signal,
     _lemmatize_text,
+    _MatchCtx,
     _PASS3_STRONG_DEMAND_RX,
     classify_message,
     compile_keyword_map,
@@ -117,6 +117,7 @@ def explain_classify(
     text_lower = text.lower()
     text_lemma = _lemmatize_text(text_lower)
     lemma_differs = text_lemma != text_lower
+    match_ctx = _MatchCtx(compiled.window, text_lower, text_lemma)
     has_strong = _has_strong_demand_signal(text)
     has_demand_ctx = has_strong or ("?" in text)
     has_offer_ctx = _has_offer_signal(text)
@@ -125,7 +126,7 @@ def explain_classify(
     for slug, demand_kws, stop_cws in compiled.segments:
         if not demand_kws:
             continue
-        if not any(ck.match(text_lower, text_lemma, lemma_differs) for ck in demand_kws):
+        if not any(ck.match(match_ctx, lemma_differs) for ck in demand_kws):
             continue
         out["pass1"].append(slug)
 

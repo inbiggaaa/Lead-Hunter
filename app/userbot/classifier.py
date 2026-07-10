@@ -187,6 +187,108 @@ def _cws_match(cws: list[_CompiledWord], text: str) -> bool:
     return all(_cw_hit(cw, text) for cw in cws)
 
 
+# ── Proximity window (C2) ──
+# A multi-word DEMAND phrase matches only when all its words fall inside a
+# window of N tokens («нужен совет … [50 слов] … продам байк» must NOT match
+# «нужен байк»). Stop-phrases and short anchors are NOT windowed: tightening
+# a stop would let more spam through.
+
+# 20, не 12: на прод-корпусе (c2_diff, 10.07.2026) окно 12 теряло два
+# 👍-подтверждённых лида и живые заявки («кто сдает автомобиль в аренду?» с
+# разлётом слов 15-17 токенов); окно 20 сохраняет их и по-прежнему режет
+# 73% разлётных матчей, включая все длинные офферы (>300 симв. разлёт).
+DEFAULT_MATCH_WINDOW = 20  # tokens; poller passes settings.keyword_match_window
+
+
+def _token_starts(text: str) -> list[int]:
+    """Char offsets where whitespace-separated tokens begin."""
+    starts: list[int] = []
+    in_token = False
+    for i, ch in enumerate(text):
+        if ch.isspace():
+            in_token = False
+        elif not in_token:
+            starts.append(i)
+            in_token = True
+    return starts
+
+
+def _cw_positions(cw: _CompiledWord, text: str, starts: list[int]) -> list[int]:
+    """Token indices of every hit; [] when absent or negated (as _cw_hit)."""
+    from bisect import bisect_right
+    if cw.neg_rx.search(text):
+        return []
+    return [bisect_right(starts, m.start()) - 1 for m in cw.rx.finditer(text)]
+
+
+def _window_covers(
+    events: list[tuple[int, int]], num_words: int, required: int, window: int,
+) -> bool:
+    """True when ≥required distinct words occur within a span of <window tokens.
+
+    events: sorted (token_pos, word_idx) occurrences; two-pointer sweep.
+    """
+    counts = [0] * num_words
+    distinct = 0
+    left = 0
+    for pos, idx in events:
+        counts[idx] += 1
+        if counts[idx] == 1:
+            distinct += 1
+        while pos - events[left][0] >= window:
+            lpos, lidx = events[left]
+            counts[lidx] -= 1
+            if counts[lidx] == 0:
+                distinct -= 1
+            left += 1
+        if distinct >= required:
+            return True
+    return False
+
+
+def _phrase_in_window(
+    cws: list[_CompiledWord], text: str, starts: list[int], window: int,
+) -> bool:
+    """All phrase words present AND co-located within the window."""
+    events: list[tuple[int, int]] = []
+    for i, cw in enumerate(cws):
+        positions = _cw_positions(cw, text, starts)
+        if not positions:
+            return False
+        events.extend((p, i) for p in positions)
+    if len(cws) == 1:
+        return True
+    events.sort()
+    return _window_covers(events, len(cws), len(cws), window)
+
+
+class _MatchCtx:
+    """Per-message match context: window size + lazily-built token offsets.
+
+    Token counts of text_lower and text_lemma are identical (_lemmatize_text
+    splits/rejoins on whitespace), so token indices are comparable across forms.
+    """
+
+    __slots__ = ("window", "text_lower", "text_lemma", "_starts_lower", "_starts_lemma")
+
+    def __init__(self, window: int, text_lower: str, text_lemma: str):
+        self.window = window
+        self.text_lower = text_lower
+        self.text_lemma = text_lemma
+        self._starts_lower: list[int] | None = None
+        self._starts_lemma: list[int] | None = None
+
+    def starts_lower(self) -> list[int]:
+        if self._starts_lower is None:
+            self._starts_lower = _token_starts(self.text_lower)
+        return self._starts_lower
+
+    def starts_lemma(self) -> list[int]:
+        if self._starts_lemma is None:
+            self._starts_lemma = _token_starts(self.text_lemma)
+        return self._starts_lemma
+
+
 class CompiledKeyword:
     """One demand/synonym keyword with every derivable artifact precomputed."""
 
@@ -221,24 +323,46 @@ class CompiledKeyword:
             if len(sig_pairs) >= 2:  # total_significant >= 2
                 self.fuzzy = (required, sig_pairs)
 
-    def match(self, text_lower: str, text_lemma: str, lemma_differs: bool) -> bool:
-        """Bit-for-bit port of the old per-message _match_kw closure."""
-        if _cws_match(self.words, text_lower):
-            return True
-        if lemma_differs and _cws_match(self.words, text_lemma):
-            return True
-        if self.lemma_words is not None and _cws_match(self.lemma_words, text_lemma):
-            return True
+    def match(self, ctx: "_MatchCtx", lemma_differs: bool) -> bool:
+        """Old _match_kw semantics + proximity window for multi-word phrases (C2).
+
+        Single-word keywords: window is trivially satisfied — boolean path.
+        Multi-word: the three form-alternatives are kept separate (no
+        mixed-form matching), each verified within ctx.window tokens.
+        """
+        text_lower, text_lemma = ctx.text_lower, ctx.text_lemma
+        if len(self.words) == 1:
+            if _cws_match(self.words, text_lower):
+                return True
+            if lemma_differs and _cws_match(self.words, text_lemma):
+                return True
+            if self.lemma_words is not None and _cws_match(self.lemma_words, text_lemma):
+                return True
+        else:
+            if _phrase_in_window(self.words, text_lower, ctx.starts_lower(), ctx.window):
+                return True
+            if lemma_differs and _phrase_in_window(
+                self.words, text_lemma, ctx.starts_lemma(), ctx.window,
+            ):
+                return True
+            if self.lemma_words is not None and _phrase_in_window(
+                self.lemma_words, text_lemma, ctx.starts_lemma(), ctx.window,
+            ):
+                return True
         if self.fuzzy is not None:
             required, sig_pairs = self.fuzzy
-            matched = 0
-            for w_cw, wl_cw in sig_pairs:
-                if (_cw_hit(w_cw, text_lower)
-                        or _cw_hit(w_cw, text_lemma)
-                        or _cw_hit(wl_cw, text_lemma)):
-                    matched += 1
-            if matched >= required:
-                return True
+            # Occurrences of each significant word across all forms; token
+            # indices are comparable between text_lower and text_lemma.
+            events: list[tuple[int, int]] = []
+            for i, (w_cw, wl_cw) in enumerate(sig_pairs):
+                positions = _cw_positions(w_cw, text_lower, ctx.starts_lower())
+                positions += _cw_positions(w_cw, text_lemma, ctx.starts_lemma())
+                positions += _cw_positions(wl_cw, text_lemma, ctx.starts_lemma())
+                events.extend((p, i) for p in positions)
+            if events:
+                events.sort()
+                if _window_covers(events, len(sig_pairs), required, ctx.window):
+                    return True
         return False
 
 
@@ -250,13 +374,15 @@ class CompiledKeywordMap:
     passes a single object to classify_message.
     """
 
-    __slots__ = ("segments", "universal_stops")
+    __slots__ = ("segments", "universal_stops", "window")
 
     def __init__(
         self,
         segment_keywords: dict[str, dict[str, list[str]]],
         universal_stops: list[str] | None = None,
+        window: int = DEFAULT_MATCH_WINDOW,
     ):
+        self.window = window
         # (slug, demand+synonym CompiledKeywords, stop word-lists)
         self.segments: list[tuple[str, list[CompiledKeyword], list[list[_CompiledWord]]]] = []
         for slug, by_type in segment_keywords.items():
@@ -280,9 +406,14 @@ class CompiledKeywordMap:
 def compile_keyword_map(
     segment_keywords: dict[str, dict[str, list[str]]],
     universal_stops: list[str] | None = None,
+    window: int = DEFAULT_MATCH_WINDOW,
 ) -> CompiledKeywordMap:
-    """Precompile a raw keyword map for fast repeated classification."""
-    return CompiledKeywordMap(segment_keywords, universal_stops)
+    """Precompile a raw keyword map for fast repeated classification.
+
+    window: proximity window in tokens for multi-word phrases (C2);
+    the poller passes settings.keyword_match_window.
+    """
+    return CompiledKeywordMap(segment_keywords, universal_stops, window)
 
 
 # Module-level precompiled signal patterns (were re.search'd per call)
@@ -412,6 +543,7 @@ def classify_message(
     text_lower = text.lower()
     text_lemma = _lemmatize_text(text_lower)  # Grammatical form normalization
     lemma_differs = text_lemma != text_lower
+    match_ctx = _MatchCtx(compiled.window, text_lower, text_lemma)
     has_strong_demand = _has_strong_demand_signal(text)
     has_demand_context = has_strong_demand or ("?" in text)  # weak — Pass 3 only
     has_offer_context = _has_offer_signal(text)
@@ -427,7 +559,7 @@ def classify_message(
         # Pass 1: demand phrases (demand + synonym, first hit wins)
         if not demand_kws:
             continue
-        if not any(ck.match(text_lower, text_lemma, lemma_differs) for ck in demand_kws):
+        if not any(ck.match(match_ctx, lemma_differs) for ck in demand_kws):
             continue
 
         # Pass 2: stop phrases (universal + segment-specific).
