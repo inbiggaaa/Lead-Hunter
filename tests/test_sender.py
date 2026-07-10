@@ -153,3 +153,58 @@ async def test_generic_error_retries_then_dlq():
     dead_payload = dlq.call_args.args[0]
     assert json.dumps(dead_payload)  # сериализуемый
     assert dead_payload["user_id"] == 42
+
+
+# ═══════════════════════════════════════════════════════════════════
+# D1: Free-пейволл — ни одной ссылки на чат/отправителя (DECISIONS #79)
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _keyboard_urls(kb) -> list[str]:
+    return [
+        btn.url
+        for row in kb.inline_keyboard
+        for btn in row
+        if btn.url
+    ]
+
+
+def test_free_format_no_links():
+    """Free: полный текст лида, но без <a href> — чат plain-текстом, отправителя нет."""
+    sender = _make_sender()
+    text = sender._format_notification(_payload(plan="free"))
+    assert "<a href" not in text
+    assert "t.me" not in text
+    assert "@test_chat" in text          # название чата — просто текстом
+    assert "lead_author" not in text     # отправитель скрыт полностью
+    assert "Контакты скрыты" in text
+
+
+def test_free_keyboard_no_chat_button():
+    """Free: кнопки «💬 Чат» нет, «💰 Активировать подписку» и 👍👎 на месте."""
+    sender = _make_sender()
+    kb = sender._build_keyboard(_payload(plan="free"))
+    assert _keyboard_urls(kb) == []
+    all_texts = [btn.text for row in kb.inline_keyboard for btn in row]
+    assert "💰 Активировать подписку" in all_texts
+    assert "👍" in all_texts and "👎" in all_texts
+
+
+@pytest.mark.parametrize("plan", ["pro", "business", "trial"])
+def test_paid_format_keeps_links(plan):
+    """Paid/Trial: ссылки на сообщение и отправителя не тронуты."""
+    sender = _make_sender()
+    text = sender._format_notification(_payload(plan=plan))
+    assert "https://t.me/test_chat/77" in text
+    assert "https://t.me/lead_author" in text
+    assert "Контакты скрыты" not in text
+
+
+@pytest.mark.parametrize("plan", ["pro", "business", "trial"])
+def test_paid_keyboard_keeps_buttons(plan):
+    """Paid/Trial: кнопки «💬 Чат» и «💬 Написать» на месте."""
+    sender = _make_sender()
+    kb = sender._build_keyboard(_payload(plan=plan))
+    urls = _keyboard_urls(kb)
+    assert "https://t.me/test_chat/77" in urls
+    assert "https://t.me/lead_author" in urls

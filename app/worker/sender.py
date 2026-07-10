@@ -190,12 +190,15 @@ class NotificationSender:
 
         msg = f"{urgency}🎯 <b>Я нашел нового клиента! | Lead Hunter AI</b>\n\n"
         msg += f"{text_preview}\n\n"
-        msg += f"💬 <a href='https://t.me/{chat}/{msg_id}'>@{chat}</a>"
-        if sender:
-            msg += f" от <a href='https://t.me/{sender}'>@{sender}</a>"
-
         if is_free:
+            # D1 (DECISIONS #79): Free — no links at all. Chat name as plain
+            # text, sender hidden entirely; the paywall line below is honest.
+            msg += f"💬 @{chat}"
             msg += "\n\n🔒 Контакты скрыты на Free-тарифе.\n💰 Активируй подписку чтобы видеть отправителя."
+        else:
+            msg += f"💬 <a href='https://t.me/{chat}/{msg_id}'>@{chat}</a>"
+            if sender:
+                msg += f" от <a href='https://t.me/{sender}'>@{sender}</a>"
 
         # Add category label(s)
         matched = payload.get("matched_segments", [])
@@ -225,13 +228,11 @@ class NotificationSender:
         ])
 
         if is_free:
+            # D1 (DECISIONS #79): no «💬 Чат» button on Free — the link led
+            # straight to the lead's message, making the paywall nominal.
             rows.append([
                 InlineKeyboardButton(text="💰 Активировать подписку", callback_data="menu:plan"),
             ])
-            if chat:
-                rows.append([
-                    InlineKeyboardButton(text="💬 Чат", url=f"https://t.me/{chat}/{msg_id}"),
-                ])
         else:
             buttons = []
             if chat:
