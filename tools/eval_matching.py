@@ -165,7 +165,10 @@ def filter_by_domain(
     """Зеркало poller._filter_by_domain (reality-фильтр перед LLM).
 
     Держать синхронно с app/userbot/poller.py::_filter_by_domain.
+    C3: word-boundary (_match_keyword) вместо substring.
     """
+    from app.userbot.classifier import _match_keyword
+
     text_lower = text.lower()
     verified = []
     for slug in segments:
@@ -174,7 +177,7 @@ def filter_by_domain(
             verified.append(slug)
             continue
         for w in words:
-            if w in text_lower:
+            if _match_keyword(w, text_lower):
                 verified.append(slug)
                 break
     return verified

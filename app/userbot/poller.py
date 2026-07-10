@@ -705,21 +705,26 @@ class ChannelPoller:
 
     def _filter_by_domain(self, text: str, segments: list[str]) -> list[str]:
         """Return only segments that have at least one domain word in the text.
-        
-        Uses the synonym-based domain word map loaded from DB.
-        Segments with no domain words defined pass through unchanged.
+
+        Uses the synonym-based domain word map loaded from DB. Word-boundary
+        matching (C3): substring gave false confirmations — «спа» inside
+        «спасибо» kept the segment alive. Segments with no domain words
+        defined pass through unchanged (the gap is logged for visibility).
         """
         text_lower = text.lower()
         verified = []
         for slug in segments:
             words = self._domain_word_map.get(slug)
             if not words:
-                # No domain words defined for this segment → pass through
+                logger.debug(
+                    "Reality filter: segment '%s' has no domain words — pass-through",
+                    slug,
+                )
                 verified.append(slug)
                 continue
-            # Check if any domain word appears in the text
+            # Check if any domain word appears in the text (word-boundary)
             for w in words:
-                if w in text_lower:
+                if _match_keyword(w, text_lower):
                     verified.append(slug)
                     break
         return verified
