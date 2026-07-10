@@ -113,19 +113,22 @@ SaaS-сервис на базе Telegram-бота. Отслеживает соо
 ### Поток данных
 
 ```
-userbot ловит NewMessage
+userbot поллит каналы (тиры Hot/Warm/Cold, курсоры в Redis)
     │
     ▼
-classifier.classify(text) ──→ ["catering", "cleaning"]   ← 1 раз на сообщение
+classify_message(text) ──→ ["catering", "cleaning"]   ← 1 раз на сообщение
+    │  (или keyword_only-матч по личным keywords — минует сегменты и LLM)
+    ▼
+reality-фильтр (domain-слова, word-boundary) → LLM-валидатор (blocking, батч)
     │
     ▼
-find_interested_users(chat_username, matched_segments)
+_dispatch → get_interested_users(chat_username)
     │  Redis-кэш sub:by_chat:{chat_username} + личные keywords
     ▼
 Дедупликация: sha256(chat_username:message_id), UNIQUE(user_id, hash)
     │
     ▼
-LPUSH queue:notifications → sender BRPOP + throttle 25/сек → Bot API
+LPUSH queue:notifications → sender BRPOP + throttle → Bot API (retry/DLQ #26)
 ```
 
 ---
@@ -418,42 +421,54 @@ periodic_prefs (                                  -- настройки пери
 
 ## 5а. Семантическое ядро
 
-### Алгоритм: трёхпроходный rule-based NLP (без LLM на старте)
+### Алгоритм: трёхпроходный rule-based NLP + LLM-валидация
 
-**Проход 1 — demand:** поиск фраз по границе целого слова `(?<!\w)keyword(?!\w)`, Unicode, case-insensitive. Нет demand → игнорируем.
+Движок предкомпилирован (B2): вся regex/лемма-работа по keywords — один раз при загрузке (`compile_keyword_map`, startup + reload каждые 5 мин), hot-path только матчит.
 
-**Проход 2 — stop:** кандидат проверяется на универсальные и сегментные stop-фразы. Stop-фраза без глагола спроса → гасим.
+**Проход 1 — demand:** поиск фраз по границе целого слова `(?<!\w)keyword(?!\w)`, Unicode, case-insensitive, лемма-формы (pymorphy3). Multi-word фразы — только в окне близости `KEYWORD_MATCH_WINDOW` токенов (C2, дефолт 20; выбран data-driven — docs/eval/c2_diff.md). Нет demand → игнорируем.
 
-**Проход 3 — структурные сигналы:** разрешение коллизий спрос/оффер. Глагол спроса в начале — перебивает оффер. `?` — усиливает спрос. Цена+контакт+хештеги — усиливают оффер.
+**Проход 2 — stop:** кандидат проверяется на универсальные и сегментные stop-фразы. Переопределяет stop только СИЛЬНЫЙ сигнал спроса (глагольные паттерны); голый «?» — нет (A2). Stop-фразы окном НЕ ограничены.
 
-**Личные keywords работают всегда, независимо от classifier.** Если слово совпало — уведомление доставляется.
+**Проход 3 — структурные сигналы:** разрешение коллизий спрос/оффер. Глагол спроса в начале — перебивает оффер. `?` — слабый сигнал (только здесь). Цена+контакт+хештеги — усиливают оффер. Сегменты с `lead_direction` 'buy'/'supply' минуют Проход 3 (B4 — лид легитимно пишет с ценой/телефоном).
+
+**Направление сегмента — конфигурация в БД** (`segments.lead_direction`: 'demand'/'buy'/'supply', B4): supply-сегменты дополнительно инвертируют DEMAND/OFFER в LLM-промпте. Не хардкодить направления в коде.
+
+**Reality-фильтр (до LLM):** сегмент подтверждается только если в тексте есть domain-слово сегмента (synonym-словарь из БД), word-boundary (C3). Сегмент без domain-слов проходит насквозь (дыра логируется).
+
+**Личные keywords работают всегда, независимо от classifier** (Вариант Б, A1): keyword-матч минует сегменты, reality-фильтр и LLM — уведомление доставляется. Word-boundary + леммы.
 
 **Срочность (🔥):** слова «срочно», «сегодня», «на завтра», «asap», «urgent» → `is_urgent=true`.
 
 **Короткие anchors:** фразы с высоким риском ложного срабатывания («нужен байк», «хочу тату»). Матчатся ТОЛЬКО с контекстным сигналом спроса (глагол в начале, «?», «подскажите»). Размечены в `segment_seed.md`.
 
-**Полный список 29 категорий, всех demand/stop/synonym фраз и контекстных правил → `segment_seed.md`.**
+**Каталог: 14 категорий / 69 подкатегорий-сегментов** (реструктуризация 08.07.2026), ~1500 ключевых слов в БД. `segment_seed.md` описывает историческое ядро 29 категорий — актуальный набор в БД (`segment_keywords`).
 
-### LLM-валидация (опционально, на будущее)
+**Eval-конвейер (C1):** `venv/bin/python tools/eval_matching.py` — по-сегментный отчёт качества с прод-данных (read-only). ПРАВИЛО: любые изменения правил классификатора или LLM-промпта сопровождаются прогоном eval; отчёты — `docs/eval/`.
 
-Код `llm_validator.py` закладывается с Фазы 4, но выключен (`DEEPSEEK_ENABLED=false`). При включении: один батч-запрос к DeepSeek-V3 после classifier — «Какие из [candidates] реально ищет автор?». Стоимость ~$0.40/мес при 200 каналах. Решение о включении — после статистики false positives.
+### LLM-валидация (ВКЛЮЧЕНА, blocking)
+
+`llm_validator.py`: DeepSeek-V3 (`deepseek-chat`), включён в blocking-режиме — батч-запрос после classifier и reality-фильтра, вердикты DEMAND/MIXED пропускают, OFFER/OTHER гасят. Fail-open (ошибка LLM → лид проходит). Все решения логируются в `llm_decisions` (shadow-датасет для fine-tune). Промпт-блок supply-сегментов генерируется из БД (B4).
 
 ---
 
 ## 5б. Redis-кэш
 
 ```
-sub:by_chat:{chat_username}      → JSON [{user_id, segment_ids, keyword_texts, lang}]
-class:cache:{message_hash}       → JSON ["slug1", "slug2"] (TTL 60 сек)
-stats:daily:{uid}:{date}:matched → INT
-stats:daily:{uid}:{date}:sent    → INT
+sub:by_chat:{chat_username}      → JSON [{user_id, telegram_id, lang, plan, subscriptions, keyword_texts}]
+stats:daily:{uid}:{date}:matched → INT (инкремент в _dispatch, D2)
+stats:daily:{uid}:{date}:sent    → INT (инкремент в sender после доставки)
+stats:unmatched                  → LIST (последние 10000, dedup через :seen)
+stats:full_batch:{chat}          → INT (C4: возможные пропуски, TTL 30д)
+cursor:msg:{chat}                → INT (инкрементальный поллинг)
 limit_reached:{uid}:{date}       → "1" (TTL до полуночи)
 queue:notifications              → LPUSH/BRPOP
 dlq:notifications                → LPUSH/BRPOP
 heartbeat:userbot:{id}           → timestamp
+budget:used:{account_id}:{date}  → INT (суточный бюджет API)
+circuit:open/expires:{id}, session:*, post_ban_until:{id} — anti-ban
 ```
 
-Инвалидация кэша подписок при изменении каталога/подписок. Перестроение раз в час.
+Инвалидация кэша подписок: `invalidate_all_subscription_caches()` во всех CRUD-точках (A4) + TTL 1ч как страховка; в кэше только пользователи с подпиской или keyword (C5).
 
 ---
 
@@ -567,9 +582,11 @@ show_last_leads → done
 
 **ОБНОВЛЯТЬ ПОСЛЕ КАЖДОЙ СЕССИИ.**
 
-Дата: **2026-07-02**
+Дата: **2026-07-10**
 
-Фаза: **Фаза 0 завершена (8/8) ✅ | Фаза 1 — готова к старту**
+Статус: **прод работает с `main` (2 userbot-аккаунта, LLM blocking). Аудит-фиксы: фазы 0/A/B/C/D завершены в ветке `audit/fable-fixes` (офлайн-верификация), живое переключение — отдельным решением владельца. Каталог: 14 категорий / 69 сегментов, ~1500 keywords. ⚠️ При переключении: миграцию lead_direction01 накатить ДО старта worker.**
+
+Хронология ниже (Phase 0 — 02.07.2026) — исторический снапшот; актуальное состояние — в session log в конце §8.
 
 ### Production changes (Phase 0 — 02.07.2026)
 
@@ -1048,8 +1065,11 @@ ROADMAP (порядок очереди):
 | 49 | Напоминания: дни 1,3,7, кнопка отключения |
 | 53 | Рефералы: deep-link, двусторонний бонус |
 | 57 | Onboarding wizard: 3 шага |
-| 65 | LLM-валидация отложена (DEEPSEEK_ENABLED=false) |
-| 71 | Индекс idx_user_sub_lookup для find_interested_users() |
+| 65 | LLM-валидация отложена (DEEPSEEK_ENABLED=false) — ОТМЕНЕНО: включена в blocking с 02.07.2026 |
+| 71 | Индекс idx_user_sub_lookup (lookup по segment_id+country_id в кэше подписок) |
+| 78 | Поллинг без пагинации: полный батч → warning + stats:full_batch:{chat}, пересмотр по данным |
+| 79 | Free-пейволл: ни одной ссылки в Free-уведомлении (чат plain-текстом, отправитель скрыт) |
+| 80 | Поллинг без вступления в каналы (не event-push): лимит ~500 каналов/аккаунт и join-бан |
 
 ---
 
@@ -1057,7 +1077,7 @@ ROADMAP (порядок очереди):
 
 - **Webhook/API (Business):** POST уведомлений на внешний URL. После стабилизации.
 - **Интеграции:** Slack, Google Sheets, CRM. После стабилизации.
-- **LLM-валидация:** включить DEEPSEEK_ENABLED=true после сбора статистики false positives.
+- **LLM-валидация:** ВКЛЮЧЕНА (blocking) с 02.07.2026 — см. §5а. Следующий шаг: fine-tune датасет из llm_decisions + feedback.
 - **Безопасность:** отдельная grilling-сессия (SSH по ключу, UFW, Fail2ban, 2FA).
 - **Мобильная админка:** адаптация после десктопной версии.
 
@@ -1070,7 +1090,7 @@ ROADMAP (порядок очереди):
 
 ОСТАТКИ (техдолг, НЕ срочно):
  1. 4 орфанных канала без city/segment (@vietnam_jobs, @danang_jobs, @hcmc_jobs, @saigon_services). @saigon_services — мёртв (UsernameInvalid), удалить. Остальные 3 живы, но без привязки → относится к задаче ГРУППИРОВКА по городам.
- 2. _fetch_all_since:452 — немой except Exception: return []. Сейчас не стреляет, расглушить на будущее (logger.warning, поток НЕ менять).
+ 2. ~~_fetch_all_since — немой except Exception: return []~~ ЗАКРЫТ 10.07.2026 (задача C4 аудита: logger.warning, поток не изменён).
  3. Ключевики перекошены в EN (~1800 demand-фраз EN; RU полн. только «красота»313, «кейтеринг»147). Продуктовое решение, не баг.
 СЛЕДУЮЩАЯ ЗАДАЧА (план пользователя): группировка чатов по городам/странам.
 

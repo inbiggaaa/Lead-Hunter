@@ -252,7 +252,8 @@ rebuild_subscription_cache: 4 плоских SELECT (users/subscriptions/keyword
 - Начать инкрементить `stats:daily:*:matched` (вызов `increment_daily_stats(..., "matched")` в `_dispatch` при постановке в очередь) — иначе EOD/недельные отчёты пусты.
 - Тест: счётчики растут.
 
-### [ ] D3. Актуализация документации
+### [x] D3. Актуализация документации — DONE 10.07.2026
+CLAUDE.md: §2 поток данных (get_interested_users, reality-фильтр, LLM blocking, retry/DLQ), §5а переписан (предкомпилированный движок, окно C2, strong-demand A2, lead_direction из БД — правило «не хардкодить направления», reality-фильтр C3, 14/69 каталог, eval-правило C1), §5б Redis-ключи актуализированы (class:cache удалён, +cursor/budget/full_batch/unmatched), §8 шапка (актуальный статус + ⚠️ миграция при переключении), §9 таблица (+78/79/80, пометка отмены #65), §10 LLM-строка; техдолг №2 помечен закрытым. DECISIONS.md: #78 (C4), #79 (D1), #80 (поллинг vs event-push — трейд-офф задокументирован). OPERATIONS.md: warmup — сделано ещё в B5 (Правило #11).
 - CLAUDE.md: LLM включён (blocking), 69 сегментов/актуальные цифры, убрать `find_interested_users`/`class:cache` (не существуют), правило «конфигурация направления сегмента — в БД» (после B4).
 - DECISIONS.md: +решение «поллинг без join vs event-push» (трейд-офф: 2 вызова×канал×цикл против лимита ~500 каналов/аккаунт и риска join-бана); +решение по C4 (лимит 100 без пагинации); +решение по D1.
 - OPERATIONS.md: warmup удалён (B5), чем заменён.
