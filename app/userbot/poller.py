@@ -54,10 +54,6 @@ HOT_STARTUP_DELAY = 0     # seconds — Hot starts immediately
 WARM_STARTUP_DELAY = 60   # seconds — Warm waits 1 min
 COLD_STARTUP_DELAY = 180  # seconds — Cold waits 3 min
 
-# Channel warmup: gradual ramp-up to full load (prevents new-account detection)
-# Each step = (channels per cycle as fraction of total)
-WARMUP_STEPS = [0.08, 0.16, 0.25, 0.35, 0.50, 0.70, 1.0]  # 7 cycles to full speed
-
 # Random jitter: adds unpredictability to polling pattern (±15%)
 INTERVAL_JITTER = 0.15
 
@@ -798,10 +794,8 @@ class ChannelPoller:
             if not logged_start:
                 _zero_logged = False
                 logger.info(
-                    "Tier '%s' loop started: %d channels, every %ds "
-                    "(stagger=%ds, warmup=%d steps)",
+                    "Tier '%s' loop started: %d channels, every %ds (stagger=%ds)",
                     tier_name, total_channels, interval, startup_delay,
-                    len(WARMUP_STEPS),
                 )
                 logged_start = True
 
@@ -809,46 +803,19 @@ class ChannelPoller:
             cycle_start = time.time()
 
             try:
-                # ── Warmup skip: if only 1 CB-free account, go full speed ──
-                # The account has been polling for days — its pattern is
-                # established. Warmup (7 cycles of ramping batch size) would
-                # look like bot calibration to Telegram.
-                cb_free = 0
-                for acc in self.pool.accounts:
-                    if not acc.is_healthy:
-                        continue
-                    if await limiter.is_circuit_open(acc.account_id):
-                        continue
-                    cb_free += 1
-
-                skip_warmup = (cb_free >= 1)
-
-                # Warmup: limit channels during first N cycles
-                if not skip_warmup and cycle_num <= len(WARMUP_STEPS):
-                    fraction = WARMUP_STEPS[cycle_num - 1]
-                    limit = max(1, int(total_channels * fraction))
-                    tier_channels = channels[:limit]
-                    logger.info(
-                        "Tier '%s' warmup %d/%d: %d/%d channels (%.0f%%)",
-                        tier_name, cycle_num, len(WARMUP_STEPS),
-                        len(tier_channels), total_channels, fraction * 100,
-                    )
-                elif skip_warmup and cycle_num == 1:
-                    tier_channels = channels
-                    logger.info(
-                        "Tier '%s': warmup SKIPPED (only %d CB-free account) — "
-                        "using all %d channels",
-                        tier_name, cb_free, len(tier_channels),
-                    )
-                else:
-                    tier_channels = channels
-                    logger.debug(
-                        "Tier '%s' cycle %d: %d channels",
-                        tier_name, cycle_num, len(tier_channels),
-                    )
+                # Warmup ramp removed (B5): skip_warmup = (cb_free >= 1) was
+                # true unless ALL accounts were banned — the 7-step ramp never
+                # ran since the session model landed. Startup smoothness comes
+                # from sequential polling + log-normal pauses (0.4), session
+                # windows (1.1) and post-ban mode (2.2). A coverage ramp after
+                # restart would itself look like bot calibration to Telegram.
+                logger.debug(
+                    "Tier '%s' cycle %d: %d channels",
+                    tier_name, cycle_num, total_channels,
+                )
 
                 # Delegate to testable once()-method
-                await self._run_tier_once(tier_name, tier_channels)
+                await self._run_tier_once(tier_name, channels)
 
                 # Dynamic interval + jitter
                 # Post-ban multiplier is now inside _get_effective_interval —

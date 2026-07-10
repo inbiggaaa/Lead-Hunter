@@ -975,49 +975,22 @@ async def test_sleep_always_wakes_to_active(mock_limiter):
 
 
 @patch("app.userbot.poller.limiter")
-async def test_warmup_skipped_when_one_cb_free(mock_limiter):
-    """1 CB-free аккаунт → warmup пропускается, сразу все каналы."""
-    mock_limiter.is_circuit_open = AsyncMock(side_effect=lambda aid: aid == 1)
+async def test_tier_loop_passes_full_channel_list(mock_limiter):
+    """B5: warmup удалён — первый же цикл получает ВСЕ каналы тира.
 
-    poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1), _make_account(2)]
-    poller._run_tier_once = AsyncMock(return_value=False)
-    poller._get_effective_interval = AsyncMock(return_value=1)
-
-    # Run one cycle — should skip warmup
-    import asyncio as real_asyncio
-    cycles = 0
-
-    async def stop_after_one(_t):
-        nonlocal cycles
-        cycles += 1
-        if cycles >= 1:
-            raise StopAsyncIteration
-        await real_asyncio.sleep(0)
-
-    with patch("app.userbot.poller.asyncio.sleep", side_effect=stop_after_one):
-        try:
-            await poller._run_tier_loop("Test", [{"id": i} for i in range(217)], interval=1)
-        except StopAsyncIteration:
-            pass
-
-    # _run_tier_once should be called with all 217 channels (no warmup limit)
-    call = poller._run_tier_once.call_args
-    tier_name, tier_channels = call[0]
-    assert len(tier_channels) == 217, f"Expected 217 channels, got {len(tier_channels)}"
-
-
-@patch("app.userbot.poller.limiter")
-async def test_warmup_normal_when_two_cb_free(mock_limiter):
-    """2 CB-free аккаунта → warmup пропускается (skip_warmup = cb_free >= 1)."""
+    Рампа охвата (8%→100%) была мертва с внедрения session-модели
+    (skip_warmup = cb_free >= 1 истинно всегда, кроме «все под баном»)
+    и удалена: плавность старта дают sequential polling + session windows
+    + post-ban режим."""
     mock_limiter.is_circuit_open = AsyncMock(return_value=False)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1), _make_account(2)]
-    poller._run_tier_once = AsyncMock(return_value=False)
+    poller._run_tier_once = AsyncMock(return_value=None)
     poller._get_effective_interval = AsyncMock(return_value=1)
 
     cycles = 0
+
     async def stop_after_one(_t):
         nonlocal cycles
         cycles += 1
@@ -1032,10 +1005,8 @@ async def test_warmup_normal_when_two_cb_free(mock_limiter):
         except StopAsyncIteration:
             pass
 
-    call = poller._run_tier_once.call_args
-    tier_name, tier_channels = call[0]
-    # 2 CB-free → skip_warmup = True → all 217 channels used (no warmup ramp)
-    assert len(tier_channels) == 217, f"Expected 217 (skip warmup), got {len(tier_channels)}"
+    tier_name, tier_channels = poller._run_tier_once.call_args[0]
+    assert len(tier_channels) == 217, f"Expected all 217 channels, got {len(tier_channels)}"
 
 
 # ═══════════════════════════════════════════════════════════════════
