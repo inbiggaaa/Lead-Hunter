@@ -202,7 +202,8 @@ docker rm -f lh_test_db lh_test_redis   # после прогона
 
 ## ФАЗА C — Измеримое качество матчинга (P2)
 
-### [ ] C1. Eval-конвейер
+### [x] C1. Eval-конвейер — DONE 10.07.2026
+`tools/eval_matching.py` (read-only, localhost-биндинги): корпус llm_decisions(1000)+feedback(259)+unmatched(500), по-сегментная раскладка pass1/stop/pass3/reality/LLM/precision, таблица ручной разметки 100 unmatched. Первый отчёт: docs/eval/report_2026-07-10.md — precision по feedback 17% (44👍/215👎), 11/500 unmatched теперь матчатся (в основном FP-паттерн «слово „продать“ где угодно» → материал для C2). Фолбэк на PURCHASE_SEGMENTS до наката lead_direction01. Правило: любые изменения правил/промпта — с прогоном eval.
 **Что сделать:**
 - Скрипт `tools/eval_matching.py` (офлайн, read-only к БД/Redis): собирает корпус из `llm_decisions` + `feedback` (👍=TP, 👎=FP) + сэмпл `stats:unmatched`; прогоняет через текущий классификатор; выводит по-сегментно: матчей, блоков по stop, блоков reality-фильтром, LLM-вердикты, precision по feedback.
 - Формат отчёта — markdown в `docs/eval/report_YYYY-MM-DD.md`.
