@@ -393,7 +393,8 @@ class ChannelPoller:
 
         cursor = await self._get_cursor(channel_username)
 
-        # Fetch ALL messages since cursor, paginating if needed
+        # Fetch messages since cursor — single call, up to FETCH_LIMIT (no
+        # pagination by design; full batch on incremental poll is logged, C4)
         all_messages = await self._fetch_all_since(
             account, entity, channel_username, cursor,
         )
@@ -513,11 +514,17 @@ class ChannelPoller:
 
         One get_messages call per channel per poll cycle. Hot channels poll
         more frequently → naturally catch new messages without extra API cost.
+        >FETCH_LIMIT messages between polls are skipped (cursor jumps to
+        server max) — no pagination until data shows the gap is real
+        (DECISIONS #78): a full incremental batch is logged and counted in
+        Redis `stats:full_batch:{chat}` to size the problem.
         """
         await limiter.acquire(account.account_id)
         try:
             if cursor > 0:
                 batch = await account.get_messages(entity, min_id=cursor, limit=FETCH_LIMIT)
+                if batch and len(batch) >= FETCH_LIMIT:
+                    await self._note_full_batch(channel_username)
             else:
                 batch = await account.get_messages(entity, limit=FETCH_LIMIT)
             return list(batch) if batch else []
@@ -526,8 +533,31 @@ class ChannelPoller:
         except ChannelInvalidError:
             self._entity_cache.get(channel_username, {}).pop(account.account_id, None)
             raise
-        except Exception:
+        except Exception as e:
+            # Not silent anymore (техдолг №2): log, keep the flow ([]).
+            logger.warning(
+                "fetch @%s failed: %s: %s", channel_username, type(e).__name__, e,
+            )
             return []
+
+    @staticmethod
+    async def _note_full_batch(channel_username: str) -> None:
+        """Incremental poll returned a FULL batch — messages beyond FETCH_LIMIT
+        may have been skipped. Warn + count occurrences per channel (30d TTL)
+        so the pagination decision (DECISIONS #78) can be revisited on data.
+        """
+        logger.warning(
+            "@%s: full batch (%d) on incremental poll — possible message gap",
+            channel_username, FETCH_LIMIT,
+        )
+        try:
+            from app.cache import get_redis
+            redis = await get_redis()
+            key = f"stats:full_batch:{channel_username}"
+            await redis.incr(key)
+            await redis.expire(key, 30 * 86400)
+        except Exception:
+            pass
 
     # ═══════════════ BATCH & TIER LOOPS ═══════════════
 

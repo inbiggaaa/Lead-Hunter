@@ -586,6 +586,95 @@ async def test_fetch_all_since_empty(mock_limiter):
 
 
 # ═══════════════════════════════════════════════════════════════════
+# C4: полный батч на инкрементальном опросе — warning + счётчик масштаба
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _make_fake_redis():
+    redis = MagicMock()
+    redis.incr = AsyncMock(return_value=1)
+    redis.expire = AsyncMock()
+    return redis
+
+
+@patch("app.userbot.poller.limiter")
+async def test_full_batch_incremental_warns_and_counts(mock_limiter, caplog):
+    """cursor>0 и len(batch)==FETCH_LIMIT → warning + INCR stats:full_batch:{chat}."""
+    import logging
+    from app.userbot.poller import FETCH_LIMIT
+
+    mock_limiter.acquire = AsyncMock()
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    acc.get_messages = AsyncMock(
+        return_value=[_make_msg(1000 + i) for i in range(FETCH_LIMIT)]
+    )
+    fake_redis = _make_fake_redis()
+    with patch("app.cache.get_redis", new=AsyncMock(return_value=fake_redis)):
+        with caplog.at_level(logging.WARNING, logger="app.userbot.poller"):
+            msgs = await poller._fetch_all_since(acc, MagicMock(), "busy_ch", cursor=500)
+
+    assert len(msgs) == FETCH_LIMIT
+    assert any("busy_ch" in r.getMessage() for r in caplog.records)
+    fake_redis.incr.assert_awaited_once_with("stats:full_batch:busy_ch")
+
+
+@patch("app.userbot.poller.limiter")
+async def test_full_batch_first_acquaintance_silent(mock_limiter, caplog):
+    """cursor==0: полный батч ОЖИДАЕМ (последние N большого канала) — тишина."""
+    import logging
+    from app.userbot.poller import FETCH_LIMIT
+
+    mock_limiter.acquire = AsyncMock()
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    acc.get_messages = AsyncMock(
+        return_value=[_make_msg(1000 + i) for i in range(FETCH_LIMIT)]
+    )
+    fake_redis = _make_fake_redis()
+    with patch("app.cache.get_redis", new=AsyncMock(return_value=fake_redis)):
+        with caplog.at_level(logging.WARNING, logger="app.userbot.poller"):
+            await poller._fetch_all_since(acc, MagicMock(), "big_ch", cursor=0)
+
+    assert not caplog.records
+    fake_redis.incr.assert_not_awaited()
+
+
+@patch("app.userbot.poller.limiter")
+async def test_partial_batch_incremental_silent(mock_limiter, caplog):
+    """cursor>0, батч меньше лимита — обычный инкремент, тишина."""
+    import logging
+
+    mock_limiter.acquire = AsyncMock()
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    acc.get_messages = AsyncMock(return_value=[_make_msg(501), _make_msg(502)])
+    fake_redis = _make_fake_redis()
+    with patch("app.cache.get_redis", new=AsyncMock(return_value=fake_redis)):
+        with caplog.at_level(logging.WARNING, logger="app.userbot.poller"):
+            await poller._fetch_all_since(acc, MagicMock(), "calm_ch", cursor=500)
+
+    assert not caplog.records
+    fake_redis.incr.assert_not_awaited()
+
+
+@patch("app.userbot.poller.limiter")
+async def test_fetch_error_logged_not_silent(mock_limiter, caplog):
+    """Техдолг №2: except Exception больше не немой — warning, поток тот же ([])."""
+    import logging
+
+    mock_limiter.acquire = AsyncMock()
+    poller = ChannelPoller()
+    acc = _make_account(1)
+    acc.get_messages = AsyncMock(side_effect=ValueError("boom"))
+    with caplog.at_level(logging.WARNING, logger="app.userbot.poller"):
+        msgs = await poller._fetch_all_since(acc, MagicMock(), "err_ch", cursor=500)
+
+    assert msgs == []
+    assert any("err_ch" in r.getMessage() for r in caplog.records)
+
+
+# ═══════════════════════════════════════════════════════════════════
 # _get_effective_interval + post_ban
 # ═══════════════════════════════════════════════════════════════════
 

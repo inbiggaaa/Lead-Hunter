@@ -220,7 +220,8 @@ docker rm -f lh_test_db lh_test_redis   # после прогона
 `_filter_by_domain`: `_match_keyword` (word-boundary+негация) вместо substring; сегмент без domain-слов — pass-through + logger.debug (дыра видима). Зеркало в tools/eval_matching.py синхронизировано. Корпус-проверка: reality-блоков 282→413 (+131 ложное подтверждение устранено — «спа» в «спасибо», «байк» в «байком»-болтовне), задетых 👍-лидов 0, выборка новых блоков — шум/реклама. 6 тестов test_reality_filter.py.
 **Что сделать:** `_filter_by_domain` — заменить substring на `_match_keyword` (или токен-set после B2); для сегментов без domain-слов добавить `logger.debug` (видимость дыры), политику «пропускать» сохранить. Проверить короткие синонимы («спа») тестом.
 
-### [ ] C4. Честная история с лимитом 100 сообщений
+### [x] C4. Честная история с лимитом 100 сообщений — DONE 10.07.2026
+Docstring/комментарий приведены к правде («single call, no pagination»); полный батч на инкрементальном опросе (cursor>0, len==FETCH_LIMIT) → logger.warning + Redis INCR `stats:full_batch:{chat}` (TTL 30д); при cursor==0 полный батч ожидаем — тишина. Решение «без пагинации до появления данных» зафиксировано: DECISIONS #78. Попутно закрыт техдолг №2 (CLAUDE.md): немой `except Exception: return []` в _fetch_all_since теперь logger.warning, поток не изменён. 4 теста в test_poller_fixes.py.
 **Контекст:** `_fetch_all_since` — один вызов без пагинации, docstring `_poll_channel` обещает пагинацию; >100 сообщений между опросами теряются молча.
 **Что сделать (минимально, без роста API-нагрузки):** привести docstring в соответствие; при `len(batch) == FETCH_LIMIT` — `logger.warning` («канал X: возможен пропуск, батч полный») + Redis-счётчик `stats:full_batch:{chat}` для оценки масштаба. Полную пагинацию НЕ делать до появления данных, что проблема реальна (решение зафиксировать в DECISIONS).
 
