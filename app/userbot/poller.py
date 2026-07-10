@@ -114,6 +114,12 @@ class ChannelPoller:
         # B4: lead direction from DB (segments.lead_direction), set by _load_keywords
         self._pass3_skip_segments: set[str] = set()   # 'buy' + 'supply'
         self._supply_segments: set[str] = set()       # 'supply' → LLM prompt inversion
+        # C5: in-memory segment lookups for _dispatch (refreshed with keywords)
+        self._seg_by_slug: dict[str, int] = {}
+        self._seg_info: dict[str, dict[str, str]] = {}
+        # C5: channel geo memo {chat: (country_id, city_ids, in_catalog)} —
+        # cleared on keyword reload, saves 2 DB queries per match
+        self._channel_geo: dict[str, tuple[int | None, set[int], bool]] = {}
         self._channel_segments: dict[str, list[str]] = {}
         self._active_countries: set[int] = set()  # country IDs with subscribers
         # Per-tier channel lists — rebuilt on keyword reload and periodically
@@ -1544,24 +1550,49 @@ class ChannelPoller:
 
     # ═══════════════ DISPATCH ═══════════════
 
-    async def _dispatch(
-        self, chat_username, message_text, message_id,
-        matched_segments, is_urgent, sender,
-    ):
-        """Find interested users matching BOTH segment AND geo, push to queue."""
-        from app.cache.subscription_cache import (
-            get_interested_users, push_notification, build_message_hash,
-            compute_content_hash, rebuild_subscription_cache,
-        )
-        from app.db.models import CatalogChannel, ChannelCity, Segment
+    def _set_seg_maps(self, seg_rows) -> None:
+        """C5: refresh in-memory segment lookups used by _dispatch.
+
+        Called from _load_keywords (startup + 5-min reload). The channel geo
+        memo shares the same freshness cadence, so it is reset here too.
+        """
+        self._seg_by_slug = {s.slug: s.id for s in seg_rows}
+        self._seg_info = {
+            s.slug: {
+                "emoji": (s.emoji or ""),
+                "ru": (s.title_ru or s.slug),
+                "en": (s.title_en or s.slug),
+            }
+            for s in seg_rows
+        }
+        self._channel_geo.clear()
+
+    async def _ensure_seg_maps(self) -> None:
+        """Lazy fallback: _dispatch reached before _load_keywords populated maps."""
+        if self._seg_by_slug:
+            return
+        from app.db.models import Segment
         from sqlalchemy import select as sa_select
 
-        message_hash = build_message_hash(chat_username, message_id)
-        users = await get_interested_users(chat_username)
+        async with async_session_factory() as session:
+            segs = (await session.execute(sa_select(Segment))).scalars().all()
+        self._set_seg_maps(segs)
 
-        if not users:
-            await rebuild_subscription_cache(chat_username)
-            users = await get_interested_users(chat_username)
+    async def _get_channel_geo(
+        self, chat_username: str,
+    ) -> tuple[int | None, set[int], bool]:
+        """Channel geo for _dispatch, memoized until keyword reload (C5).
+
+        Returns (country_id, effective_city_ids, in_catalog). Channels not in
+        the catalog (user-added via watched_chats) have no geo metadata —
+        geo filters are skipped entirely for them: match by segment alone.
+        """
+        cached = self._channel_geo.get(chat_username)
+        if cached is not None:
+            return cached
+
+        from app.db.models import CatalogChannel, ChannelCity
+        from sqlalchemy import select as sa_select
 
         async with async_session_factory() as session:
             ch = (await session.execute(
@@ -1571,31 +1602,45 @@ class ChannelPoller:
             )).scalar_one_or_none()
 
             if ch is not None:
-                channel_country_id = ch.auto_matched_country_id
-                channel_city_id = ch.auto_matched_city_id
-                effective_city_ids = {channel_city_id} if channel_city_id else set()
+                city_ids = (
+                    {ch.auto_matched_city_id} if ch.auto_matched_city_id else set()
+                )
                 cc_rows = (await session.execute(
                     sa_select(ChannelCity.city_id).where(ChannelCity.channel_id == ch.id)
                 )).scalars().all()
-                effective_city_ids.update(cc_rows)
+                city_ids.update(cc_rows)
+                geo = (ch.auto_matched_country_id, city_ids, True)
             else:
-                # Channel not in catalog (user-added via watched_chats) — no geo
-                # metadata exists. Geo filters are skipped entirely below:
-                # subscriptions match by segment alone.
-                channel_country_id = None
-                effective_city_ids = set()
+                geo = (None, set(), False)
 
-        async with async_session_factory() as session:
-            segs = (await session.execute(sa_select(Segment))).scalars().all()
-        seg_by_slug = {s.slug: s.id for s in segs}
-        seg_info = {
-            s.slug: {
-                "emoji": (s.emoji or ""),
-                "ru": (s.title_ru or s.slug),
-                "en": (s.title_en or s.slug),
-            }
-            for s in segs
-        }
+        self._channel_geo[chat_username] = geo
+        return geo
+
+    async def _dispatch(
+        self, chat_username, message_text, message_id,
+        matched_segments, is_urgent, sender,
+    ):
+        """Find interested users matching BOTH segment AND geo, push to queue."""
+        from app.cache.subscription_cache import (
+            get_interested_users, push_notification, build_message_hash,
+            compute_content_hash, rebuild_subscription_cache,
+        )
+
+        message_hash = build_message_hash(chat_username, message_id)
+        users = await get_interested_users(chat_username)
+
+        if not users:
+            await rebuild_subscription_cache(chat_username)
+            users = await get_interested_users(chat_username)
+
+        # C5: channel geo memoized, segment maps in-memory — no per-match
+        # DB queries once caches are warm.
+        channel_country_id, effective_city_ids, in_catalog = (
+            await self._get_channel_geo(chat_username)
+        )
+        await self._ensure_seg_maps()
+        seg_by_slug = self._seg_by_slug
+        seg_info = self._seg_info
         matched_segment_ids = {seg_by_slug.get(s) for s in matched_segments}
         matched_segment_ids.discard(None)
 
@@ -1611,12 +1656,12 @@ class ChannelPoller:
             match_type = None  # "segment" or "keyword"
 
             # ── Segment branch (Вариант А) ──
-            # Geo filters apply only to catalog channels (ch found); user-added
-            # channels have no geo metadata → match by segment alone.
+            # Geo filters apply only to catalog channels; user-added channels
+            # have no geo metadata → match by segment alone.
             # Skipped for keyword_only messages (matched_segment_ids empty).
             if matched_segment_ids:
                 for sub in subscriptions:
-                    if ch is not None:
+                    if in_catalog:
                         if sub["country_id"] != channel_country_id:
                             continue
                         if sub.get("city_ids") and effective_city_ids:
@@ -1698,6 +1743,9 @@ class ChannelPoller:
             s.slug for s in seg_rows if s.lead_direction == "buy"
         }
         llm_validator.set_supply_segments(self._supply_segments)
+
+        # C5: segment lookups for _dispatch + channel geo memo reset
+        self._set_seg_maps(seg_rows)
 
         keyword_map: dict[str, dict[str, list[str]]] = {}
         domain_word_map: dict[str, list[str]] = {}

@@ -225,7 +225,8 @@ Docstring/комментарий приведены к правде («single ca
 **Контекст:** `_fetch_all_since` — один вызов без пагинации, docstring `_poll_channel` обещает пагинацию; >100 сообщений между опросами теряются молча.
 **Что сделать (минимально, без роста API-нагрузки):** привести docstring в соответствие; при `len(batch) == FETCH_LIMIT` — `logger.warning` («канал X: возможен пропуск, батч полный») + Redis-счётчик `stats:full_batch:{chat}` для оценки масштаба. Полную пагинацию НЕ делать до появления данных, что проблема реальна (решение зафиксировать в DECISIONS).
 
-### [ ] C5. Кэш подписок: подготовка к масштабу
+### [x] C5. Кэш подписок: подготовка к масштабу — DONE 10.07.2026
+rebuild_subscription_cache: 4 плоских SELECT (users/subscriptions/keywords/subscription_cities) + join в памяти вместо 3×N; пользователи без подписок и keywords в кэш не попадают; формат записей не изменён (тест на ключи и содержимое). _dispatch: `_seg_by_slug`/`_seg_info` in-memory из seg_rows в _load_keywords (лишнего запроса нет — строки уже читались для B4), lazy-фолбэк `_ensure_seg_maps` для холодного пути; гео канала (`CatalogChannel`+`ChannelCity`) — мемо `_channel_geo`, сбрасывается при reload keywords. На тёплых кэшах — 0 DB-запросов на матч (тест с factory-заглушкой, кидающей AssertionError). 4 теста test_subscription_cache_scale.py; test_variant_b без регрессий.
 **Что сделать:**
 - `rebuild_subscription_cache`: убрать N+1 (три запроса: users + subscriptions + keywords, join в памяти); в кэш класть только пользователей, у которых есть хоть одна подписка или keyword.
 - `_dispatch`: список сегментов (`seg_by_slug`, `seg_info`) кэшировать в поллере in-memory, обновлять при reload keywords (5 мин), убрать 2 DB-запроса с каждого матча; загрузку `ChannelCity` тоже кэшировать per-rebuild.
