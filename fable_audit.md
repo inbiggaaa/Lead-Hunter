@@ -232,7 +232,8 @@ rebuild_subscription_cache: 4 плоских SELECT (users/subscriptions/keyword
 - `_dispatch`: список сегментов (`seg_by_slug`, `seg_info`) кэшировать в поллере in-memory, обновлять при reload keywords (5 мин), убрать 2 DB-запроса с каждого матча; загрузку `ChannelCity` тоже кэшировать per-rebuild.
 **Тесты:** rebuild возвращает тот же формат; dispatch без прямых Segment-запросов.
 
-### [ ] Деплой фазы C + phase-review. Тег `audit-phase-c-done`.
+### [~] Деплой фазы C — ЗАМЕНЁН офлайн-верификацией (git-стратегия, 10.07.2026)
+Живое переключение — отдельным решением владельца. Офлайн-верификация 10.07.2026: полный сьют 222 passed / 3 pre-existing failed / 1 deselected; C2 принят по обязательному eval-diff (окно 20: lost 80 / gained 0 / liked_lost 0); C3 — корпус-проверка (0 задетых 👍); ручное ревью диффа фазы (взамен отсутствующего /skill:phase-review). Прод-эффект C2 управляем конфигом `KEYWORD_MATCH_WINDOW`. Тег `audit-phase-c-done` — при живом переключении.
 
 ---
 
