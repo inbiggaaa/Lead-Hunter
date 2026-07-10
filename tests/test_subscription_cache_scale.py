@@ -164,6 +164,8 @@ async def test_dispatch_warm_caches_no_db():
          patch("app.cache.subscription_cache.push_notification", new=_push), \
          patch("app.cache.subscription_cache.rebuild_subscription_cache",
                new=AsyncMock()), \
+         patch("app.cache.subscription_cache.increment_daily_stats",
+               new=AsyncMock()), \
          patch("app.userbot.poller.async_session_factory", new=_no_db):
         await poller._dispatch(
             chat_username="c5_chat", message_text="нужен тест",
@@ -181,3 +183,39 @@ async def test_geo_memo_cleared_on_seg_maps_refresh():
     poller._channel_geo["stale_chat"] = (1, set(), True)
     poller._set_seg_maps([])
     assert poller._channel_geo == {}
+
+
+# ── D2: счётчик matched растёт при постановке в очередь ──
+
+
+async def test_dispatch_increments_matched_counter():
+    """Каждая постановка в очередь инкрементит stats:daily:{uid}:{date}:matched —
+    иначе EOD/недельные отчёты пусты (D2)."""
+    poller = ChannelPoller()
+    poller._seg_by_slug = {"c5-seg": 42}
+    poller._seg_info = {"c5-seg": {"emoji": "✨", "ru": "Тест", "en": "Test"}}
+    poller._channel_geo["c5_chat"] = (7, set(), True)
+
+    users = [{
+        "user_id": 1, "telegram_id": 95_000_001, "lang": "ru", "plan": "free",
+        "subscriptions": [{"segment_id": 42, "country_id": 7, "city_ids": []}],
+        "keyword_texts": [],
+    }]
+
+    with patch("app.cache.subscription_cache.get_interested_users",
+               new=AsyncMock(return_value=users)), \
+         patch("app.cache.subscription_cache.push_notification",
+               new=AsyncMock()), \
+         patch("app.cache.subscription_cache.rebuild_subscription_cache",
+               new=AsyncMock()), \
+         patch("app.cache.subscription_cache.increment_daily_stats",
+               new=AsyncMock()) as inc:
+        await poller._dispatch(
+            chat_username="c5_chat", message_text="нужен тест",
+            message_id=2, matched_segments=["c5-seg"],
+            is_urgent=False, sender=None,
+        )
+
+    inc.assert_awaited_once()
+    args = inc.call_args.args
+    assert args[0] == 1 and args[2] == "matched"

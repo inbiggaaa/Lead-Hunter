@@ -246,7 +246,8 @@ rebuild_subscription_cache: 4 плоских SELECT (users/subscriptions/keyword
 **Реализация:** sender.py `_format_notification` (убрать ссылку `t.me/{chat}/{msg_id}` для Free, оставить `@chat` plain-текстом) и `_build_keyboard` (убрать кнопку «💬 Чат» из Free-ветки, кнопку «💰 Активировать подписку» оставить); тексты в locales; зафиксировать решение в DECISIONS.md.
 **Тесты:** формат и клавиатура на каждый тариф (free/pro/business): Free — ни одной ссылки на чат/отправителя; Paid — ссылки на месте.
 
-### [ ] D2. Мелочи sender/статистики
+### [x] D2. Мелочи sender/статистики — DONE 10.07.2026
+`increment_daily_stats(user_id, today, "matched")` в `_dispatch` после push_notification — EOD/недельные отчёты перестанут быть пустыми («sent» по-прежнему инкрементит sender после фактической доставки). Ветка `plan == "trial"` не тронута (отмена от 09.07 — она живая). 1 тест (counter растёт), warm-тест C5 дополнен патчем.
 - ~~Убрать мёртвую ветку `plan == "trial"`~~ ОТМЕНЕНО (09.07, A4): план "trial" реально записывается в users.plan при активации триала (catalog_nav.py:620) — ветка живая, вывод аудита ошибочен. Не трогать.
 - Начать инкрементить `stats:daily:*:matched` (вызов `increment_daily_stats(..., "matched")` в `_dispatch` при постановке в очередь) — иначе EOD/недельные отчёты пусты.
 - Тест: счётчики растут.

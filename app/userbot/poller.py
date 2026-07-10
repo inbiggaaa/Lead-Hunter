@@ -1624,6 +1624,7 @@ class ChannelPoller:
         from app.cache.subscription_cache import (
             get_interested_users, push_notification, build_message_hash,
             compute_content_hash, rebuild_subscription_cache,
+            increment_daily_stats,
         )
 
         message_hash = build_message_hash(chat_username, message_id)
@@ -1713,6 +1714,11 @@ class ChannelPoller:
                 "is_urgent": is_urgent,
                 "matched_segments": matched_names,
             })
+
+            # D2: matched-статистика — иначе EOD/недельные отчёты пусты.
+            # «sent» инкрементит sender после фактической доставки.
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            await increment_daily_stats(user["user_id"], today, "matched")
 
     # ═══════════════ KEYWORD LOADING ═══════════════
 
