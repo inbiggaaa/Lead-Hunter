@@ -305,7 +305,9 @@ segments (
     title_en    TEXT,
     emoji       VARCHAR(8),
     sort_order  INT DEFAULT 0,
-    is_active   BOOLEAN DEFAULT true
+    is_active   BOOLEAN DEFAULT true,
+    is_quarantined BOOLEAN DEFAULT false, -- A3: матчится+логируется, НЕ диспатчится
+    lead_direction VARCHAR(10) DEFAULT 'demand' -- B4: demand/buy/supply
 )
 
 segment_keywords (

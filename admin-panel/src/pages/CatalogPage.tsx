@@ -46,6 +46,12 @@ interface SegmentItem extends CrudItem {
   title_en: string;
   sort_order: number;
   is_active: boolean;
+  is_quarantined: boolean;
+}
+
+interface SegmentFeedback {
+  relevant: number;
+  not_relevant: number;
 }
 
 interface KeywordItem {
@@ -378,6 +384,25 @@ function SegmentsTab() {
     queryFn: () => api(`/api/segments?page=${page}&per_page=50`),
   });
 
+  // A3: 👍/👎 по сегментам за 30 дней — источник решений о карантине
+  const { data: fbStats } = useQuery<Record<string, SegmentFeedback>>({
+    queryKey: ["segment-feedback"],
+    queryFn: () => api(`/api/stats/segment-feedback`),
+  });
+
+  const quarantineMutation = useMutation({
+    mutationFn: ({ id, value }: { id: number; value: boolean }) =>
+      api(`/api/segments/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ is_quarantined: value }),
+      }),
+    onSuccess: (_d, v) => {
+      queryClient.invalidateQueries({ queryKey: ["segments"] });
+      toast.success(v.value ? "Сегмент в карантине (раздача остановлена)" : "Карантин снят");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const saveMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       editing
@@ -435,12 +460,18 @@ function SegmentsTab() {
               <TableHead>EN</TableHead>
               <TableHead className="w-20">Порядок</TableHead>
               <TableHead className="w-20">Активен</TableHead>
+              <TableHead className="w-24">👍/👎 30д</TableHead>
+              <TableHead className="w-32">Карантин</TableHead>
               <TableHead className="w-24" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {data?.items.map((item) => {
               const seg = item as SegmentItem;
+              const fb = fbStats?.[seg.slug];
+              const rated = (fb?.relevant ?? 0) + (fb?.not_relevant ?? 0);
+              const isCandidate =
+                !seg.is_quarantined && rated >= 5 && (fb!.relevant / rated) < 0.2;
               return (
                 <TableRow key={seg.id}>
                   <TableCell className="text-lg">{seg.emoji}</TableCell>
@@ -450,6 +481,41 @@ function SegmentsTab() {
                   <TableCell className="text-center">{seg.sort_order}</TableCell>
                   <TableCell>
                     {seg.is_active ? <Badge variant="default">Да</Badge> : <Badge variant="secondary">Нет</Badge>}
+                  </TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">
+                    {rated > 0 ? `${fb!.relevant} / ${fb!.not_relevant}` : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      {seg.is_quarantined ? (
+                        <Badge
+                          variant="destructive"
+                          className="cursor-pointer"
+                          title="Снять карантин — вернуть раздачу"
+                          onClick={() => quarantineMutation.mutate({ id: seg.id, value: false })}
+                        >
+                          🚫 карантин
+                        </Badge>
+                      ) : isCandidate ? (
+                        <Badge
+                          variant="outline"
+                          className="cursor-pointer border-orange-400 text-orange-600"
+                          title={`precision <20% при ${rated} оценках — нажмите, чтобы остановить раздачу`}
+                          onClick={() => quarantineMutation.mutate({ id: seg.id, value: true })}
+                        >
+                          ⚠️ кандидат
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="cursor-pointer text-muted-foreground"
+                          title="Остановить раздачу сегмента (матчинг и лог продолжатся)"
+                          onClick={() => quarantineMutation.mutate({ id: seg.id, value: true })}
+                        >
+                          вкл
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">

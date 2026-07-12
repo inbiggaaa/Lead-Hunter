@@ -198,6 +198,11 @@ class Segment(Base):
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # A3 (quarantine01): карантин — сегмент матчится и логируется в
+    # llm_decisions (датасет), но НЕ диспатчится пользователям
+    is_quarantined: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     # Who the lead is / what shape their message has (B4, migration lead_direction01):
     #   'demand' — лид ищет услугу («ищу мастера»); Pass 3 активен
     #   'buy'    — лид покупает/снимает с бюджетом+контактом («куплю авто»,

@@ -92,7 +92,14 @@
 **Что сделать:** счётчик `stats:llm:fail_open:{date}` (INT, TTL 7д) при каждом fail-open в `llm_validator`; проверка в существующем `_run_alert_checks` (poller alert loop): доля fail-open за час > 20% → WARNING, > 50% → CRITICAL в @leadhunterai_admin, с троттлингом как у остальных алертов.
 **Приёмка:** unit-тест: смоканная ошибка LLM инкрементит счётчик; тест алерта по порогу; ключи задокументированы в CLAUDE.md §5б.
 
-### [ ] A3. Отчёт «👎-rate по сегментам» + карантин сегмента
+### [x] A3. Отчёт «👎-rate по сегментам» + карантин сегмента
+**Выполнено: 12.07.2026 (ветка core/quality-v2). Примечания:**
+- Миграция `quarantine01` (обратимая, отрепетирована up/down на копии бэкапа) + `Segment.is_quarantined`. Generic CRUD админки подхватил колонку автоматически — PUT /api/segments/{id} работает без правок API.
+- Поллер: `_quarantined_slugs` обновляется в `_set_seg_maps` (5-мин reload); фильтр в `_flush_pending_matches` ПОСЛЕ `_log_llm_decision` (датасет копится) и ДО `_dispatch`; keyword_only-матчи не задеваются; счётчик quarantined в лог батча.
+- Эндпоинт `GET /api/stats/segment-feedback?days=30` — 👍/👎 по сегментам (LATERAL к llm_decisions, legacy-slug'и отсечены JOIN'ом на segments). Проверен на живой БД: кандидаты видны (design 0/16, repair 1/9, massage 0/8, fitness 0/7).
+- Фронт (/catalog → Направления): колонки «👍/👎 30д» и «Карантин» — badge-toggle (🚫 карантин / ⚠️ кандидат при ≥5 оценок и precision<20% / вкл). Чекбокс в диалог не добавлялся — row-toggle достаточен, generic PUT не сбрасывает неприсланные поля. Статика пересобрана (npm build → app/admin/static).
+- 6 тестов test_a3_quarantine.py; сьют 255 passed / 3 pre-existing failed / 1 deselected.
+- ⚠️ К деплою фазы: накатить `quarantine01` ДО старта worker (SELECT Segment упадёт на отсутствующей колонке — как lead_direction01).
 **Зачем:** сегменты-паразиты (massage 0/8, design 0/16, fitness 0/7, repair 1/9) продолжают слать мусор; решения по ним сейчас принимать не из чего и нечем.
 **Что сделать:**
 - Админка: секция на дашборде или в /catalog — по-сегментно 👍/👎/precision за 30 дней (фидбек уже связывается с сегментом через llm_decisions — переиспользовать логику eval).

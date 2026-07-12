@@ -117,6 +117,7 @@ class ChannelPoller:
         # C5: in-memory segment lookups for _dispatch (refreshed with keywords)
         self._seg_by_slug: dict[str, int] = {}
         self._seg_info: dict[str, dict[str, str]] = {}
+        self._quarantined_slugs: set[str] = set()  # A3
         # C5: channel geo memo {chat: (country_id, city_ids, in_catalog)} —
         # cleared on keyword reload, saves 2 DB queries per match
         self._channel_geo: dict[str, tuple[int | None, set[int], bool]] = {}
@@ -689,6 +690,7 @@ class ChannelPoller:
         blocked = 0
         passed = 0
         skipped_llm = 0
+        quarantined = 0
 
         for match, llm_result in zip(matches, results):
             match.llm_result = llm_result
@@ -713,6 +715,16 @@ class ChannelPoller:
                 blocked += 1
                 continue
 
+            # A3: карантинные сегменты уже залогированы (llm_decision выше),
+            # но в раздачу не идут; keyword_only-матчи карантин не задевает.
+            active_segments = [
+                s for s in match.candidate_segments
+                if s not in self._quarantined_slugs
+            ]
+            if not active_segments and not match.keyword_only:
+                quarantined += 1
+                continue
+
             # Dispatch
             if match.skip_llm or is_high_confidence_demand(match.text):
                 skipped_llm += 1
@@ -722,13 +734,13 @@ class ChannelPoller:
             logger.info(
                 "%sMatch in @%s (msg %d): segments=%s [LLM: %s]",
                 urgency, match.chat_username, match.message_id,
-                match.candidate_segments, llm_result.verdict,
+                active_segments, llm_result.verdict,
             )
             await self._dispatch(
                 chat_username=match.chat_username,
                 message_text=match.text,
                 message_id=match.message_id,
-                matched_segments=match.candidate_segments,
+                matched_segments=active_segments,
                 is_urgent=match.is_urgent,
                 sender=match.sender,
             )
@@ -736,8 +748,8 @@ class ChannelPoller:
         if matches:
             logger.info(
                 "LLM batch flush: %d msgs validated in %.1fs — "
-                "%d passed, %d blocked, %d skipped (high-conf)",
-                len(matches), elapsed, passed, blocked, skipped_llm,
+                "%d passed, %d blocked, %d skipped (high-conf), %d quarantined",
+                len(matches), elapsed, passed, blocked, skipped_llm, quarantined,
             )
 
     @staticmethod
@@ -1612,6 +1624,10 @@ class ChannelPoller:
                 "en": (s.title_en or s.slug),
             }
             for s in seg_rows
+        }
+        # A3: карантинные сегменты матчатся и логируются, но не диспатчатся
+        self._quarantined_slugs = {
+            s.slug for s in seg_rows if getattr(s, "is_quarantined", False)
         }
         self._channel_geo.clear()
 

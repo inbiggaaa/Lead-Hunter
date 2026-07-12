@@ -298,3 +298,43 @@ async def popular_stats():
         "top_segments": top_segments,
         "top_segments_by_leads": top_by_leads,
     }
+
+
+@router.get("/segment-feedback")
+async def segment_feedback_stats(days: int = 30):
+    """A3: 👍/👎 по сегментам за N дней — источник решений о карантине.
+
+    Сегменты оценённого уведомления берутся из последнего llm_decision по тому
+    же сообщению (llm_segments, иначе rule_segments); legacy-slug'и, которых
+    нет в текущем каталоге, отсекаются JOIN'ом на segments.
+    """
+    from sqlalchemy import text
+
+    sql = text(
+        """
+        SELECT x.slug,
+               count(*) FILTER (WHERE x.verdict = 'relevant')      AS relevant,
+               count(*) FILTER (WHERE x.verdict = 'not_relevant')  AS not_relevant
+        FROM (
+            SELECT f.verdict,
+                   unnest(coalesce(nullif(d.llm_segments, '{}'), d.rule_segments)) AS slug
+            FROM feedback f
+            JOIN LATERAL (
+                SELECT llm_segments, rule_segments
+                FROM llm_decisions d
+                WHERE d.chat_username = f.chat_username
+                  AND d.message_id = f.message_id
+                ORDER BY d.id DESC LIMIT 1
+            ) d ON true
+            WHERE f.created_at > now() - make_interval(days => :days)
+        ) x
+        JOIN segments s ON s.slug = x.slug
+        GROUP BY x.slug
+        """
+    )
+    async with async_session_factory() as session:
+        rows = (await session.execute(sql, {"days": days})).all()
+    return {
+        r.slug: {"relevant": r.relevant, "not_relevant": r.not_relevant}
+        for r in rows
+    }
