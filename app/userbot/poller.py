@@ -1954,7 +1954,12 @@ class ChannelPoller:
                     llm_segments=llm_result.relevant_segments or [],
                     llm_reason=llm_result.reason,
                     certainty=llm_result.certainty,
-                    llm_mode=settings.llm_mode,
+                    # B5: кэш-хиты помечаются отдельно — датасет fine-tune
+                    # не засоряется дублями решений
+                    llm_mode=(
+                        "cache" if getattr(llm_result, "from_cache", False)
+                        else settings.llm_mode
+                    ),
                     prompt_tokens=llm_result.prompt_tokens or None,
                     completion_tokens=llm_result.completion_tokens or None,
                     total_tokens=llm_result.total_tokens or None,

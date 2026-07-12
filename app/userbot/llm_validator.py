@@ -27,6 +27,84 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _llm_cache_key(text: str) -> str:
+    """B5: ключ кэша вердиктов — sha256 нормализованного текста БЕЗ чата.
+
+    Нормализация как в compute_content_hash (lower, схлоп пробелов, 500 симв.),
+    но без chat_username: репост одного объявления в N чатов должен попадать
+    в один ключ. Классификация детерминирована по тексту → одинаковый текст
+    даёт одинаковые rule_segments, кэшировать вердикт безопасно.
+    """
+    import hashlib
+
+    normalized = " ".join((text or "")[:500].lower().split())
+    return f"llm:verdict:{hashlib.sha256(normalized.encode()).hexdigest()}"
+
+
+_CACHE_TTL = 86400  # 24ч — как окно контентного дедупа доставки
+
+
+async def _cache_get_verdicts(
+    items: "list[tuple[int, PendingMatch]]",
+) -> "dict[int, LLMResult]":
+    """Достаёт кэшированные вердикты; ошибки Redis → пустой результат (miss)."""
+    if not items:
+        return {}
+    try:
+        from app.cache import get_redis
+        redis = await get_redis()
+        raw = await redis.mget([_llm_cache_key(m.text) for _, m in items])
+        hits: dict[int, LLMResult] = {}
+        for (idx, _m), val in zip(items, raw):
+            if not val:
+                continue
+            data = json.loads(val)
+            hits[idx] = LLMResult(
+                verdict=data["verdict"],
+                relevant_segments=data.get("segments", []),
+                reason=data.get("reason", ""),
+                certainty=data.get("certainty", "low"),
+                from_cache=True,
+            )
+        if hits:
+            date = time.strftime("%Y-%m-%d", time.gmtime())
+            pipe = redis.pipeline()
+            pipe.incrby(f"stats:llm:cache_hit:{date}", len(hits))
+            pipe.expire(f"stats:llm:cache_hit:{date}", 7 * 86400)
+            await pipe.execute()
+        return hits
+    except Exception:
+        logger.warning("LLM verdict cache read failed — treating as miss", exc_info=True)
+        return {}
+
+
+async def _cache_put_verdicts(
+    items: "list[tuple[int, PendingMatch]]", results: "dict[int, LLMResult]",
+) -> None:
+    """Кладёт успешные (не fail-open) вердикты в кэш; ошибки Redis глотаются."""
+    try:
+        from app.cache import get_redis
+        redis = await get_redis()
+        pipe = redis.pipeline()
+        stored = 0
+        for idx, m in items:
+            r = results.get(idx)
+            if r is None or r.error:
+                continue
+            payload = json.dumps({
+                "verdict": r.verdict,
+                "segments": r.relevant_segments or [],
+                "reason": r.reason,
+                "certainty": r.certainty,
+            }, ensure_ascii=False)
+            pipe.setex(_llm_cache_key(m.text), _CACHE_TTL, payload)
+            stored += 1
+        if stored:
+            await pipe.execute()
+    except Exception:
+        logger.warning("LLM verdict cache write failed", exc_info=True)
+
+
 async def _record_llm_stats(results: "list[LLMResult]") -> None:
     """A2: почасовые счётчики fail-open — все fail-open пути ставят LLMResult.error.
 
@@ -179,6 +257,7 @@ class LLMResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    from_cache: bool = False  # B5: вердикт взят из кэша репостов, LLM не вызывалась
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -286,13 +365,21 @@ class LLMValidator:
         if not needs_llm:
             return [r for r in results if r is not None]
 
+        # B5: репосты одного объявления в N чатов — вердикт из кэша, без LLM
+        cached = await _cache_get_verdicts(needs_llm)
+        for idx, r in cached.items():
+            results[idx] = r
+        to_llm = [(i, m) for i, m in needs_llm if i not in cached]
+
         # Process in batches of MAX_BATCH_SIZE
         all_batch_results: dict[int, LLMResult] = {}
 
-        for batch_start in range(0, len(needs_llm), MAX_BATCH_SIZE):
-            batch_items = needs_llm[batch_start:batch_start + MAX_BATCH_SIZE]
+        for batch_start in range(0, len(to_llm), MAX_BATCH_SIZE):
+            batch_items = to_llm[batch_start:batch_start + MAX_BATCH_SIZE]
             batch_results = await self._call_llm_batch(batch_items)
             all_batch_results.update(batch_results)
+
+        await _cache_put_verdicts(to_llm, all_batch_results)
 
         # Merge: fill in LLM results for messages that needed validation
         for i, r in enumerate(results):
@@ -304,8 +391,8 @@ class LLMValidator:
                 ))
 
         # A2: метрика fail-open — ТОЛЬКО по сообщениям, реально ходившим к LLM
-        # (skip_llm/high-confidence не разбавляют знаменатель алерта)
-        await _record_llm_stats([results[i] for i, _ in needs_llm])
+        # (skip_llm/high-confidence/кэш-хиты не разбавляют знаменатель алерта)
+        await _record_llm_stats([results[i] for i, _ in to_llm])
 
         return [r for r in results if r is not None]
 
