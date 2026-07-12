@@ -48,6 +48,17 @@ def _lemmatize_text(text: str) -> str:
     return " ".join(lemmas)
 
 
+def _is_verb(word: str) -> bool:
+    """True для русских глаголов (VERB/INFN по pymorphy). Без морфологии — False."""
+    if _morph is None:
+        return False
+    try:
+        parsed = _morph.parse(word)
+        return bool(parsed) and parsed[0].tag.POS in ("VERB", "INFN")
+    except Exception:
+        return False
+
+
 # ── Universal stop-phrases ──
 # Moved to DB (segment_keywords with segment_id=NULL, keyword_type='stop').
 # Loaded at startup via poller._load_keywords() and passed as universal_stops parameter.
@@ -292,11 +303,15 @@ class _MatchCtx:
 class CompiledKeyword:
     """One demand/synonym keyword with every derivable artifact precomputed."""
 
-    __slots__ = ("words", "lemma_words", "fuzzy")
+    __slots__ = ("words", "lemma_words", "fuzzy", "single_verb")
 
     def __init__(self, kw: str):
         raw_words = kw.split()
         self.words = [_compile_word(w) for w in raw_words]
+
+        # A1: одиночный глагол («продам», «куплю») — в buy/supply-сегментах
+        # засчитывается только рядом с domain-словом (match_near).
+        self.single_verb = len(raw_words) == 1 and _is_verb(raw_words[0])
 
         # Lemma form of the whole keyword (was recomputed per message before)
         kw_lemma = _lemmatize_text(kw)
@@ -365,6 +380,74 @@ class CompiledKeyword:
                     return True
         return False
 
+    def match_near(
+        self,
+        ctx: "_MatchCtx",
+        lemma_differs: bool,
+        domain_pairs: list[tuple[_CompiledWord, _CompiledWord]],
+    ) -> bool:
+        """A1: одиночный глагол засчитывается только при domain-слове в окне.
+
+        Формы глагола и domain-слов ищутся так же, как в match(); позиции
+        токенов сопоставимы между text_lower и text_lemma (инвариант _MatchCtx).
+        """
+        positions = _cw_positions(self.words[0], ctx.text_lower, ctx.starts_lower())
+        if lemma_differs:
+            positions += _cw_positions(self.words[0], ctx.text_lemma, ctx.starts_lemma())
+        if self.lemma_words is not None:
+            positions += _cw_positions(self.lemma_words[0], ctx.text_lemma, ctx.starts_lemma())
+        if not positions:
+            return False
+        for w_cw, wl_cw in domain_pairs:
+            dom = _cw_positions(w_cw, ctx.text_lower, ctx.starts_lower())
+            dom += _cw_positions(wl_cw, ctx.text_lemma, ctx.starts_lemma())
+            if any(abs(k - d) < ctx.window for k in positions for d in dom):
+                return True
+        return False
+
+
+def _compile_domain_pairs(
+    synonyms: list[str],
+) -> list[tuple[_CompiledWord, _CompiledWord]]:
+    """Значимые слова synonym-словаря сегмента как (raw, lemma)-пары (A1).
+
+    Используются match_near: одиночный глагол в buy/supply-сегменте
+    засчитывается только рядом с одним из этих слов.
+    """
+    seen: set[str] = set()
+    pairs: list[tuple[_CompiledWord, _CompiledWord]] = []
+    for syn in synonyms:
+        for w in syn.lower().split():
+            if len(w) <= 2 or w in FUZZY_NOISE or w in seen:
+                continue
+            seen.add(w)
+            pairs.append((_compile_word(w), _compile_word(_lemmatize_text(w))))
+    return pairs
+
+
+def _segment_pass1(
+    demand_kws: list[CompiledKeyword],
+    ctx: "_MatchCtx",
+    lemma_differs: bool,
+    gated: bool,
+    domain_pairs: list[tuple[_CompiledWord, _CompiledWord]],
+) -> bool:
+    """Pass 1 сегмента. Общий для classify_message и eval-зеркала (tools/).
+
+    A1, gated (buy/supply-сегмент с непустым synonym-словарём): одиночный
+    глагол («продам») требует domain-слово в окне (match_near); одиночное
+    НЕ-глагольное слово (synonym-словарь: «байк», «хонда») само по себе
+    Pass 1 не триггерит — словарь не есть спрос. Multi-word фразы — как раньше.
+    """
+    for ck in demand_kws:
+        if gated and len(ck.words) == 1:
+            if ck.single_verb and ck.match_near(ctx, lemma_differs, domain_pairs):
+                return True
+            continue
+        if ck.match(ctx, lemma_differs):
+            return True
+    return False
+
 
 class CompiledKeywordMap:
     """Precompiled {slug: {demand/stop/synonym}} + universal stops.
@@ -383,8 +466,11 @@ class CompiledKeywordMap:
         window: int = DEFAULT_MATCH_WINDOW,
     ):
         self.window = window
-        # (slug, demand+synonym CompiledKeywords, stop word-lists)
-        self.segments: list[tuple[str, list[CompiledKeyword], list[list[_CompiledWord]]]] = []
+        # (slug, demand+synonym CompiledKeywords, stop word-lists, domain-пары A1)
+        self.segments: list[tuple[
+            str, list[CompiledKeyword], list[list[_CompiledWord]],
+            list[tuple[_CompiledWord, _CompiledWord]],
+        ]] = []
         for slug, by_type in segment_keywords.items():
             all_demand = by_type.get("demand", []) + by_type.get("synonym", [])
             demand = [CompiledKeyword(kw) for kw in all_demand]
@@ -392,7 +478,9 @@ class CompiledKeywordMap:
                 [_compile_word(w) for w in stop_kw.split()]
                 for stop_kw in by_type.get("stop", [])
             ]
-            self.segments.append((slug, demand, stops))
+            self.segments.append(
+                (slug, demand, stops, _compile_domain_pairs(by_type.get("synonym", [])))
+            )
 
         self.universal_stops = [
             [_compile_word(w) for w in stop_kw.split()]
@@ -555,11 +643,15 @@ def classify_message(
 
     matched: list[str] = []
 
-    for segment_slug, demand_kws, stop_cws in compiled.segments:
-        # Pass 1: demand phrases (demand + synonym, first hit wins)
+    for segment_slug, demand_kws, stop_cws, domain_pairs in compiled.segments:
+        # Pass 1: demand phrases (demand + synonym, first hit wins).
+        # A1: в buy/supply-сегментах одиночные слова гейтируются (глагол —
+        # только рядом с domain-словом, не-глагол — не триггерит сам);
+        # без synonym-словаря гейт отключён (pass-through, как C3).
         if not demand_kws:
             continue
-        if not any(ck.match(match_ctx, lemma_differs) for ck in demand_kws):
+        gated = segment_slug in pass3_skip and bool(domain_pairs)
+        if not _segment_pass1(demand_kws, match_ctx, lemma_differs, gated, domain_pairs):
             continue
 
         # Pass 2: stop phrases (universal + segment-specific).

@@ -37,6 +37,7 @@ from app.userbot.classifier import (  # noqa: E402
     _lemmatize_text,
     _MatchCtx,
     _PASS3_STRONG_DEMAND_RX,
+    _segment_pass1,
     classify_message,
     compile_keyword_map,
 )
@@ -123,10 +124,11 @@ def explain_classify(
     has_offer_ctx = _has_offer_signal(text)
     universal_hit: bool | None = None
 
-    for slug, demand_kws, stop_cws in compiled.segments:
+    for slug, demand_kws, stop_cws, domain_pairs in compiled.segments:
         if not demand_kws:
             continue
-        if not any(ck.match(match_ctx, lemma_differs) for ck in demand_kws):
+        gated = slug in pass3_skip and bool(domain_pairs)
+        if not _segment_pass1(demand_kws, match_ctx, lemma_differs, gated, domain_pairs):
             continue
         out["pass1"].append(slug)
 
