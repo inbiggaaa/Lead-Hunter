@@ -127,6 +127,16 @@ export default function StopWordsPage() {
 
   const handleSave = () => saveMutation.mutate(form);
 
+  // B1: кандидаты в стоп-слова из 👎-фидбека (отчёт-подсказка, добавление руками)
+  const { data: candidates } = useQuery<{
+    total_disliked_texts: number;
+    candidates: { ngram: string; count: number; example: string }[];
+  }>({
+    queryKey: ["stop-candidates"],
+    queryFn: () => api(`/api/stats/stop-candidates`),
+    staleTime: 300_000,
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -140,6 +150,43 @@ export default function StopWordsPage() {
           <Plus className="size-4 mr-1" /> Добавить
         </Button>
       </div>
+
+      {/* B1: кандидаты из 👎 */}
+      {(candidates?.candidates?.length ?? 0) > 0 && (
+        <Card>
+          <CardContent className="pt-6 space-y-3">
+            <div>
+              <h2 className="font-semibold">
+                💡 Кандидаты из 👎-фидбека ({candidates!.total_disliked_texts} оценок за 90 дней)
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Частые фразы в сообщениях, помеченных «не релевантно», которых нет среди стоп-слов.
+                Подсказка для ручного решения — добавляйте кнопкой «Добавить» выше.
+              </p>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-56">N-грамма</TableHead>
+                  <TableHead className="w-16">👎-текстов</TableHead>
+                  <TableHead>Пример</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {candidates!.candidates.map((c) => (
+                  <TableRow key={c.ngram}>
+                    <TableCell className="font-mono text-sm">{c.ngram}</TableCell>
+                    <TableCell className="text-center">{c.count}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs truncate max-w-md">
+                      {c.example}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="pt-6 space-y-4">

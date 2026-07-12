@@ -350,3 +350,72 @@ async def segment_feedback_stats(days: int = 30):
         r.slug: {"relevant": r.relevant, "not_relevant": r.not_relevant}
         for r in rows
     }
+
+
+@router.get("/stop-candidates")
+async def stop_word_candidates(days: int = 90, min_count: int = 3):
+    """B1: кандидаты в стоп-слова из 👎-фидбека.
+
+    Частотные n-граммы (1–3) из текстов not_relevant-оценок, которых нет
+    среди текущих стоп-слов. Только отчёт-подсказка: добавление стоп-слова
+    остаётся ручным (существующий CRUD /api/stop-words).
+    """
+    import re as _re
+    from collections import Counter
+
+    from sqlalchemy import text
+
+    from app.userbot.classifier import FUZZY_NOISE
+
+    mask_tokens = {"user", "phone", "link", "url"}  # артефакты маскирования
+
+    sql = text(
+        """
+        SELECT d.message_text_masked AS txt
+        FROM feedback f
+        JOIN LATERAL (
+            SELECT message_text_masked
+            FROM llm_decisions d
+            WHERE d.chat_username = f.chat_username
+              AND d.message_id = f.message_id
+            ORDER BY d.id DESC LIMIT 1
+        ) d ON true
+        WHERE f.verdict = 'not_relevant'
+          AND f.created_at > now() - make_interval(days => :days)
+          AND d.message_text_masked <> ''
+        """
+    )
+    async with async_session_factory() as session:
+        texts = [r.txt for r in (await session.execute(sql, {"days": days})).all()]
+        stop_rows = (await session.execute(
+            text("SELECT lower(text) AS t FROM segment_keywords"
+                 " WHERE keyword_type = 'stop' AND is_active")
+        )).all()
+    existing_stops = {r.t for r in stop_rows}
+
+    counts: Counter = Counter()
+    examples: dict[str, str] = {}
+    for txt in texts:
+        tokens = _re.findall(r"[a-zа-яё0-9]{3,}", txt.lower())
+        seen_in_text = set()
+        for n in (1, 2, 3):
+            for i in range(len(tokens) - n + 1):
+                words = tokens[i:i + n]
+                # служебные слова и маск-токены не годятся в стоп-кандидаты
+                if n == 1 and words[0] in FUZZY_NOISE:
+                    continue
+                if any(w in mask_tokens for w in words):
+                    continue
+                gram = " ".join(words)
+                if gram in existing_stops or gram in seen_in_text:
+                    continue
+                seen_in_text.add(gram)  # считаем документы, не вхождения
+                counts[gram] += 1
+                examples.setdefault(gram, " ".join(txt.split())[:120])
+
+    top = [
+        {"ngram": g, "count": c, "example": examples[g]}
+        for g, c in counts.most_common(200)
+        if c >= min_count
+    ][:30]
+    return {"total_disliked_texts": len(texts), "candidates": top}
