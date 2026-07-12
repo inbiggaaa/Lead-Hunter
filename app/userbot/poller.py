@@ -684,8 +684,6 @@ class ChannelPoller:
                     verdict="DEMAND", reason="Missing result — fail-open", error="pad",
                 ))
 
-        if llm_validator.enabled:
-            await self._record_llm_stats(results)
 
         blocked = 0
         passed = 0
@@ -717,11 +715,18 @@ class ChannelPoller:
 
             # A3: карантинные сегменты уже залогированы (llm_decision выше),
             # но в раздачу не идут; keyword_only-матчи карантин не задевает.
+            # Личные keywords безусловны (спека «Вариант Б»): если текст матчит
+            # хоть один — сообщение идёт в _dispatch (keyword-ветка) даже при
+            # полностью карантинных сегментах.
             active_segments = [
                 s for s in match.candidate_segments
                 if s not in self._quarantined_slugs
             ]
-            if not active_segments and not match.keyword_only:
+            if (
+                not active_segments
+                and not match.keyword_only
+                and not self._matches_personal_keyword(match.text)
+            ):
                 quarantined += 1
                 continue
 
@@ -751,27 +756,6 @@ class ChannelPoller:
                 "%d passed, %d blocked, %d skipped (high-conf), %d quarantined",
                 len(matches), elapsed, passed, blocked, skipped_llm, quarantined,
             )
-
-    @staticmethod
-    async def _record_llm_stats(results: list) -> None:
-        """A2: почасовые счётчики fail-open — все fail-open пути ставят LLMResult.error.
-
-        Ключи stats:llm:{total,fail_open}:{YYYY-MM-DDTHH} (UTC, TTL 48ч);
-        читает _check_llm_fail_open.
-        """
-        total = len(results)
-        if not total:
-            return
-        fails = sum(1 for r in results if r.error)
-        hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
-        redis = await get_redis()
-        pipe = redis.pipeline()
-        pipe.incrby(f"stats:llm:total:{hour}", total)
-        pipe.expire(f"stats:llm:total:{hour}", 172800)
-        if fails:
-            pipe.incrby(f"stats:llm:fail_open:{hour}", fails)
-            pipe.expire(f"stats:llm:fail_open:{hour}", 172800)
-        await pipe.execute()
 
     # ── Reality filter (zero-cost LLM bypass) ──
 
@@ -1258,16 +1242,24 @@ class ChannelPoller:
     async def _check_llm_fail_open(self) -> tuple[str | None, str | None]:
         """A2: blocking-LLM тихо деградировал в fail-open → качество падает без следа.
 
-        Смотрит текущий UTC-час; молчит при < 20 валидаций (нет статистики).
+        Только llm_mode=blocking (в shadow валидатор ничего не фильтрует —
+        алерт был бы ложной паникой). Смотрит текущий UTC-час; при < 20
+        валидаций падает назад на предыдущий час (иначе слепое пятно на
+        границе часа); если и там < 20 — молчит (нет статистики).
         """
-        if not llm_validator.enabled:
+        if not llm_validator.enabled or settings.llm_mode != "blocking":
             return None, None
-        hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+        now = datetime.now(timezone.utc)
         redis = await get_redis()
-        total = int(await redis.get(f"stats:llm:total:{hour}") or 0)
+        total, fails = 0, 0
+        for bucket in (now, now - timedelta(hours=1)):
+            hour = bucket.strftime("%Y-%m-%dT%H")
+            total = int(await redis.get(f"stats:llm:total:{hour}") or 0)
+            if total >= 20:
+                fails = int(await redis.get(f"stats:llm:fail_open:{hour}") or 0)
+                break
         if total < 20:
             return None, None
-        fails = int(await redis.get(f"stats:llm:fail_open:{hour}") or 0)
         rate = fails / total
         if rate > 0.5:
             return "CRITICAL", (

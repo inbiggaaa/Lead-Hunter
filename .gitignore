@@ -36,3 +36,4 @@ docker-compose.override.yml
 .DS_Store
 Thumbs.db
 logs/
+.claude/settings.local.json.tmp.*

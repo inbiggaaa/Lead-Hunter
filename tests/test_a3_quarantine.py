@@ -42,6 +42,19 @@ async def _flush(poller: ChannelPoller, matches: list[PendingMatch]) -> AsyncMoc
 
 
 @pytest.mark.asyncio
+async def test_quarantine_does_not_kill_personal_keyword_delivery():
+    # Спека «Вариант Б»: личные keywords безусловны. Сообщение попало в очередь
+    # сегментным путём, все сегменты карантинны, но текст матчит личный keyword
+    # → _dispatch ДОЛЖЕН быть вызван (доставка keyword-веткой).
+    poller = ChannelPoller()
+    poller._quarantined_slugs = {"massage"}
+    poller._personal_keywords = ["мастер"]  # текст матча: «нужен мастер»
+    dispatch = await _flush(poller, [_match(["massage"])])
+    dispatch.assert_awaited_once()
+    assert dispatch.await_args.kwargs["matched_segments"] == []
+
+
+@pytest.mark.asyncio
 async def test_fully_quarantined_match_not_dispatched():
     poller = ChannelPoller()
     poller._quarantined_slugs = {"massage"}

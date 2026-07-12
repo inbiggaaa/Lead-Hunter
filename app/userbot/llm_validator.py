@@ -26,6 +26,34 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+async def _record_llm_stats(results: "list[LLMResult]") -> None:
+    """A2: почасовые счётчики fail-open — все fail-open пути ставят LLMResult.error.
+
+    Вызывается из validate_batch только для сообщений, реально ходивших к LLM.
+    Ключи stats:llm:{total,fail_open}:{YYYY-MM-DDTHH} (UTC, TTL 48ч);
+    читает poller._check_llm_fail_open. Ошибки Redis не роняют валидацию.
+    """
+    from datetime import datetime, timezone
+
+    total = len(results)
+    if not total:
+        return
+    fails = sum(1 for r in results if r.error)
+    hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+    try:
+        from app.cache import get_redis
+        redis = await get_redis()
+        pipe = redis.pipeline()
+        pipe.incrby(f"stats:llm:total:{hour}", total)
+        pipe.expire(f"stats:llm:total:{hour}", 172800)
+        if fails:
+            pipe.incrby(f"stats:llm:fail_open:{hour}", fails)
+            pipe.expire(f"stats:llm:fail_open:{hour}", 172800)
+        await pipe.execute()
+    except Exception:
+        logger.warning("LLM stats recording failed", exc_info=True)
+
 # ═══════════════════════════════════════════════════════════════
 # Prompt — compact, tested at 92.5% accuracy (batch-adapted)
 # ═══════════════════════════════════════════════════════════════
@@ -274,6 +302,10 @@ class LLMValidator:
                     reason="Missing in LLM response — fail-open",
                     error="missing_in_response",
                 ))
+
+        # A2: метрика fail-open — ТОЛЬКО по сообщениям, реально ходившим к LLM
+        # (skip_llm/high-confidence не разбавляют знаменатель алерта)
+        await _record_llm_stats([results[i] for i, _ in needs_llm])
 
         return [r for r in results if r is not None]
 

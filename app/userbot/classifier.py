@@ -303,13 +303,18 @@ class _MatchCtx:
 class CompiledKeyword:
     """One demand/synonym keyword with every derivable artifact precomputed."""
 
-    __slots__ = ("words", "lemma_words", "fuzzy", "single_verb")
+    __slots__ = ("words", "lemma_words", "fuzzy", "single_verb", "from_synonym")
 
-    def __init__(self, kw: str):
+    def __init__(self, kw: str, from_synonym: bool = False):
         raw_words = kw.split()
         self.words = [_compile_word(w) for w in raw_words]
 
-        # A1: одиночный глагол («продам», «куплю») — в buy/supply-сегментах
+        # A1: происхождение сохраняется — synonym-одиночка в gated-сегменте
+        # не триггерит Pass 1 сама (словарь ≠ спрос), demand-одиночка живёт
+        # по своим правилам (глагол — через match_near, существительное — как есть).
+        self.from_synonym = from_synonym
+
+        # A1: одиночный demand-глагол («продам», «куплю») — в buy/supply-сегментах
         # засчитывается только рядом с domain-словом (match_near).
         self.single_verb = len(raw_words) == 1 and _is_verb(raw_words[0])
 
@@ -434,16 +439,23 @@ def _segment_pass1(
 ) -> bool:
     """Pass 1 сегмента. Общий для classify_message и eval-зеркала (tools/).
 
-    A1, gated (buy/supply-сегмент с непустым synonym-словарём): одиночный
-    глагол («продам») требует domain-слово в окне (match_near); одиночное
-    НЕ-глагольное слово (synonym-словарь: «байк», «хонда») само по себе
-    Pass 1 не триггерит — словарь не есть спрос. Multi-word фразы — как раньше.
+    A1, gated (buy/supply-сегмент с непустым synonym-словарём), одиночные слова:
+    - synonym-одиночка («байк», «хонда», «дукати») НИКОГДА не триггерит сама —
+      словарь не есть спрос (POS не важен: транслит-бренды pymorphy ошибочно
+      тегает глаголами, происхождение надёжнее морфологии);
+    - demand-глагол («продам») — только рядом с domain-словом (match_near);
+      без морфологии (single_verb=False) деградирует к старому поведению;
+    - demand-существительное — не гейтится (админ добавил его как спрос).
+    Multi-word фразы — как раньше (окно C2).
     """
     for ck in demand_kws:
         if gated and len(ck.words) == 1:
-            if ck.single_verb and ck.match_near(ctx, lemma_differs, domain_pairs):
-                return True
-            continue
+            if ck.from_synonym:
+                continue
+            if ck.single_verb:
+                if ck.match_near(ctx, lemma_differs, domain_pairs):
+                    return True
+                continue
         if ck.match(ctx, lemma_differs):
             return True
     return False
@@ -472,8 +484,11 @@ class CompiledKeywordMap:
             list[tuple[_CompiledWord, _CompiledWord]],
         ]] = []
         for slug, by_type in segment_keywords.items():
-            all_demand = by_type.get("demand", []) + by_type.get("synonym", [])
-            demand = [CompiledKeyword(kw) for kw in all_demand]
+            demand = [CompiledKeyword(kw) for kw in by_type.get("demand", [])]
+            demand += [
+                CompiledKeyword(kw, from_synonym=True)
+                for kw in by_type.get("synonym", [])
+            ]
             stops = [
                 [_compile_word(w) for w in stop_kw.split()]
                 for stop_kw in by_type.get("stop", [])

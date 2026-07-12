@@ -98,3 +98,24 @@ def test_single_noun_not_gated_outside_buy_supply():
         },
     }
     assert _matched("аренда до конца месяца", noun, set()) == ["car-rental"]
+
+
+# ── Происхождение keyword важнее POS-эвристики (фиксы phase-review) ──
+
+def test_synonym_with_false_verb_pos_no_self_match():
+    # pymorphy ошибочно тегает транслит-бренды глаголами («дукати», «хендай»);
+    # без origin-split «дукати» самоподтверждался через match_near (дистанция 0)
+    m = {"moto-purchase": {"demand": ["продам"], "stop": [], "synonym": ["дукати"]}}
+    assert _matched("вчера видел дукати на парковке", m, {"moto-purchase"}) == []
+
+
+def test_demand_verb_near_brand_domain_matches():
+    m = {"moto-purchase": {"demand": ["продам"], "stop": [], "synonym": ["дукати"]}}
+    assert _matched("продам дукати, торг", m, {"moto-purchase"}) == ["moto-purchase"]
+
+
+def test_single_noun_demand_keyword_not_gated_in_buy_supply():
+    # Одиночное СУЩЕСТВИТЕЛЬНОЕ из demand-словаря (не synonym!) в gated-сегменте
+    # работает как раньше — админ явно добавил его как спрос
+    m = {"car-buyout": {"demand": ["выкуп"], "stop": [], "synonym": ["машина"]}}
+    assert _matched("выкуп срочно, пишите", m, {"car-buyout"}) == ["car-buyout"]
