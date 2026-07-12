@@ -72,12 +72,24 @@ async def dashboard_stats():
             )
         ).all()
 
+    # B6: латентность доставки за сегодня (UTC) — счётчики пишет sender
+    import time as _time
+
+    from app.cache import get_redis
+    redis = await get_redis()
+    date = _time.strftime("%Y-%m-%d", _time.gmtime())
+    latency = {
+        bucket: int(await redis.get(f"stats:latency:{date}:{bucket}") or 0)
+        for bucket in ("lt5m", "lt30m", "lt2h", "ge2h")
+    }
+
     return {
         "total_users": total,
         "new_today": new_today,
         "active_subscriptions": active_subs,
         "plans": plans,
         "sent_today": sent_today,
+        "latency_today": latency,
         "new_users_30d": [
             {"date": str(row.date), "count": row.count} for row in new_by_day
         ],

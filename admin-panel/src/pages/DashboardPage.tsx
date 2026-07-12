@@ -24,8 +24,16 @@ interface DashboardData {
   active_subscriptions: number;
   plans: Record<string, string>;
   sent_today: number;
+  latency_today?: Record<string, number>;
   new_users_30d: { date: string; count: number }[];
 }
+
+const LATENCY_LABELS: [string, string][] = [
+  ["lt5m", "< 5 мин"],
+  ["lt30m", "5–30 мин"],
+  ["lt2h", "30 мин – 2 ч"],
+  ["ge2h", "> 2 ч"],
+];
 
 interface LLMStats {
   total_decisions: number;
@@ -134,6 +142,27 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* === B6: Латентность доставки (сообщение → уведомление) === */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            Латентность доставки сегодня (сообщение → уведомление)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-6 text-sm">
+            {LATENCY_LABELS.map(([key, label]) => (
+              <div key={key} className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold">
+                  {data?.latency_today?.[key] ?? 0}
+                </span>
+                <span className="text-muted-foreground">{label}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* === LLM Token Usage === */}
       <div>

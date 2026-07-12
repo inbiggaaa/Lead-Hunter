@@ -486,6 +486,7 @@ class ChannelPoller:
                     is_urgent=result.is_urgent,
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
                     skip_llm=is_high_confidence_demand(msg.message),
+                    msg_ts=msg.date.timestamp() if msg.date else None,
                 ))
             elif self._matches_personal_keyword(msg.message):
                 # Вариант Б: no segment match, but a personal user keyword hit.
@@ -502,6 +503,7 @@ class ChannelPoller:
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
                     skip_llm=True,
                     keyword_only=True,
+                    msg_ts=msg.date.timestamp() if msg.date else None,
                 ))
             else:
                 await self._log_unmatched(channel_username, msg.message, msg_id)
@@ -748,6 +750,7 @@ class ChannelPoller:
                 matched_segments=active_segments,
                 is_urgent=match.is_urgent,
                 sender=match.sender,
+                msg_ts=match.msg_ts,
             )
 
         if matches:
@@ -1674,7 +1677,7 @@ class ChannelPoller:
 
     async def _dispatch(
         self, chat_username, message_text, message_id,
-        matched_segments, is_urgent, sender,
+        matched_segments, is_urgent, sender, msg_ts: float | None = None,
     ):
         """Find interested users matching BOTH segment AND geo, push to queue."""
         from app.cache.subscription_cache import (
@@ -1769,6 +1772,7 @@ class ChannelPoller:
                 "content_hash": compute_content_hash(chat_username, message_text),
                 "is_urgent": is_urgent,
                 "matched_segments": matched_names,
+                "msg_ts": msg_ts,  # B6: метрика латентности (sender)
             })
 
             # D2: matched-статистика — иначе EOD/недельные отчёты пусты.
