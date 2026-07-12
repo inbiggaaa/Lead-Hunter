@@ -272,20 +272,36 @@ def aggregate_llm(decisions: list[dict], stats: dict[str, dict[str, int]]) -> di
     return dict(verdict_counts)
 
 
-def aggregate_feedback(feedback: list[dict], stats: dict[str, dict[str, int]]) -> dict:
-    """Precision по feedback: общая и по-сегментно (сегменты — из llm_decision)."""
-    totals = {"relevant": 0, "not_relevant": 0, "no_text": 0}
+def aggregate_feedback(
+    feedback: list[dict], stats: dict[str, dict[str, int]],
+    current_slugs: set[str],
+) -> dict:
+    """Precision по feedback: общая и по-сегментно (сегменты — из llm_decision).
+
+    Оценки, все сегменты которых отсутствуют в текущем каталоге (эпоха
+    каталога-29), уходят в legacy-корзину: справочно, вне общего precision
+    и вне по-сегментной таблицы (задача 0.2 fable_core_plan).
+    """
+    totals = {
+        "relevant": 0, "not_relevant": 0, "no_text": 0,
+        "legacy_relevant": 0, "legacy_not_relevant": 0,
+    }
     for fb in feedback:
         v = fb["verdict"]
         if v not in ("relevant", "not_relevant"):
             continue
-        totals[v] += 1
         if fb["message_text_masked"] is None:
+            totals[v] += 1
             totals["no_text"] += 1  # keyword-only уведомления минуют LLM-лог
             continue
         segs = fb["llm_segments"] or fb["rule_segments"] or []
+        actual = [s for s in segs if s in current_slugs]
+        if segs and not actual:
+            totals[f"legacy_{v}"] += 1
+            continue
+        totals[v] += 1
         field = "fb_relevant" if v == "relevant" else "fb_not_relevant"
-        for slug in segs:
+        for slug in actual:
             stats[slug][field] += 1
     return totals
 
@@ -330,6 +346,7 @@ def render_report(
         )
 
     fb_rated = fb_totals["relevant"] + fb_totals["not_relevant"]
+    fb_legacy = fb_totals["legacy_relevant"] + fb_totals["legacy_not_relevant"]
     lines += [
         "",
         "## LLM-вердикты (из сохранённых решений)",
@@ -338,12 +355,18 @@ def render_report(
         "|---|---|",
         *[f"| {v} | {n} |" for v, n in sorted(verdict_counts.items())],
         "",
-        "## Precision по feedback (все уведомления)",
+        "## Precision по feedback — актуальный каталог",
         "",
         f"- 👍 relevant: {fb_totals['relevant']}",
         f"- 👎 not_relevant: {fb_totals['not_relevant']}",
         f"- **Precision: {_pct(fb_totals['relevant'], fb_rated)}**",
         f"- без текста в llm_decisions (keyword-only и до-LLM эпоха): {fb_totals['no_text']}",
+        "",
+        "### Legacy — уведомления эпохи каталога-29 (slug'ов нет в БД), справочно",
+        "",
+        f"- 👍 {fb_totals['legacy_relevant']} / 👎 {fb_totals['legacy_not_relevant']}"
+        f" (precision {_pct(fb_totals['legacy_relevant'], fb_legacy)})",
+        f"- Сумма оценок: {fb_rated + fb_legacy} (актуальные {fb_rated} + legacy {fb_legacy})",
         "",
         "## Unmatched: восстановленные текущими правилами (кандидаты-FN, закрытые)",
         "",
@@ -396,6 +419,9 @@ async def main() -> None:
         )
         decisions = await fetch_decisions(conn, args.decisions)
         feedback = await fetch_feedback(conn)
+        current_slugs = {
+            r["slug"] for r in await conn.fetch("SELECT slug FROM segments")
+        }
     finally:
         await conn.close()
 
@@ -415,7 +441,7 @@ async def main() -> None:
     aggregate_corpus(corpus_texts, compiled, pass3_skip, domain_word_map, stats)
 
     verdict_counts = aggregate_llm(decisions, stats)
-    fb_totals = aggregate_feedback(feedback, stats)
+    fb_totals = aggregate_feedback(feedback, stats, current_slugs)
 
     recovered = []
     for u in unmatched:
