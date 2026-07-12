@@ -48,6 +48,22 @@ async def on_menu_channels(callback: CallbackQuery):
 
 # ── Show channels list ──
 
+def _channel_label(ch, max_len: int = 40) -> str:
+    """Человекочитаемое имя канала: title приоритетнее сырого id.
+
+    Каналы, добавленные напрямую по внутреннему ID (bulk-вставка групп без
+    @username), показываются названием; голый «@-100…» — только если названия
+    нет совсем.
+    """
+    is_numeric = ch.chat_username.lstrip("-").isdigit()
+    title = (ch.title or "").strip()
+    if title:
+        label = title if is_numeric else f"{title} (@{ch.chat_username})"
+    else:
+        label = f"группа {ch.chat_username}" if is_numeric else f"@{ch.chat_username}"
+    return label[:max_len]
+
+
 async def show_channels(callback: CallbackQuery, lang: str):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
@@ -68,15 +84,18 @@ async def show_channels(callback: CallbackQuery, lang: str):
         )
     else:
         text += f"Твои каналы ({current}/{max_ch}):\n\n"
-        for ch in channels:
+        # 4096-лимит Telegram: названия длиннее сырых id, длинный список режем
+        for ch in channels[:60]:
             status = " 🔒" if ch.is_private else ""
-            text += f"@{ch.chat_username}{status}\n"
+            text += f"{_channel_label(ch)}{status}\n"
+        if len(channels) > 60:
+            text += f"… и ещё {len(channels) - 60} (все — в кнопках ниже)\n"
 
     kb_buttons = []
     for ch in channels:
         kb_buttons.append([
             InlineKeyboardButton(
-                text=f"🗑️ @{ch.chat_username[:25]}",
+                text=f"🗑️ {_channel_label(ch, max_len=25)}",
                 callback_data=f"ch:del:{ch.id}",
             )
         ])
@@ -180,16 +199,19 @@ async def show_channels_via_message(message: Message, lang: str):
     text = f"📢 {get_text(lang, 'btn_channels')}\n\n"
     if channels:
         text += f"Твои каналы ({current}/{max_ch}):\n\n"
-        for ch in channels:
+        # 4096-лимит Telegram: названия длиннее сырых id, длинный список режем
+        for ch in channels[:60]:
             status = " 🔒" if ch.is_private else ""
-            text += f"@{ch.chat_username}{status}\n"
+            text += f"{_channel_label(ch)}{status}\n"
+        if len(channels) > 60:
+            text += f"… и ещё {len(channels) - 60} (все — в кнопках ниже)\n"
     else:
         text += f"Пока нет каналов. Осталось: {current} из {max_ch}\n"
 
     kb_buttons = []
     for ch in channels:
         kb_buttons.append([
-            InlineKeyboardButton(text=f"🗑️ @{ch.chat_username[:25]}", callback_data=f"ch:del:{ch.id}")
+            InlineKeyboardButton(text=f"🗑️ {_channel_label(ch, max_len=25)}", callback_data=f"ch:del:{ch.id}")
         ])
     if current < max_ch:
         kb_buttons.append([
