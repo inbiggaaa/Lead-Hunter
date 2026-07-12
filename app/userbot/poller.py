@@ -683,6 +683,9 @@ class ChannelPoller:
                     verdict="DEMAND", reason="Missing result — fail-open", error="pad",
                 ))
 
+        if llm_validator.enabled:
+            await self._record_llm_stats(results)
+
         blocked = 0
         passed = 0
         skipped_llm = 0
@@ -736,6 +739,27 @@ class ChannelPoller:
                 "%d passed, %d blocked, %d skipped (high-conf)",
                 len(matches), elapsed, passed, blocked, skipped_llm,
             )
+
+    @staticmethod
+    async def _record_llm_stats(results: list) -> None:
+        """A2: почасовые счётчики fail-open — все fail-open пути ставят LLMResult.error.
+
+        Ключи stats:llm:{total,fail_open}:{YYYY-MM-DDTHH} (UTC, TTL 48ч);
+        читает _check_llm_fail_open.
+        """
+        total = len(results)
+        if not total:
+            return
+        fails = sum(1 for r in results if r.error)
+        hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+        redis = await get_redis()
+        pipe = redis.pipeline()
+        pipe.incrby(f"stats:llm:total:{hour}", total)
+        pipe.expire(f"stats:llm:total:{hour}", 172800)
+        if fails:
+            pipe.incrby(f"stats:llm:fail_open:{hour}", fails)
+            pipe.expire(f"stats:llm:fail_open:{hour}", 172800)
+        await pipe.execute()
 
     # ── Reality filter (zero-cost LLM bypass) ──
 
@@ -1148,6 +1172,7 @@ class ChannelPoller:
             self._check_flood_wait,
             self._check_budget_exceeded,
             self._check_poller_stuck,
+            self._check_llm_fail_open,
         ]
         for check in checks:
             try:
@@ -1217,6 +1242,29 @@ class ChannelPoller:
                             f"(осталось {hours}ч {mins}м)",
                         )
         return (None, None)
+
+    async def _check_llm_fail_open(self) -> tuple[str | None, str | None]:
+        """A2: blocking-LLM тихо деградировал в fail-open → качество падает без следа.
+
+        Смотрит текущий UTC-час; молчит при < 20 валидаций (нет статистики).
+        """
+        if not llm_validator.enabled:
+            return None, None
+        hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+        redis = await get_redis()
+        total = int(await redis.get(f"stats:llm:total:{hour}") or 0)
+        if total < 20:
+            return None, None
+        fails = int(await redis.get(f"stats:llm:fail_open:{hour}") or 0)
+        rate = fails / total
+        if rate > 0.5:
+            return "CRITICAL", (
+                f"LLM fail-open: {fails}/{total} ({rate:.0%}) за текущий час — "
+                f"валидатор фактически отключён, спам идёт без фильтра"
+            )
+        if rate > 0.2:
+            return "WARNING", f"LLM fail-open: {fails}/{total} ({rate:.0%}) за текущий час"
+        return None, None
 
     async def _check_budget_exceeded(self) -> tuple[str | None, str | None]:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")

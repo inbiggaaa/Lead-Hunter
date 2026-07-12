@@ -86,7 +86,8 @@
 - **Обязательный eval-diff** (правило §2): Pass 1-объём по трём сегментам падает кратно, `liked_lost = 0`, gained-мусор = 0.
 **Приёмка:** тесты зелёные; eval-diff в `docs/eval/a1_v2_diff.md`; суммарный Pass 1 трёх сегментов ≤ 40% от текущего.
 
-### [ ] A2. Метрика и алерт fail-open LLM
+### [x] A2. Метрика и алерт fail-open LLM
+**Выполнено: 12.07.2026 (ветка core/quality-v2). Примечания:** счётчики повешены одной точкой в `_flush_pending_matches` (все fail-open пути валидатора ставят `LLMResult.error` — проверено), а не внутри llm_validator; ключи почасовые `stats:llm:{total,fail_open}:{YYYY-MM-DDTHH}` UTC, TTL 48ч (вместо плановых суточных с TTL 7д — час = окно алерта). `_check_llm_fail_open` в alert loop: молчит при <20 валидаций/час, WARNING >20%, CRITICAL >50%; троттлинг штатный (15 мин). 7 тестов test_a2_fail_open.py. Ключи задокументированы в CLAUDE.md §5б.
 **Зачем:** blocking-LLM — единственный precision-барьер; сейчас его отказ (fail-open) невидим.
 **Что сделать:** счётчик `stats:llm:fail_open:{date}` (INT, TTL 7д) при каждом fail-open в `llm_validator`; проверка в существующем `_run_alert_checks` (poller alert loop): доля fail-open за час > 20% → WARNING, > 50% → CRITICAL в @leadhunterai_admin, с троттлингом как у остальных алертов.
 **Приёмка:** unit-тест: смоканная ошибка LLM инкрементит счётчик; тест алерта по порогу; ключи задокументированы в CLAUDE.md §5б.

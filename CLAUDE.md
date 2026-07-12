@@ -465,6 +465,8 @@ stats:daily:{uid}:{date}:matched → INT (инкремент в _dispatch, D2)
 stats:daily:{uid}:{date}:sent    → INT (инкремент в sender после доставки)
 stats:unmatched                  → LIST (последние 10000, dedup через :seen)
 stats:full_batch:{chat}          → INT (C4: возможные пропуски, TTL 30д)
+stats:llm:total:{YYYY-MM-DDTHH}  → INT (A2: валидаций за час UTC, TTL 48ч)
+stats:llm:fail_open:{час}        → INT (A2: из них fail-open; алерт >20%/>50%)
 cursor:msg:{chat}                → INT (инкрементальный поллинг)
 limit_reached:{uid}:{date}       → "1" (TTL до полуночи)
 queue:notifications              → LPUSH/BRPOP
