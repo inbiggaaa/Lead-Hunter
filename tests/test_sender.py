@@ -189,7 +189,7 @@ def test_free_keyboard_no_chat_button():
     assert "👍" in all_texts and "👎" in all_texts
 
 
-@pytest.mark.parametrize("plan", ["pro", "business", "trial"])
+@pytest.mark.parametrize("plan", ["start", "pro", "business", "trial"])
 def test_paid_format_keeps_links(plan):
     """Paid/Trial: ссылки на сообщение и отправителя не тронуты."""
     sender = _make_sender()
@@ -199,7 +199,7 @@ def test_paid_format_keeps_links(plan):
     assert "Контакты скрыты" not in text
 
 
-@pytest.mark.parametrize("plan", ["pro", "business", "trial"])
+@pytest.mark.parametrize("plan", ["start", "pro", "business", "trial"])
 def test_paid_keyboard_keeps_buttons(plan):
     """Paid/Trial: кнопки «💬 Чат» и «💬 Написать» на месте."""
     sender = _make_sender()

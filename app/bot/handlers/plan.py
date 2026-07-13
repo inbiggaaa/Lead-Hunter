@@ -154,6 +154,10 @@ async def _activate_by_msg(message, plan, period_key, method, invoice_id):
         now = datetime.datetime.now(datetime.timezone.utc); exp = now + datetime.timedelta(days=30 * info["months"])
         s.add(Subscription(user_id=u.id, plan=plan, period=period_key, expires_at=exp, payment_method=method, payment_status="paid", invoice_id=invoice_id, amount=info["total"]))
         u.plan = plan; u.plan_activated_at = now; u.plan_expires_at = exp; await s.commit()
+    # Смена плана меняет формат уведомлений (Free скрывает контакты) — сбросить
+    # кэш подписок сразу, иначе оплаченный пользователь до TTL (1ч) видел бы Free.
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()
     await _apply_referral_bonus(message.from_user.id)
     from app.userbot.discovery import notify_new_subscription
     info2 = _calc(plan, period_key)
