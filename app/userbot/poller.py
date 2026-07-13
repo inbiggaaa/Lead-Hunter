@@ -181,22 +181,36 @@ class ChannelPoller:
     async def _rebuild_tiers(self):
         """Recompute channel tiers: Hot/Warm/Cold/Dormant based on subscriptions.
 
-        - Active country (has subscriptions) → Hot (60s)
+        - Deliverable channel (≥1 potential recipient by _dispatch's geo rule:
+          whole-country subscriber, or city subscriber whose cities intersect
+          the channel's, or a country-wide channel in a city-scoped country) → Hot
         - Watched channel (manual) → Warm/Cold by participants
         - Inactive country, catalog channel → Dormant (12h)
         """
-        self._active_countries = await self._get_active_countries()
+        full_countries, city_countries = await self._get_active_geo()
+        self._active_countries = full_countries | set(city_countries)
         channels = await self._get_all_channels()
 
         hot, warm, cold, dormant, parked = [], [], [], [], 0
         for ch in channels:
             country_id = ch.get("country_id")
             participants = ch.get("participants", 0) or 0
-            is_active_country = country_id is not None and country_id in self._active_countries
             is_watched = ch.get("is_watched", False)
             is_watched_with_geo = is_watched and country_id is not None
 
-            if is_active_country:
+            deliverable = False
+            if country_id is not None:
+                if country_id in full_countries:
+                    deliverable = True
+                elif country_id in city_countries:
+                    city_ids = ch.get("city_ids") or set()
+                    # No city binding = country-wide channel: _dispatch
+                    # delivers it to city-scoped subscribers too.
+                    deliverable = (
+                        not city_ids or bool(city_ids & city_countries[country_id])
+                    )
+
+            if deliverable:
                 hot.append(ch)
             elif is_watched_with_geo:
                 # Watched channel with geo — tier by country activity
@@ -224,26 +238,56 @@ class ChannelPoller:
         self._parked_count = parked
 
         logger.info(
-            "Tiers rebuilt: %d hot (active countries), %d warm (watched ≥1K), "
+            "Tiers rebuilt: %d hot (deliverable), %d warm (watched ≥1K), "
             "%d cold (watched <1K), %d dormant (inactive, 12h), "
-            "%d parked (inactive countries, not polled). "
-            "Active countries: %s",
+            "%d parked (no potential recipients, not polled). "
+            "Full countries: %s, city-scoped: %s",
             len(hot), len(warm), len(cold), len(dormant), parked,
-            sorted(self._active_countries) if len(self._active_countries) < 20
-            else f"{len(self._active_countries)} countries",
+            sorted(full_countries),
+            {c: sorted(cities) for c, cities in city_countries.items()},
         )
 
-    async def _get_active_countries(self) -> set[int]:
-        """Return country IDs that have at least one active user subscription."""
+    async def _get_active_geo(self) -> tuple[set[int], dict[int, set[int]]]:
+        """Return active subscription geography, mirroring _dispatch's geo filter.
+
+        - full_countries: country IDs with at least one whole-country
+          subscription (mode='all', or mode='cities' without city rows —
+          _dispatch treats an empty city list as "no city filter").
+        - city_countries: {country_id: union of subscribed city_ids} for
+          countries where ALL subscriptions are city-scoped.
+        """
         try:
-            from app.db.models import UserSubscription
+            from app.db.models import UserSubscription, SubscriptionCity
             async with async_session_factory() as session:
-                result = await session.execute(
-                    select(UserSubscription.country_id).distinct()
-                )
-                return {row[0] for row in result.all()}
+                sub_rows = (await session.execute(
+                    select(
+                        UserSubscription.id,
+                        UserSubscription.country_id,
+                        UserSubscription.mode,
+                    )
+                )).all()
+                sc_rows = (await session.execute(
+                    select(SubscriptionCity.subscription_id, SubscriptionCity.city_id)
+                )).all()
         except Exception:
-            return set()
+            return set(), {}
+
+        cities_by_sub: dict[int, set[int]] = {}
+        for sub_id, city_id in sc_rows:
+            cities_by_sub.setdefault(sub_id, set()).add(city_id)
+
+        full_countries: set[int] = set()
+        city_countries: dict[int, set[int]] = {}
+        for sub_id, country_id, mode in sub_rows:
+            sub_cities = cities_by_sub.get(sub_id) if mode == "cities" else None
+            if sub_cities:
+                city_countries.setdefault(country_id, set()).update(sub_cities)
+            else:
+                full_countries.add(country_id)
+        # A single whole-country subscriber makes the whole country hot.
+        for country_id in full_countries:
+            city_countries.pop(country_id, None)
+        return full_countries, city_countries
 
     async def _get_all_channels(self) -> list[dict]:
         """Return all channels with country_id and participant count.
@@ -255,7 +299,7 @@ class ChannelPoller:
         For WatchedChat entries without a username (private groups),
         chat_username stores the Telegram peer ID in format "-100XXXXXXX".
         """
-        from app.db.models import CatalogChannel, WatchedChat
+        from app.db.models import CatalogChannel, ChannelCity, WatchedChat
         try:
             async with async_session_factory() as session:
                 cat_result = await session.execute(
@@ -263,7 +307,12 @@ class ChannelPoller:
                         CatalogChannel.chat_username,
                         CatalogChannel.auto_matched_country_id,
                         CatalogChannel.participants,
+                        CatalogChannel.id,
+                        CatalogChannel.auto_matched_city_id,
                     ).where(CatalogChannel.is_ignored == False)
+                )
+                cc_result = await session.execute(
+                    select(ChannelCity.channel_id, ChannelCity.city_id)
                 )
                 watched_result = await session.execute(
                     select(
@@ -274,13 +323,23 @@ class ChannelPoller:
                     ).distinct()
                 )
 
+                cities_by_channel: dict[int, set[int]] = {}
+                for channel_id, city_id in cc_result.all():
+                    cities_by_channel.setdefault(channel_id, set()).add(city_id)
+
                 seen = set()
                 channels = []
                 for row in cat_result.all():
+                    # Effective city set = primary auto-matched city + M:N
+                    # bindings — same union _dispatch uses for geo filtering.
+                    city_ids = set(cities_by_channel.get(row[3], set()))
+                    if row[4]:
+                        city_ids.add(row[4])
                     channels.append({
                         "chat_username": row[0],
                         "country_id": row[1],
                         "participants": row[2],
+                        "city_ids": city_ids,
                         "is_watched": False,
                     })
                     seen.add(row[0])
@@ -291,6 +350,7 @@ class ChannelPoller:
                             "chat_username": username,
                             "country_id": row[1],
                             "participants": None,
+                            "city_ids": set(),
                             "is_watched": True,
                         })
                         seen.add(username)
@@ -603,6 +663,11 @@ class ChannelPoller:
                     account_id=account.account_id,
                 )
                 return False
+            except BudgetExceeded:
+                # Must reach the batch-level handler below — the generic
+                # except would swallow it and the batch would keep spinning
+                # (Redis INCR per channel + alert spam) until day rollover.
+                raise
             except Exception as e:
                 logger.warning("poll @%s: %s", ch.get('chat_username', '?'), type(e).__name__)
                 return False
