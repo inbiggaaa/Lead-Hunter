@@ -225,3 +225,55 @@ async def test_budget_exceeded_stops_poll_batch():
 
     assert len(polled) == 1, "batch must stop after the first BudgetExceeded"
     notify.assert_awaited_once()
+
+
+# ── Пиннинг каналов к аккаунту (_distribute) ──
+
+
+@pytest.mark.asyncio
+async def test_distribute_pinned_channel_goes_to_member_account():
+    """Приватный чат с account_id=2 попадает только аккаунту 2."""
+    with patch("app.userbot.poller.limiter") as fake_limiter:
+        fake_limiter.is_circuit_open = AsyncMock(return_value=False)
+        poller = ChannelPoller()
+        poller.pool.accounts = [_make_account(1), _make_account(2)]
+        channels = [
+            {"chat_username": "-100111", "account_id": 2},
+            {"chat_username": "public1", "account_id": None},
+            {"chat_username": "public2", "account_id": None},
+        ]
+        result = await poller._distribute(channels)
+    by_acc = {acc.account_id: chunk for acc, chunk in result}
+    assert {c["chat_username"] for c in by_acc[2]} >= {"-100111"}
+    assert all(c["chat_username"] != "-100111" for c in by_acc[1])
+    total = sum(len(chunk) for _, chunk in result)
+    assert total == 3
+
+
+@pytest.mark.asyncio
+async def test_distribute_pinned_skipped_when_account_unavailable():
+    """Аккаунт-участник заблокирован → его приватные чаты пропускаются, не мигрируют."""
+    with patch("app.userbot.poller.limiter") as fake_limiter:
+        fake_limiter.is_circuit_open = AsyncMock(side_effect=lambda aid: aid == 2)
+        poller = ChannelPoller()
+        poller.pool.accounts = [_make_account(1), _make_account(2)]
+        channels = [
+            {"chat_username": "-100111", "account_id": 2},
+            {"chat_username": "public1", "account_id": None},
+        ]
+        result = await poller._distribute(channels)
+    assert len(result) == 1 and result[0][0].account_id == 1
+    assert {c["chat_username"] for c in result[0][1]} == {"public1"}
+
+
+@pytest.mark.asyncio
+async def test_distribute_without_account_id_key_unchanged():
+    """Каналы без ключа account_id (старый формат) — раздаются как раньше."""
+    with patch("app.userbot.poller.limiter") as fake_limiter:
+        fake_limiter.is_circuit_open = AsyncMock(return_value=False)
+        poller = ChannelPoller()
+        poller.pool.accounts = [_make_account(1), _make_account(2)]
+        channels = [{"chat_username": f"ch{i}"} for i in range(6)]
+        result = await poller._distribute(channels)
+    total = sum(len(chunk) for _, chunk in result)
+    assert total == 6

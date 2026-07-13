@@ -309,6 +309,7 @@ class ChannelPoller:
                         CatalogChannel.participants,
                         CatalogChannel.id,
                         CatalogChannel.auto_matched_city_id,
+                        CatalogChannel.userbot_account_id,
                     ).where(CatalogChannel.is_ignored == False)
                 )
                 cc_result = await session.execute(
@@ -318,6 +319,7 @@ class ChannelPoller:
                     select(
                         WatchedChat.chat_username,
                         WatchedChat.country_id,
+                        WatchedChat.userbot_account_id,
                     ).where(
                         WatchedChat.status == "approved"
                     ).distinct()
@@ -340,6 +342,7 @@ class ChannelPoller:
                         "country_id": row[1],
                         "participants": row[2],
                         "city_ids": city_ids,
+                        "account_id": row[5],
                         "is_watched": False,
                     })
                     seen.add(row[0])
@@ -351,6 +354,7 @@ class ChannelPoller:
                             "country_id": row[1],
                             "participants": None,
                             "city_ids": set(),
+                            "account_id": row[2],
                             "is_watched": True,
                         })
                         seen.add(username)
@@ -1045,10 +1049,29 @@ class ChannelPoller:
             logger.warning("No available accounts for distribution — all blocked or unhealthy")
             return []
 
+        # Pinned channels (private -100… chats) go only to their member account:
+        # any other account cannot resolve the entity (ValueError every cycle).
+        # If the pinned account is unavailable this cycle, the channel is skipped.
+        available_by_id = {a.account_id: a for a in available}
+        pinned: dict[int, list[dict]] = {}
+        free = []
+        for ch in channels:
+            pin = ch.get("account_id")
+            if pin is None:
+                free.append(ch)
+            elif pin in available_by_id:
+                pinned.setdefault(pin, []).append(ch)
+            else:
+                logger.debug(
+                    "Channel %s pinned to unavailable account %d — skipped this cycle",
+                    ch.get("chat_username"), pin,
+                )
+
         chunks = []
         n = len(available)
         for i, acc in enumerate(available):
-            chunk = channels[i::n]  # Every n-th channel to this account
+            chunk = free[i::n]  # Every n-th free channel to this account
+            chunk += pinned.get(acc.account_id, [])
             chunks.append((acc, chunk))
         return chunks
 

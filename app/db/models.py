@@ -255,6 +255,8 @@ class CatalogChannel(Base):
     auto_matched_city_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("cities.id", ondelete="SET NULL")
     )
+    # Привязка к аккаунту-участнику для приватных -100…-чатов (NULL = любой аккаунт)
+    userbot_account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     discovered_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
