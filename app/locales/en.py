@@ -58,4 +58,16 @@ TEXTS = {
     "btn_ru": "🇷🇺 Русский",
     "btn_en": "🇬🇧 English",
     "language_set": "✅ Language set: English",
+
+    # ── Payment error (T2.2) ──
+    "pay_error_body": (
+        "❌ <b>Payment failed</b>\n\n"
+        "The payment didn't go through. Try again or choose another payment method."
+    ),
+    "pay_error_expired": (
+        "⌛️ <b>Invoice expired</b>\n\n"
+        "Payment wasn't received in time. Tap “Retry” to create a new invoice."
+    ),
+    "pay_err_retry": "🔄 Retry",
+    "pay_err_other": "💱 Another method",
 }

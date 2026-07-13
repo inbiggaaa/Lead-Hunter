@@ -48,6 +48,7 @@ async def check_pending_payments():
                 await remove_pending(invoice_id)
                 paid_count += 1
             elif status == "expired":
+                await _notify_expired(data)
                 await remove_pending(invoice_id)
                 logger.info("Expired invoice removed: %s", invoice_id)
         except Exception:
@@ -129,6 +130,27 @@ async def _get_user_for_notify(user_id: int):
     from sqlalchemy import select
     async with async_session_factory() as s:
         return (await s.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+
+
+async def _notify_expired(data: dict):
+    """Уведомить пользователя об истёкшем крипто-инвойсе (T2.2) с кнопкой повтора."""
+    from aiogram import Bot
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from app.locales import get_text
+
+    user = await _get_user_for_notify(data["user_id"])
+    lang = user.language if user else "ru"
+    plan, period_key = data["plan"], data["period_key"]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text=get_text(lang, "pay_err_retry"), callback_data=f"pay_period:{plan}:{period_key}")]])
+    bot = Bot(token=settings.bot_token)
+    try:
+        await bot.send_message(data["chat_id"], get_text(lang, "pay_error_expired"),
+                               reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        logger.exception("Failed to notify expired invoice for user %s", data.get("user_id"))
+    finally:
+        await bot.session.close()
 
 
 async def payment_checker_loop():

@@ -9,6 +9,7 @@ from app.db.models import Subscription
 from app.db.session import get_session
 from app.payments.stars import StarsPaymentProvider
 from app.payments.cryptobot import CryptoBotPaymentProvider
+from app.locales import get_text
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -33,6 +34,20 @@ async def _get_user_id(callback: CallbackQuery) -> int:
         u = await get_user(s, callback.from_user.id)
         return u.id if u else 0
     return 0
+
+async def _get_lang(callback: CallbackQuery) -> str:
+    async for s in get_session():
+        u = await get_user(s, callback.from_user.id)
+        return u.language if u else "ru"
+    return "ru"
+
+def payment_error_kb(plan: str, period_key: str, method: str, lang: str) -> InlineKeyboardMarkup:
+    """Клавиатура экрана ошибки оплаты (T2.2): повтор / другой способ / назад."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_text(lang, "pay_err_retry"), callback_data=f"pay_exec:{method}:{plan}:{period_key}")],
+        [InlineKeyboardButton(text=get_text(lang, "pay_err_other"), callback_data=f"pay_period:{plan}:{period_key}")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data=f"pay_plan:{plan}")],
+    ])
 
 @router.callback_query(F.data == "menu:plan")
 async def on_plan_menu(callback: CallbackQuery):
@@ -73,7 +88,11 @@ async def on_pay_execute(callback: CallbackQuery):
     _, method, plan, period_key = callback.data.split(":"); info = _calc(plan, period_key)
     if method == "stars":
         try: await StarsPaymentProvider().create_invoice(callback.from_user.id, f"{plan}:{period_key}", info["stars"], info["total"])
-        except Exception as e: logger.exception("Stars"); await callback.answer(f"Ошибка: {e}", show_alert=True)
+        except Exception:
+            logger.exception("Stars")
+            lang = await _get_lang(callback)
+            await callback.message.edit_text(get_text(lang, "pay_error_body"),
+                                             reply_markup=payment_error_kb(plan, period_key, "stars", lang))
     elif method == "crypto":
         if not settings.cryptobot_api_token: await callback.answer("CryptoBot не настроен", show_alert=True); return
         try:
@@ -86,7 +105,11 @@ async def on_pay_execute(callback: CallbackQuery):
                     [InlineKeyboardButton(text="◀️ Назад", callback_data=f"pay_plan:{plan}")]]))
             from app.worker.payment_checker import add_pending
             await add_pending(r["invoice_id"], await _get_user_id(callback), plan, period_key, callback.from_user.id)
-        except Exception as e: logger.exception("CryptoBot"); await callback.answer(f"Ошибка: {e}", show_alert=True)
+        except Exception:
+            logger.exception("CryptoBot")
+            lang = await _get_lang(callback)
+            await callback.message.edit_text(get_text(lang, "pay_error_body"),
+                                             reply_markup=payment_error_kb(plan, period_key, "crypto", lang))
     await callback.answer()
 
 @router.pre_checkout_query()
