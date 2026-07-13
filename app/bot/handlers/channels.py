@@ -15,6 +15,7 @@ from app.db.crud import (
 )
 from app.db.session import get_session
 from app.locales import get_text
+from app.bot.handlers.plan import plan_display_name
 
 router = Router()
 
@@ -80,7 +81,7 @@ async def show_channels(callback: CallbackQuery, lang: str):
             f"У тебя пока нет своих каналов.\n"
             f"Добавь канал — и я буду отслеживать сообщения\n"
             f"только в нём по твоим ключевым словам.\n\n"
-            f"Осталось: {current} из {max_ch} ({user.plan.capitalize()})"
+            f"Осталось: {current} из {max_ch} ({plan_display_name(user.plan, lang)})"
         )
     else:
         text += f"Твои каналы ({current}/{max_ch}):\n\n"
@@ -130,7 +131,7 @@ async def on_add_channel_prompt(callback: CallbackQuery, state: FSMContext):
     text = (
         f"Отправь мне @username канала.\n"
         f"Например: @danang_chat\n\n"
-        f"Осталось: {max_ch - current} из {max_ch} ({user.plan.capitalize()})\n\n"
+        f"Осталось: {max_ch - current} из {max_ch} ({plan_display_name(user.plan, lang)})\n\n"
         f"/cancel для отмены."
     )
     await callback.message.edit_text(text)

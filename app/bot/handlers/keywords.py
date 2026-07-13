@@ -15,6 +15,7 @@ from app.db.crud import (
 )
 from app.db.session import get_session
 from app.locales import get_text
+from app.bot.handlers.plan import plan_display_name
 
 router = Router()
 
@@ -65,7 +66,7 @@ async def show_keywords(callback: CallbackQuery, lang: str):
             f"У тебя пока нет ключевых слов.\n"
             f"Добавь слово — и я буду присылать уведомления,\n"
             f"когда кто-то использует его в чатах.\n\n"
-            f"Осталось: {current} из {max_kw} ({user.plan.capitalize()})"
+            f"Осталось: {current} из {max_kw} ({plan_display_name(user.plan, lang)})"
         )
     else:
         text += f"Твои слова ({current}/{max_kw}):\n\n"
@@ -112,7 +113,7 @@ async def on_add_keyword_prompt(callback: CallbackQuery, state: FSMContext):
     text = (
         f"Отправь мне ключевое слово или фразу.\n"
         f"Например: «ищу повара», «сниму байк».\n\n"
-        f"Осталось: {max_kw - current} из {max_kw} ({user.plan.capitalize()})\n\n"
+        f"Осталось: {max_kw - current} из {max_kw} ({plan_display_name(user.plan, lang)})\n\n"
         f"Отправь /cancel для отмены."
     )
     await callback.message.edit_text(text)

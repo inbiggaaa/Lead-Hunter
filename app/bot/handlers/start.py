@@ -401,7 +401,7 @@ async def _get_user_lang_for_message(message: Message) -> str:
 
 async def _show_subscriptions_via_message(message: Message, lang: str):
     """Show subscriptions list via message.answer() — used by /subscriptions."""
-    from app.db.crud import get_user, get_user_subscriptions, get_max_segments
+    from app.db.crud import get_user, get_user_subscriptions, get_max_segments, get_max_countries
     from app.db.models import Segment, Country, SubscriptionCity, City
     from sqlalchemy import select as sa_select
 
@@ -412,6 +412,8 @@ async def _show_subscriptions_via_message(message: Message, lang: str):
         subs = await get_user_subscriptions(session, user.id)
         current = len(subs)
         max_seg = get_max_segments(user.plan)
+        distinct_countries = len({s.country_id for s in subs})
+        max_countries = get_max_countries(user.plan)
 
         segs = (await session.execute(sa_select(Segment))).scalars().all()
         seg_names = {s.id: (s.emoji or "") + " " + (s.title_ru if lang == "ru" else (s.title_en or s.title_ru)) for s in segs}
@@ -427,7 +429,10 @@ async def _show_subscriptions_via_message(message: Message, lang: str):
                 )).scalars().all()
                 sub_cities_map[sub.id] = [city_names.get(cid, f"#{cid}") for cid in sc]
 
+    countries_cap = "∞" if max_countries >= 9999 else str(max_countries)
     text = f"📋 Мои подписки ({current}/{max_seg})\n\n"
+    if subs:
+        text += f"🌍 Стран задействовано: {distinct_countries}/{countries_cap}\n\n"
     if not subs:
         text += "У тебя пока нет подписок.\nНажми 🔍 Поиск клиентов чтобы найти первых!"
 
