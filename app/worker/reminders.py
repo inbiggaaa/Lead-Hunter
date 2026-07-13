@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
 from app.config import settings
@@ -15,11 +16,32 @@ logger = logging.getLogger(__name__)
 
 # ── Reminders ──
 
+# Типы напоминаний с кнопкой апгрейда «🎯 Тарифы» (T4.3/T4.4/T4.6).
+_UPGRADE_KB_TYPES = {"trial_ending", "trial_expired"}
+
+
+def _upgrade_kb() -> InlineKeyboardMarkup:
+    from app.config import settings
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text=f"🎯 Тарифы — от ${settings.price_start_monthly_usd}/мес",
+        callback_data="menu:plan")]])
+
+
 REMINDER_MESSAGES = {
+    # trial_ending — ДО истечения (T4.3): предупредить, пока доступ ещё есть
+    "trial_ending": {
+        2: "⏳ Пробный период заканчивается через 2 дня.\n"
+           "Потом контакты клиентов скроются. Сохрани доступ — тариф Старт от ${start}/мес.",
+        1: "⏳ Завтра пробный период закончится.\n"
+           "Заявки останутся, но без контактов. Тариф Старт (${start}/мес) оставит их открытыми.",
+    },
     "trial_expired": {
-        1: "⏰ Ваш пробный период закончился. Перейди на Pro или Business чтобы продолжить получать заявки! 💰",
-        3: "👋 Прошло 3 дня с окончания триала. На Free-тарифе ты получаешь 10 уведомлений/день — апни до Pro чтобы снять лимит.",
-        7: "📊 Неделя после триала. Как успехи? Напомню: на Pro ты получаешь полные контакты и 150 уведомлений/день.",
+        1: "⏰ Пробный период закончился. Заявки приходят, но контакты скрыты.\n"
+           "Открой их снова — тариф Старт от ${start}/мес.",
+        3: "🔒 3 дня без контактов. Каждая заявка уходит тому, кто ответил первым.\n"
+           "Верни доступ — от ${start}/мес.",
+        7: "📊 Неделя на Free. Заявки видны, а отправитель — нет.\n"
+           "Открой контакты — тариф Старт от ${start}/мес.",
     },
     "subscription_expired": {
         1: "⏰ Твоя подписка истекла. Продли чтобы не терять заявки! 💰",
@@ -51,15 +73,29 @@ async def send_reminders():
             user.plan = "free"
             logger.info("Trial expired for user %d → downgraded to free", user.telegram_id)
         await session.commit()
-        # Trial expired reminders
-        trial_users = (await session.execute(
+
+        # trial_ending (ДО истечения) — для активных триалов (T4.3)
+        active_trial = (await session.execute(
             select(User).where(
                 User.plan == "trial",
                 User.plan_expires_at.isnot(None),
             )
         )).scalars().all()
+        for user in active_trial:
+            days_until = (user.plan_expires_at.date() - today).days
+            if days_until in (2, 1):
+                await _maybe_send(session, user, "trial_ending", days_until)
 
-        for user in trial_users:
+        # trial_expired (ПОСЛЕ истечения) — бывшие триалы: downgrade сделал их free,
+        # но plan_expires_at сохранён (never-trial free имеют его NULL). T4.3-фикс:
+        # раньше выборка шла по plan=='trial' → срабатывало НИКОГДА (days_since ≤ 0).
+        former_trial = (await session.execute(
+            select(User).where(
+                User.plan == "free",
+                User.plan_expires_at.isnot(None),
+            )
+        )).scalars().all()
+        for user in former_trial:
             days_since = (today - user.plan_expires_at.date()).days
             if days_since in (1, 3, 7):
                 await _maybe_send(session, user, "trial_expired", days_since)
@@ -113,11 +149,14 @@ async def _maybe_send(session, user: User, rtype: str, day: int):
     message = REMINDER_MESSAGES.get(rtype, {}).get(day)
     if not message:
         return
+    if "{start}" in message:
+        message = message.format(start=settings.price_start_monthly_usd)
+    kb = _upgrade_kb() if rtype in _UPGRADE_KB_TYPES else None
 
     # Send via Bot API
     bot = Bot(token=settings.bot_token)
     try:
-        await bot.send_message(user.telegram_id, message)
+        await bot.send_message(user.telegram_id, message, reply_markup=kb)
     except Exception:
         logger.exception("Failed to send reminder to %d", user.telegram_id)
         return
