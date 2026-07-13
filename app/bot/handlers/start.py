@@ -241,7 +241,7 @@ async def _show_menu_from_db(message: Message, telegram_id: int):
             if user.plan == "trial" and user.plan_expires_at:
                 days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
                 plan_name = f"Trial ({max(0, days_left)} дн)"
-            elif user.plan in ("pro", "business") and user.plan_expires_at:
+            elif user.plan in ("start", "pro", "business") and user.plan_expires_at:
                 days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
                 plan_name = f"{user.plan.capitalize()} ({max(0, days_left)} дн)"
     await _show_menu(message, lang, plan_name)

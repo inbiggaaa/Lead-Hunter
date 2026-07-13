@@ -1,24 +1,29 @@
 """Tests for catalog navigation: countries, cities, segments, flags, 2-column layout."""
 
 import pytest
+from app.config import settings
 from app.db.crud import get_max_segments
 
 
 class TestPlanLimits:
-    """Verify plan limits match CLAUDE.md specification."""
+    """Verify plan limits read from settings matrix (тарифы v2, #81).
+    Значения сверяются с settings (устойчиво к переопределению из .env)."""
 
     def test_free_limits(self):
-        assert get_max_segments("free") == 1
+        assert get_max_segments("free") == settings.max_segments_free
+
+    def test_start_limits(self):
+        assert get_max_segments("start") == settings.max_segments_start
 
     def test_pro_limits(self):
-        assert get_max_segments("pro") == 3
+        assert get_max_segments("pro") == settings.max_segments_pro
 
     def test_trial_limits(self):
-        # Trial = Business = 60
-        assert get_max_segments("trial") == 60
+        # Trial = Business = кап 60
+        assert get_max_segments("trial") == settings.business_hidden_cap_segments
 
     def test_business_limits(self):
-        assert get_max_segments("business") == 60
+        assert get_max_segments("business") == settings.business_hidden_cap_segments
 
 
 class TestCountryFlags:

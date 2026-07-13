@@ -13,8 +13,9 @@ from app.payments.cryptobot import CryptoBotPaymentProvider
 logger = logging.getLogger(__name__)
 router = Router()
 
-PLANS = {"pro": {"name": "Pro", "usd_monthly": settings.price_pro_monthly_usd},
-         "business": {"name": "Business", "usd_monthly": settings.price_business_monthly_usd}}
+PLANS = {"start": {"name": "Старт", "usd_monthly": settings.price_start_monthly_usd},
+         "pro": {"name": "Профи", "usd_monthly": settings.price_pro_monthly_usd},
+         "business": {"name": "Бизнес", "usd_monthly": settings.price_business_monthly_usd}}
 PERIODS = {"1m": {"label": "1 месяц", "months": 1, "discount": 0},
            "3m": {"label": "3 месяца (-10%)", "months": 3, "discount": 0.10},
            "1y": {"label": "1 год (-20%)", "months": 12, "discount": 0.20}}
@@ -112,7 +113,7 @@ async def _apply_referral_bonus(user_id: int):
             select(User).where(User.id == ref.referrer_id)
         )).scalar_one_or_none()
 
-        if referrer and referrer.plan in ("pro", "business", "trial"):
+        if referrer and referrer.plan in ("start", "pro", "business", "trial"):
             if referrer.plan_expires_at:
                 referrer.plan_expires_at += dt.timedelta(days=settings.referral_bonus_days)
             else:

@@ -205,30 +205,59 @@ async def delete_subscription(session: AsyncSession, sub_id: int, user_id: int) 
     return result.rowcount > 0
 
 
-# ── Limits helpers ──
+# ── Limits helpers (тарифы v2, #81 — единая матрица) ──
+
+# Гео-«без лимита» для pro-городов и business/trial. Реальный потолок — общий
+# кап подписок business_hidden_cap_* (60), он же ограничивает число стран.
+_GEO_UNLIMITED = 9999
+
+
+def _plan_limits(plan: str) -> dict:
+    """Матрица лимитов одного плана. business/trial → общий кап 60 (не БД-безлимит).
+    Неизвестный план → free (least privilege). Free = start по гео."""
+    from app.config import settings
+    business = {
+        "segments": settings.business_hidden_cap_segments,
+        "channels": settings.business_hidden_cap_channels,
+        "keywords": settings.business_hidden_cap_keywords,
+        "countries": _GEO_UNLIMITED, "cities": _GEO_UNLIMITED,
+    }
+    matrix = {
+        "free": {
+            "segments": settings.max_segments_free, "channels": settings.max_channels_free,
+            "keywords": settings.max_keywords_free, "countries": settings.max_countries_start,
+            "cities": settings.max_cities_start,
+        },
+        "start": {
+            "segments": settings.max_segments_start, "channels": settings.max_channels_start,
+            "keywords": settings.max_keywords_start, "countries": settings.max_countries_start,
+            "cities": settings.max_cities_start,
+        },
+        "pro": {
+            "segments": settings.max_segments_pro, "channels": settings.max_channels_pro,
+            "keywords": settings.max_keywords_pro, "countries": settings.max_countries_pro,
+            "cities": _GEO_UNLIMITED,
+        },
+        "business": business, "trial": business,
+    }
+    return matrix.get(plan, matrix["free"])
+
 
 def get_max_keywords(plan: str) -> int:
-    from app.config import settings
-    if plan == "free":
-        return settings.max_keywords_free
-    if plan == "pro":
-        return settings.max_keywords_pro
-    return settings.business_hidden_cap_keywords  # trial, business
+    return _plan_limits(plan)["keywords"]
 
 
 def get_max_channels(plan: str) -> int:
-    from app.config import settings
-    if plan == "free":
-        return settings.max_channels_free
-    if plan == "pro":
-        return settings.max_channels_pro
-    return settings.business_hidden_cap_channels  # trial, business
+    return _plan_limits(plan)["channels"]
 
 
 def get_max_segments(plan: str) -> int:
-    from app.config import settings
-    if plan == "free":
-        return settings.max_segments_free  # 1 — but existing subs from trial are preserved
-    if plan == "pro":
-        return settings.max_segments_pro
-    return settings.business_hidden_cap_segments  # trial, business
+    return _plan_limits(plan)["segments"]
+
+
+def get_max_countries(plan: str) -> int:
+    return _plan_limits(plan)["countries"]
+
+
+def get_max_cities_per_sub(plan: str) -> int:
+    return _plan_limits(plan)["cities"]

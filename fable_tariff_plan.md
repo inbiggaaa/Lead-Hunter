@@ -144,7 +144,12 @@
 
 ## ФАЗА T1 — Бэкенд тарифной матрицы
 
-### [ ] T1.1 План `start` + единая матрица лимитов
+### [x] T1.1 План `start` + единая матрица лимитов
+**Выполнено: 13.07.2026, коммит a850465. Примечания:**
+- crud.py: три if/elif-геттера заменены единой `_plan_limits(plan)` (dict 5 планов × 5 лимитов), геттеры читают из неё; добавлены `get_max_countries`, `get_max_cities_per_sub`. Гео-«без лимита» = `_GEO_UNLIMITED=9999` (реальный потолок — кап подписок 60). **Неизвестный план → free (least privilege)**, а не business, как было в старой else-ветке.
+- **Аудит `start` = платный** (grep всех `plan ==`/`in (...)`): исправлены 3 точки, где start ошибочно выпадал — (1) crud-геттеры (start падал в else→cap60, теперь свои лимиты); (2) plan.py:115 реферальный бонус `in (start,pro,business,trial)`; (3) start.py:244 отображение срока `in (start,pro,business)`. Точки, где start корректно исключён БЕЗ правок: sender is_free (start≠free→paid-формат), catalog_nav trial/show_upgrade (только free), reminders/end_of_day (только free) — подтверждено.
+- plan.py `PLANS` += start; **display-имена сменены на RU «Старт/Профи/Бизнес»** (были EN Pro/Business) — канон #81; EN-i18n имён отложена в T3.1. Кнопка покупки start ещё не выведена в UI (плановое: экран тарифа перестраивается в T3.1), бэкенд `_calc("start", ...)` готов.
+- Тесты: `tests/test_tariffs_v2_matrix.py` (6 тестов, monkeypatch — независимы от .env, все 5 планов × лимиты + least-privilege); `test_catalog.py` TestPlanLimits сделан settings-относительным (+ start) — убрана хрупкость к .env. Полный сьют в изолированных контейнерах: **300 passed**, 4 failed (пред­существующий кластер test_poller_fixes.py — async-сигнатура, poller не трогался).
 **Зачем:** сейчас лимиты — три if/elif-геттера в crud.py; четвёртый план превратит их в кашу.
 **Что сделать:**
 - В `app/db/crud.py` заменить `get_max_keywords/channels/segments` на единую структуру `PLAN_LIMITS: dict[plan → limits]` (изящно: dataclass/TypedDict), собираемую из settings; `trial` = лимиты business (как сейчас). Сигнатуры геттеров сохранить (вызовов много) — пусть читают из матрицы.
