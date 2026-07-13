@@ -92,8 +92,17 @@ TEXTS = {
     ),
     "eod_btn": "🎯 Открыть контакты — от ${price}/мес",
 
+    # ── Статистика (T5.1) ──
+    "stats_title": "📈 Статистика заявок",
+    "stats_period": "За {days} дн.: {total} заявок",
+    "stats_byday_header": "По дням:",
+    "stats_byseg_header": "По направлениям:",
+    "stats_empty": "За выбранный период заявок пока нет.",
+    "btn_stats": "📈 Статистика",
+
     # ── Контекстные пейволлы (T4.1) ──
     "paywall_title": "🔒 Лимит текущего тарифа",
+    "paywall_stats": "Статистика заявок — на тарифе {plan} (${price}/мес).",
     "paywall_keyword": "Больше ключевых слов — на тарифе {plan} (${price}/мес).",
     "paywall_direction": "Больше направлений и стран — на тарифе {plan} (${price}/мес).",
     "paywall_country": "Несколько стран — на тарифе {plan} (${price}/мес).",

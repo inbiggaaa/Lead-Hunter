@@ -233,6 +233,36 @@ async def increment_daily_stats(user_id: int, date_str: str, field: str) -> int:
     return value
 
 
+SEG_STAT_KEY = "stats:seg:{user_id}:{date}:{segment_id}"
+SEG_STAT_TTL_DAYS = 35  # T5.1: по-сегментная статистика для экрана «30 дней»
+
+
+async def increment_segment_stat(user_id: int, date_str: str, segment_id: int) -> None:
+    """T5.1: +1 к заявкам пользователя по сегменту за день. TTL 35 дней (персистентно,
+    в отличие от matched/sent, которые гаснут в полночь)."""
+    from datetime import datetime, timedelta, timezone
+    redis = await get_redis()
+    key = SEG_STAT_KEY.format(user_id=user_id, date=date_str, segment_id=segment_id)
+    await redis.incr(key)
+    await redis.expire(key, SEG_STAT_TTL_DAYS * 86400)
+
+
+async def get_segment_stats(user_id: int, segment_ids: list[int], days: int) -> dict[int, int]:
+    """Сумма заявок по каждому сегменту за последние `days` дней (T5.1)."""
+    from datetime import datetime, timedelta, timezone
+    if not segment_ids:
+        return {}
+    redis = await get_redis()
+    today = datetime.now(timezone.utc).date()
+    dates = [(today - timedelta(days=d)).strftime("%Y-%m-%d") for d in range(days)]
+    totals: dict[int, int] = {}
+    for sid in segment_ids:
+        keys = [SEG_STAT_KEY.format(user_id=user_id, date=dt, segment_id=sid) for dt in dates]
+        vals = await redis.mget(keys)
+        totals[sid] = sum(int(v) for v in vals if v)
+    return totals
+
+
 async def _midnight_timestamp() -> int:
     """Get Unix timestamp for next midnight."""
     from datetime import datetime, timedelta, timezone

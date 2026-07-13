@@ -88,6 +88,7 @@ _UPGRADE_PATH = {
     "country":   {"free": "pro", "start": "pro", "pro": "business"},
     "city":      {"free": "pro", "start": "pro", "pro": "business"},
     "channel":   {"free": "pro", "start": "pro", "pro": "business"},
+    "stats":     {"free": "pro", "start": "pro", "pro": "business"},
 }
 
 def next_plan_for(trigger: str, current_plan: str) -> str:

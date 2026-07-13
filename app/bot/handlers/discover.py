@@ -37,12 +37,66 @@ async def on_settings(callback: CallbackQuery):
         [InlineKeyboardButton(text=get_text(lang, "btn_keywords"), callback_data="menu:keywords")],
         [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
         [InlineKeyboardButton(text=get_text(lang, "btn_subscriptions"), callback_data="menu:subs")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_stats"), callback_data="menu:stats")],
         [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
         [InlineKeyboardButton(text="📖 Инструкции" if lang == "ru" else "📖 Instructions", callback_data="menu:instructions")],
         [InlineKeyboardButton(text=get_text(lang, "btn_about"), callback_data="menu:about")],
         [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
     ])
     await callback.message.edit_text("⚙️ Settings" if lang == "en" else "⚙️ Настройки", reply_markup=kb)
+    await callback.answer()
+
+
+async def build_stats_screen(user, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Экран статистики (T5.1): Free/Старт → пейволл; Профи — 7 дн.; Бизнес/Trial — 30 дн. + по направлениям."""
+    from app.bot.handlers.plan import build_paywall
+    from app.db.crud import get_daily_lead_counts, get_user_subscriptions
+    from app.cache.subscription_cache import get_segment_stats
+
+    plan = user.plan if user else "free"
+    if plan in ("free", "start"):
+        return build_paywall("stats", plan, lang)
+
+    full = plan in ("business", "trial")
+    days = 30 if full else 7
+    async for s in get_session():
+        by_day = await get_daily_lead_counts(s, user.id, days)
+        seg_totals, seg_names = {}, {}
+        if full:
+            subs = await get_user_subscriptions(s, user.id)
+            seg_ids = list({sub.segment_id for sub in subs})
+            seg_totals = await get_segment_stats(user.id, seg_ids, days)
+            from app.db.models import Segment
+            from sqlalchemy import select as sa_sel
+            for seg in (await s.execute(sa_sel(Segment).where(Segment.id.in_(seg_ids)))).scalars() if seg_ids else []:
+                seg_names[seg.id] = f"{seg.emoji or ''} {seg.title_ru if lang == 'ru' else (seg.title_en or seg.title_ru)}".strip()
+
+    total = sum(by_day.values())
+    text = f"{get_text(lang, 'stats_title')}\n\n{get_text(lang, 'stats_period', days=days, total=total)}\n"
+    if total == 0:
+        text += f"\n{get_text(lang, 'stats_empty')}"
+    else:
+        text += f"\n{get_text(lang, 'stats_byday_header')}\n"
+        for d in sorted(by_day, reverse=True)[:7]:
+            text += f"{d[5:]} — {by_day[d]}\n"
+        nonzero = [(sid, n) for sid, n in seg_totals.items() if n]
+        if full and nonzero:
+            text += f"\n{get_text(lang, 'stats_byseg_header')}\n"
+            for sid, n in sorted(nonzero, key=lambda x: -x[1]):
+                text += f"{seg_names.get(sid, f'#{sid}')} — {n}\n"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:settings")]])
+    return text, kb
+
+
+@router.callback_query(F.data == "menu:stats")
+async def on_stats(callback: CallbackQuery):
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        lang = user.language if user else "ru"
+    text, kb = await build_stats_screen(user, lang)
+    await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
 

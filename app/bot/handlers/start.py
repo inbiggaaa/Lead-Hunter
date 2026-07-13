@@ -383,6 +383,17 @@ async def cmd_settings(message: Message):
     lang = await _get_user_lang_for_message(message)
     await _show_settings_via_message(message, lang)
 
+@router.message(Command("stats"))
+async def cmd_stats(message: Message):
+    """Show lead statistics directly (T5.1)."""
+    from app.bot.handlers.discover import build_stats_screen
+    from app.db.crud import get_user
+    async for session in get_session():
+        user = await get_user(session, message.from_user.id)
+        lang = user.language if user else "ru"
+    text, kb = await build_stats_screen(user, lang)
+    await message.answer(text, reply_markup=kb)
+
 
 @router.message(Command("chatid"))
 async def cmd_chatid(message: Message):
@@ -476,6 +487,7 @@ async def _show_settings_via_message(message: Message, lang: str):
         [InlineKeyboardButton(text=get_text(lang, "btn_keywords"), callback_data="menu:keywords")],
         [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
         [InlineKeyboardButton(text=get_text(lang, "btn_subscriptions"), callback_data="menu:subs")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_stats"), callback_data="menu:stats")],
         [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
         [InlineKeyboardButton(
             text="📖 Инструкции" if lang == "ru" else "📖 Instructions",

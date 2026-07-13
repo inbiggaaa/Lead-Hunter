@@ -263,6 +263,19 @@ def get_max_cities_per_sub(plan: str) -> int:
     return _plan_limits(plan)["cities"]
 
 
+async def get_daily_lead_counts(session: AsyncSession, user_id: int, days: int) -> dict:
+    """T5.1: {дата 'YYYY-MM-DD' → число доставленных заявок} за последние `days` дней (из sent_log)."""
+    from datetime import datetime, timedelta, timezone
+    from app.db.models import SentLog
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (await session.execute(
+        select(func.date(SentLog.sent_at), func.count(SentLog.id))
+        .where(SentLog.user_id == user_id, SentLog.sent_at >= since)
+        .group_by(func.date(SentLog.sent_at))
+    )).all()
+    return {str(d): c for d, c in rows}
+
+
 def cities_within_limit(plan: str, n_cities: int) -> bool:
     """Число городов в одной подписке не превышает лимит плана (тарифы v2, #81)."""
     return n_cities <= get_max_cities_per_sub(plan)

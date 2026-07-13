@@ -93,8 +93,17 @@ TEXTS = {
     ),
     "eod_btn": "🎯 Unlock contacts — from ${price}/mo",
 
+    # ── Statistics (T5.1) ──
+    "stats_title": "📈 Lead statistics",
+    "stats_period": "Last {days} days: {total} leads",
+    "stats_byday_header": "By day:",
+    "stats_byseg_header": "By category:",
+    "stats_empty": "No leads in the selected period yet.",
+    "btn_stats": "📈 Statistics",
+
     # ── Contextual paywalls (T4.1) ──
     "paywall_title": "🔒 Current plan limit",
+    "paywall_stats": "Lead statistics — on {plan} (${price}/mo).",
     "paywall_keyword": "More keywords — on {plan} (${price}/mo).",
     "paywall_direction": "More categories and countries — on {plan} (${price}/mo).",
     "paywall_country": "Multiple countries — on {plan} (${price}/mo).",
