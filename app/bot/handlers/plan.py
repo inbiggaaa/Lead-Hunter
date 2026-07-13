@@ -27,6 +27,13 @@ def _calc(plan_key, period_key):
     return {"total": total, "per_month": total / p["months"], "stars": int(total * STARS_PER_USD),
             "months": p["months"], "plan_name": PLANS[plan_key]["name"], "period_label": p["label"]}
 
+async def _get_user_id(callback: CallbackQuery) -> int:
+    """DB users.id по telegram-пользователю (payment_checker активирует по User.id)."""
+    async for s in get_session():
+        u = await get_user(s, callback.from_user.id)
+        return u.id if u else 0
+    return 0
+
 @router.callback_query(F.data == "menu:plan")
 async def on_plan_menu(callback: CallbackQuery):
     async for s in get_session():
@@ -147,6 +154,9 @@ async def _apply_referral_bonus(user_id: int):
             )
 
 async def _activate_by_msg(message, plan, period_key, method, invoice_id):
+    # Политика (#81): оплата всегда устанавливает оплаченный план и срок 30×months
+    # ОТ ТЕКУЩЕГО МОМЕНТА. Оплата более дешёвого плана при активном дорогом = даунгрейд
+    # с новой датой (осознанный выбор пользователя; апселл верхних тарифов — на экране).
     info = _calc(plan, period_key)
     async for s in get_session():
         u = await get_user(s, message.from_user.id)

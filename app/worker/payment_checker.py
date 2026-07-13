@@ -92,6 +92,11 @@ async def _activate(data: dict, invoice_id: str):
         user.plan_expires_at = expires
         await session.commit()
 
+    # Смена плана меняет формат уведомлений (Free скрывает контакты) — сбросить
+    # кэш подписок сразу, иначе оплаченный пользователь до TTL (1ч) видел бы Free.
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()
+
     # Apply referral bonus
     from app.bot.handlers.plan import _apply_referral_bonus
     await _apply_referral_bonus(user_id)
