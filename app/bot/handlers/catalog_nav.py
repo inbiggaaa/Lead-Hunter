@@ -8,7 +8,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.db.crud import (
+    cities_within_limit,
     count_user_subscriptions,
+    countries_within_limit,
     create_subscription,
     get_categories,
     get_countries,
@@ -354,13 +356,38 @@ async def _show_countries(callback: CallbackQuery, state: FSMContext, lang: str)
 
 # ═══════════════ STEP 2: Choose country ═══════════════
 
+def _geo_limit_msg(kind: str, lang: str) -> str:
+    """Интерим-сообщение о гео-лимите тарифа (#81).
+    TODO T4.1: заменить контекстным пейволлом с кнопкой апгрейда."""
+    if kind == "city":
+        return ("На этом тарифе — до 3 городов. Профи снимает лимит городов."
+                if lang == "ru" else
+                "This plan allows up to 3 cities. Pro removes the city limit.")
+    return ("На этом тарифе — 1 страна. Профи — до 5 стран."
+            if lang == "ru" else
+            "This plan allows 1 country. Pro — up to 5 countries.")
+
+
 @router.callback_query(CatStates.choosing_country, F.data.startswith("cat:country:"))
 async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
     country_id = int(callback.data.split(":")[2])
     data = await state.get_data()
     lang = data.get("lang", "ru")
 
-    await state.update_data(country_id=country_id)
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        existing_countries = (
+            {s.country_id for s in await get_user_subscriptions(session, user.id)}
+            if user else set()
+        )
+    plan = user.plan if user else "free"
+
+    # Гео-лимит по стране (#81). При числах v2 обычно подчинён лимиту сегментов.
+    if not countries_within_limit(plan, existing_countries, country_id):
+        await callback.answer(_geo_limit_msg("country", lang), show_alert=True)
+        return
+
+    await state.update_data(country_id=country_id, plan=plan)
 
     text = "Где именно ищешь?"
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -431,10 +458,16 @@ async def on_toggle_city(callback: CallbackQuery, state: FSMContext):
     city_id = int(callback.data.split(":")[2])
     data = await state.get_data()
     selected: list[int] = data.get("selected_cities", [])
+    plan = data.get("plan", "free")
+    lang = data.get("lang", "ru")
 
     if city_id in selected:
         selected.remove(city_id)
     else:
+        # Гео-лимит по городам в одной подписке (#81).
+        if not cities_within_limit(plan, len(selected) + 1):
+            await callback.answer(_geo_limit_msg("city", lang), show_alert=True)
+            return
         selected.append(city_id)
 
     await state.update_data(selected_cities=selected)
@@ -600,9 +633,20 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             await callback.answer(f"Лимит: {max_seg}", show_alert=True)
             return
 
+        existing_subs = await get_user_subscriptions(session, user.id)
+
+        # Гео-лимиты (control-проверка от гонок/устаревшего стейта) — #81
+        existing_countries = {s.country_id for s in existing_subs}
+        if not countries_within_limit(user.plan, existing_countries, country_id):
+            await callback.answer(_geo_limit_msg("country", lang), show_alert=True)
+            return
+        if mode == "cities" and not cities_within_limit(user.plan, len(selected_cities)):
+            await callback.answer(_geo_limit_msg("city", lang), show_alert=True)
+            return
+
         # Create subscriptions — silently skip duplicates
         created = 0
-        existing_pairs = {(s.segment_id, s.country_id) for s in await get_user_subscriptions(session, user.id)}
+        existing_pairs = {(s.segment_id, s.country_id) for s in existing_subs}
         for seg_id in selected_segments:
             if (seg_id, country_id) in existing_pairs:
                 continue

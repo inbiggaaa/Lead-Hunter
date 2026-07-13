@@ -261,3 +261,15 @@ def get_max_countries(plan: str) -> int:
 
 def get_max_cities_per_sub(plan: str) -> int:
     return _plan_limits(plan)["cities"]
+
+
+def cities_within_limit(plan: str, n_cities: int) -> bool:
+    """Число городов в одной подписке не превышает лимит плана (тарифы v2, #81)."""
+    return n_cities <= get_max_cities_per_sub(plan)
+
+
+def countries_within_limit(plan: str, existing_country_ids, new_country_id: int) -> bool:
+    """Добавление страны не выводит число distinct-стран за лимит плана.
+    При утверждённых числах v2 обычно подчинён лимиту подписок (стран = сегментов),
+    но защищает при их будущей смене через .env."""
+    return len(set(existing_country_ids) | {new_country_id}) <= get_max_countries(plan)
