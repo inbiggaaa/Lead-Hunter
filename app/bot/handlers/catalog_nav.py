@@ -701,19 +701,26 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         break
 
     if is_first:
+        from app.config import settings as _s
+        from app.bot.handlers.plan import PLANS as _PLANS
         text = (
-            "🎉 Готово! Ты получил 5 дней Business-тарифа.\n\n"
+            f"🎉 Готово! Тебе открыт пробный период — {_s.trial_days} дней уровня Бизнес.\n\n"
             f"📌 Направления:\n" + "\n".join(seg_names) + "\n"
             f"🌍 Страна: {country_name}\n"
         )
         if city_labels:
             text += f"🏙 Города: {', '.join(city_labels)}\n"
         text += f"\n✅ Создано подписок: {created}\n"
-        text += "Заявки начнут приходить в ближайшее время."
+        text += "Заявки с полными контактами начнут приходить в ближайшее время.\n\n"
+        text += (
+            f"⏳ После пробного периода контакты скроются. "
+            f"Тариф Старт открывает их снова — от ${_PLANS['start']['usd_monthly']}/мес."
+        )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
         ])
     else:
+        from app.bot.handlers.plan import PLANS as _PLANS
         text = f"✅ Добавлено подписок: {created}\n\n"
         text += "📌\n" + "\n".join(seg_names) + "\n"
         text += f"🌍 {country_name}"
@@ -722,10 +729,12 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         kb_rows = [[InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")]]
         if show_upgrade:
             text += (
-                "\n\n💡 На бесплатном тарифе контакты клиентов скрыты.\n"
-                "Оформи подписку чтобы видеть отправителя и отвечать первым!"
+                "\n\n🔒 На бесплатном тарифе контакты клиентов скрыты.\n"
+                "Тариф Старт открывает отправителя и кнопку «Ответить» — отвечай первым."
             )
-            kb_rows.insert(0, [InlineKeyboardButton(text="💰 Перейти на Pro", callback_data="menu:plan")])
+            kb_rows.insert(0, [InlineKeyboardButton(
+                text=f"🎯 Открыть контакты — от ${_PLANS['start']['usd_monthly']}/мес",
+                callback_data="menu:plan")])
         kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
