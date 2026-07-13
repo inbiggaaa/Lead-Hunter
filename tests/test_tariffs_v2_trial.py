@@ -62,3 +62,25 @@ async def test_inactive_winback_has_search_button(capture_bot):
     kb = call.kwargs["reply_markup"]
     cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
     assert "menu:search" in cbs
+
+
+async def _send_plan(capture_bot, rtype, day, plan):
+    user = SimpleNamespace(id=1, telegram_id=111, language="ru", plan=plan)
+    await rem._maybe_send(_Session(), user, rtype, day)
+    return capture_bot.send_message.await_args
+
+
+async def test_subscription_ending_renew_current_plan(capture_bot):
+    # T4.6: за 5 дней до истечения — кнопка продления ТЕКУЩЕГО плана + другие тарифы
+    call = await _send_plan(capture_bot, "subscription_ending", 5, "pro")
+    kb = call.kwargs["reply_markup"]
+    cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "pay_plan:pro" in cbs      # продлить текущий
+    assert "menu:plan" in cbs         # другие тарифы
+
+
+async def test_subscription_expired_start_gets_renew(capture_bot):
+    # T4.6-фикс: start — тоже платный, получает кнопку продления
+    call = await _send_plan(capture_bot, "subscription_expired", 1, "start")
+    cbs = [b.callback_data for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+    assert "pay_plan:start" in cbs

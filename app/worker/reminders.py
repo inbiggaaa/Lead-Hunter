@@ -27,13 +27,18 @@ def _upgrade_kb() -> InlineKeyboardMarkup:
         callback_data="menu:plan")]])
 
 
-def _reminder_kb(rtype: str):
-    """Клавиатура напоминания: апгрейд для конверсионных типов, re-engage для winback."""
+def _reminder_kb(rtype: str, user_plan: str | None = None):
+    """Клавиатура напоминания: апгрейд / re-engage / продление текущего плана."""
     if rtype in _UPGRADE_KB_TYPES:
         return _upgrade_kb()
     if rtype == "inactive":
         return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
             text="🔍 Поиск клиентов", callback_data="menu:search")]])
+    if rtype in ("subscription_ending", "subscription_expired") and user_plan in ("start", "pro", "business"):
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"pay_plan:{user_plan}")],
+            [InlineKeyboardButton(text="📋 Другие тарифы", callback_data="menu:plan")],
+        ])
     return None
 
 
@@ -53,10 +58,18 @@ REMINDER_MESSAGES = {
         7: "📊 Неделя на Free. Заявки видны, а отправитель — нет.\n"
            "Открой контакты — тариф Старт от ${start}/мес.",
     },
+    # subscription_ending — ДО истечения (T4.6): продли без перерыва
+    "subscription_ending": {
+        5: "⏳ Подписка заканчивается через 5 дней.\n"
+           "Продли, чтобы получать заявки без перерыва.",
+    },
     "subscription_expired": {
-        1: "⏰ Твоя подписка истекла. Продли чтобы не терять заявки! 💰",
-        3: "👋 3 дня без подписки. Заявки продолжают приходить, но с ограничениями Free.",
-        7: "📊 Неделя без подписки. Самое время вернуться!",
+        1: "⏰ Подписка закончилась. Контакты снова скрыты.\n"
+           "Продли, чтобы отвечать клиентам первым.",
+        3: "🔒 3 дня без подписки. Заявки приходят, но без контактов.\n"
+           "Верни доступ — продли подписку.",
+        7: "📊 Неделя без подписки. Клиенты по-прежнему пишут в чатах.\n"
+           "Продли, чтобы видеть их контакты.",
     },
     "inactive": {
         14: "👋 Давно не виделись! За 2 недели появились новые заявки по твоим направлениям. Загляни!",
@@ -110,10 +123,23 @@ async def send_reminders():
             if days_since in (1, 3, 7):
                 await _maybe_send(session, user, "trial_expired", days_since)
 
-        # Subscription expired reminders
+        # subscription_ending (ДО истечения, за 5 дней) — активные платные, вкл. start (T4.6)
+        active_paid = (await session.execute(
+            select(User).where(
+                User.plan.in_(["start", "pro", "business"]),
+                User.plan_expires_at.isnot(None),
+                User.plan_expires_at >= today,
+            )
+        )).scalars().all()
+        for user in active_paid:
+            days_until = (user.plan_expires_at.date() - today).days
+            if days_until == 5:
+                await _maybe_send(session, user, "subscription_ending", 5)
+
+        # subscription_expired (ПОСЛЕ истечения) — вкл. start (T4.6-фикс: раньше только pro/business)
         expired_users = (await session.execute(
             select(User).where(
-                User.plan.in_(["pro", "business"]),
+                User.plan.in_(["start", "pro", "business"]),
                 User.plan_expires_at.isnot(None),
                 User.plan_expires_at < today,
             )
@@ -161,7 +187,7 @@ async def _maybe_send(session, user: User, rtype: str, day: int):
         return
     if "{start}" in message:
         message = message.format(start=settings.price_start_monthly_usd)
-    kb = _reminder_kb(rtype)
+    kb = _reminder_kb(rtype, getattr(user, "plan", None))
 
     # Send via Bot API
     bot = Bot(token=settings.bot_token)
