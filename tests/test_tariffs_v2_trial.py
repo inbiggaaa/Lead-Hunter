@@ -84,3 +84,14 @@ async def test_subscription_expired_start_gets_renew(capture_bot):
     call = await _send_plan(capture_bot, "subscription_expired", 1, "start")
     cbs = [b.callback_data for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
     assert "pay_plan:start" in cbs
+
+
+async def test_winback_missed_shows_count(capture_bot):
+    # T7.2: реактивация бывшего платящего — цифра пропущенного + кнопка тарифов
+    user = SimpleNamespace(id=1, telegram_id=111, language="ru", plan="free")
+    await rem._maybe_send(_Session(), user, "winback_missed", 14, missed=23)
+    call = capture_bot.send_message.await_args
+    text = call.args[1]
+    assert "23" in text and "{missed}" not in text and "$" in text
+    cbs = [b.callback_data for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+    assert "menu:plan" in cbs

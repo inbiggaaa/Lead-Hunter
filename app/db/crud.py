@@ -263,6 +263,24 @@ def get_max_cities_per_sub(plan: str) -> int:
     return _plan_limits(plan)["cities"]
 
 
+async def count_leads_since(session: AsyncSession, user_id: int, since) -> int:
+    """T7.2: число доставленных заявок пользователю с момента `since` (из sent_log)."""
+    from app.db.models import SentLog
+    return (await session.execute(
+        select(func.count(SentLog.id)).where(
+            SentLog.user_id == user_id, SentLog.sent_at >= since)
+    )).scalar() or 0
+
+
+async def get_paid_subscriber_ids(session: AsyncSession) -> set:
+    """T7.2: user_id всех, у кого есть ОПЛАЧЕННАЯ подписка (отличить бывших платящих от бывших триалов)."""
+    from app.db.models import Subscription
+    rows = (await session.execute(
+        select(Subscription.user_id).where(Subscription.payment_status == "paid").distinct()
+    )).scalars().all()
+    return set(rows)
+
+
 async def get_sent_log_for_export(session: AsyncSession, user_id: int, days: int) -> list:
     """T5.2: строки sent_log пользователя за `days` дней для CSV (метаданные, без текста)."""
     from datetime import datetime, timedelta, timezone

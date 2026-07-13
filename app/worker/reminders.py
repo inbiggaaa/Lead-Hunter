@@ -16,8 +16,10 @@ logger = logging.getLogger(__name__)
 
 # ── Reminders ──
 
-# Типы напоминаний с кнопкой апгрейда «🎯 Тарифы» (T4.3/T4.4/T4.6).
-_UPGRADE_KB_TYPES = {"trial_ending", "trial_expired"}
+# Типы напоминаний с кнопкой апгрейда «🎯 Тарифы» (T4.3/T4.4/T4.6/T7.2).
+_UPGRADE_KB_TYPES = {"trial_ending", "trial_expired", "winback_missed"}
+
+GRACE_DAYS = 7  # T7.1: сколько дней после истечения платный доступ сохраняется (мягкий grace)
 
 
 def _upgrade_kb() -> InlineKeyboardMarkup:
@@ -75,6 +77,14 @@ REMINDER_MESSAGES = {
         14: "👋 Давно не виделись! За 2 недели появились новые заявки по твоим направлениям. Загляни!",
         28: "📊 Месяц без активности. Твои подписки всё ещё работают — может, настроим новые направления?",
     },
+    # winback_missed — реактивация бывших платящих (T7.2): цифра пропущенного в СВОЕЙ нише
+    "winback_missed": {
+        14: "📊 За 2 недели без подписки в твоей нише прошло {missed} заявок — "
+            "ты их видел, но контакты были скрыты.\n"
+            "Верни доступ и отвечай первым — тариф Старт от ${start}/мес.",
+        28: "📊 Месяц без подписки: {missed} заявок в твоей нише прошли мимо (контакты скрыты).\n"
+            "Каждая — клиент, которому ответил кто-то другой. Верни доступ от ${start}/мес.",
+    },
 }
 
 
@@ -97,6 +107,24 @@ async def send_reminders():
             logger.info("Trial expired for user %d → downgraded to free", user.telegram_id)
         await session.commit()
 
+        # T7.1: downgrade платных после grace (доступ реально истекает; подписки-ниша СОХРАНЯЮТСЯ).
+        # subscription_expired (дни 1/3/7) успевают отработать в grace-окне до даунгрейда.
+        expired_paid = (await session.execute(
+            select(User).where(
+                User.plan.in_(["start", "pro", "business"]),
+                User.plan_expires_at.isnot(None),
+                User.plan_expires_at < today - timedelta(days=GRACE_DAYS),
+            )
+        )).scalars().all()
+        for user in expired_paid:
+            user.plan = "free"
+            logger.info("Paid plan expired for user %d (>%dd) → free (subs kept)",
+                        user.telegram_id, GRACE_DAYS)
+        if expired_paid:
+            await session.commit()
+            from app.cache.subscription_cache import invalidate_all_subscription_caches
+            await invalidate_all_subscription_caches()
+
         # trial_ending (ДО истечения) — для активных триалов (T4.3)
         active_trial = (await session.execute(
             select(User).where(
@@ -109,19 +137,29 @@ async def send_reminders():
             if days_until in (2, 1):
                 await _maybe_send(session, user, "trial_ending", days_until)
 
-        # trial_expired (ПОСЛЕ истечения) — бывшие триалы: downgrade сделал их free,
-        # но plan_expires_at сохранён (never-trial free имеют его NULL). T4.3-фикс:
-        # раньше выборка шла по plan=='trial' → срабатывало НИКОГДА (days_since ≤ 0).
-        former_trial = (await session.execute(
+        # Бывшие платные/триалы (free + expiry в прошлом; never-trial free имеют expiry=NULL).
+        # Разграничение (T7.2): есть оплаченная Subscription → бывший ПЛАТЯЩИЙ (winback_missed);
+        # нет → бывший ТРИАЛ (trial_expired). Иначе платящий получил бы «пробный период закончился».
+        from app.db.crud import get_paid_subscriber_ids, count_leads_since
+        paid_ids = await get_paid_subscriber_ids(session)
+        former = (await session.execute(
             select(User).where(
                 User.plan == "free",
                 User.plan_expires_at.isnot(None),
             )
         )).scalars().all()
-        for user in former_trial:
+        for user in former:
             days_since = (today - user.plan_expires_at.date()).days
-            if days_since in (1, 3, 7):
-                await _maybe_send(session, user, "trial_expired", days_since)
+            if user.id in paid_ids:
+                # T7.2: реактивация бывшего платящего — цифра пропущенного в нише
+                if days_since in (14, 28):
+                    missed = await count_leads_since(session, user.id, user.plan_expires_at)
+                    if missed > 0:
+                        await _maybe_send(session, user, "winback_missed", days_since, missed=missed)
+            else:
+                # бывший триал (T4.3-фикс: раньше выборка plan=='trial' → срабатывало НИКОГДА)
+                if days_since in (1, 3, 7):
+                    await _maybe_send(session, user, "trial_expired", days_since)
 
         # subscription_ending (ДО истечения, за 5 дней) — активные платные, вкл. start (T4.6)
         active_paid = (await session.execute(
@@ -166,8 +204,8 @@ async def send_reminders():
     logger.info("Reminder check complete")
 
 
-async def _maybe_send(session, user: User, rtype: str, day: int):
-    """Send reminder if not already sent and not disabled."""
+async def _maybe_send(session, user: User, rtype: str, day: int, missed: int | None = None):
+    """Send reminder if not already sent and not disabled. `missed` — для winback_missed (T7.2)."""
     # Check if already sent
     result = await session.execute(
         select(Reminder).where(
@@ -185,9 +223,15 @@ async def _maybe_send(session, user: User, rtype: str, day: int):
     message = REMINDER_MESSAGES.get(rtype, {}).get(day)
     if not message:
         return
-    if "{start}" in message:
-        message = message.format(start=settings.price_start_monthly_usd)
+    fmt = {"start": settings.price_start_monthly_usd}
+    if missed is not None:
+        fmt["missed"] = missed
+    if "{" in message:
+        message = message.format(**fmt)
     kb = _reminder_kb(rtype, getattr(user, "plan", None))
+    if rtype == "winback_missed":
+        from app.cache.subscription_cache import record_paywall
+        await record_paywall("winback")  # T7.3: метрика реактивации
 
     # Send via Bot API
     bot = Bot(token=settings.bot_token)
