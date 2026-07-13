@@ -447,8 +447,13 @@
 ```
 EN — калька. **Приёмка:** черновик в плане; фактическая рассылка через админку /broadcast — ПОСЛЕ T6.3, решением владельца. НЕ отправлять автономно (внешне-направленное действие).
 
-### [ ] T6.3 Деплой — RUNBOOK ГОТОВ (`docs/runbook_tariffs_v2_deploy.md`), исполняет владелец
-**Подготовлено: 13.07.2026, коммит <T6.3>. Точный пошаговый runbook написан — бэкап → стоп worker → merge → alembic upgrade head → config+.env синхронно → build → up --no-deps → инвалидация кэша → 15 мин верификации → откат.** ⚠️ САМ ДЕПЛОЙ НЕ ВЫПОЛНЕН АВТОНОМНО: требует запрещённых при работающем worker команд (стоп/up/build) + правки прод-.env — только владелец (или явно авторизованная сессия с мониторингом). См. runbook.
+### [x] T6.3 Деплой — ВЫПОЛНЕН 13.07.2026 (с явной авторизацией владельца)
+**Выполнено: 13.07.2026 ~17:15 MSK. Прод на теге `tariffs-v2-live` (main 4144e7b). Деплой прошёл чисто, 0 FloodWait.**
+- Бэкапы: `backups/pre_tariffs_v2_2026-07-13_1711.sql.gz` (БД 2.4M), сессии, `.env`.
+- Порядок (поправлен относительно runbook — build ДО миграции, т.к. миграции в новом образе): стоп worker → merge feature/tariffs-v2→main + тег → **build** bot/worker/admin → `alembic upgrade head` (channel_account01 → sentlog_meta01 → user_digest01, чисто) → правка прод-.env (цены 9/19/39, +MAX_*_start/гео, MAX_SEGMENTS_PRO 3→5/CHANNELS 15→10, удалены NOTIFICATIONS_PER_DAY_*) → `up -d --no-deps` → инвалидация sub:by_chat → мониторинг.
+- Верификация: bot «Start polling» без ValidationError; worker «Pool initialized: 2 healthy», «Tiers rebuilt: 73 hot»; **0 FloodWait/Traceback/Exception**; контейнер видит PRICE_START=9/PRO=19/BUSINESS=39, NOTIFICATIONS_PER_DAY отсутствует.
+- Постдеплой-чистка (коммит на main): удалены мёртвые поля `notifications_per_day_free/pro` из config.py (теперь прод-.env без env-строк — безопасно; применится на след. билде).
+**Осталось (решением владельца):** анонс через /broadcast (черновик T6.2); живой тест оплаты Stars; 2-нед мониторинг (T6.4).
 **Зачем:** батч всех фаз одним окном по правилам.
 **Что сделать:** по OPERATIONS.md: pg_dump + бэкап сессий → стоп worker → merge `feature/tariffs-v2` → main, тег `tariffs-v2-live` → **миграции: `alembic upgrade head`** (применит инкрементально `sentlog_meta01` → `user_digest01`; прод на channel_account01, накат чистый — проверено up/down изолированно; ⚠️ alembic С НУЛЯ не гоняется — техдолг №7, но прод не с нуля) → build → up → обновить прод `.env` (цены, MAX_*) → инвалидация кэша подписок → 15 мин логов (FloodWait, Traceback, доставка уведомлений). Помнить урок 0.1: точечный рестарт только `--no-deps`.
 - **⚠️ ОБЯЗАТЕЛЬНО в этом окне (блокер из T4.2):** удалить строки `NOTIFICATIONS_PER_DAY_FREE`/`NOTIFICATIONS_PER_DAY_PRO` из прод-`.env` И поля `notifications_per_day_free/pro` из config.py **ОДНОВРЕМЕННО**. Config = `extra_forbidden`: если убрать поле, оставив env-строку — старт упадёт с pydantic ValidationError; если убрать env-строку, оставив поле — ок, но поле мёртвое. Порядок: правим config.py (в ветке уже unused) + чистим прод-.env в одном коммите/окне, затем build. Проверить старт после.

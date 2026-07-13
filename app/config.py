@@ -110,12 +110,6 @@ class Settings(BaseSettings):
     max_countries_start: int = 1
     max_cities_start: int = 3
     max_countries_pro: int = 5
-    # УСТАРЕЛО #81: дневной лимит уведомлений отменён, поля БОЛЬШЕ НЕ ЧИТАЮТСЯ кодом
-    # (последнее использование снято в T4.2). НЕ удалять до T6.3: прод-.env ещё
-    # содержит NOTIFICATIONS_PER_DAY_*, а config = extra_forbidden → удаление поля
-    # уронит старт до чистки прод-.env. Удаляются вместе в окне деплоя T6.3.
-    notifications_per_day_free: int = 50
-    notifications_per_day_pro: int = 150
     trial_days: int = 5
     referral_trial_bonus: int = 3
     referral_bonus_days: int = 7
