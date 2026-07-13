@@ -35,7 +35,8 @@ TEXTS = {
     # ── Главное меню ──
     "menu_header": "🎯 LeadHunter",
     "menu_plan": "Твой тариф: {plan}",
-    "menu_notifications": "Уведомлений сегодня: {sent}/{limit}",
+    "menu_notifications": "📬 Заявок сегодня: {matched}",
+    "menu_free_hidden": "🔒 Контакты скрыты — открой их на платном тарифе",
     "btn_search": "🔍 Поиск клиентов",
     "btn_keywords": "⚙️ Мои ключевые слова",
     "btn_channels": "📢 Мои каналы",

@@ -231,28 +231,43 @@ async def _finish_onboarding(callback: CallbackQuery, lang: str):
 async def _show_menu_from_db(message: Message, telegram_id: int):
     """Show main menu using language and plan from DB."""
     import datetime
+    plan = "free"
+    user_id = None
     async for session in get_session():
         from app.db.crud import get_user
+        from app.bot.handlers.plan import plan_display_name
         user = await get_user(session, telegram_id)
         lang = user.language if user else "ru"
         plan_name = "Free"
         if user:
-            plan_name = user.plan.capitalize()
-            if user.plan == "trial" and user.plan_expires_at:
+            plan = user.plan
+            user_id = user.id
+            plan_name = plan_display_name(user.plan, lang)
+            if user.plan in ("trial", "start", "pro", "business") and user.plan_expires_at:
                 days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
-                plan_name = f"Trial ({max(0, days_left)} дн)"
-            elif user.plan in ("start", "pro", "business") and user.plan_expires_at:
-                days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
-                plan_name = f"{user.plan.capitalize()} ({max(0, days_left)} дн)"
-    await _show_menu(message, lang, plan_name)
+                plan_name = f"{plan_name} ({max(0, days_left)} дн)"
+    matched = await _matched_today(user_id) if user_id else 0
+    await _show_menu(message, lang, plan_name, matched=matched, is_free=(plan == "free"))
 
 
-async def _show_menu(message: Message, lang: str, plan_name: str = "Free"):
+async def _matched_today(user_id: int) -> int:
+    """Заявок сматчено пользователю сегодня (stats:daily:{id}:{date}:matched, D2)."""
+    import datetime
+    from app.cache import get_redis
+    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    redis = await get_redis()
+    return int(await redis.get(f"stats:daily:{user_id}:{today}:matched") or 0)
+
+
+async def _show_menu(message: Message, lang: str, plan_name: str = "Free",
+                     matched: int = 0, is_free: bool = True):
     text = (
         f"{get_text(lang, 'menu_header')}\n\n"
         f"{get_text(lang, 'menu_plan', plan=plan_name)}\n"
-        f"{get_text(lang, 'menu_notifications', sent=0, limit=50)}\n"
+        f"{get_text(lang, 'menu_notifications', matched=matched)}\n"
     )
+    if is_free:
+        text += f"{get_text(lang, 'menu_free_hidden')}\n"
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=get_text(lang, "btn_search"), callback_data="menu:search")],

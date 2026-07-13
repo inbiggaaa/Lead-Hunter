@@ -36,7 +36,8 @@ TEXTS = {
     # ── Main menu ──
     "menu_header": "🎯 LeadHunter",
     "menu_plan": "Your plan: {plan}",
-    "menu_notifications": "Notifications today: {sent}/{limit}",
+    "menu_notifications": "📬 Leads today: {matched}",
+    "menu_free_hidden": "🔒 Contacts hidden — unlock them on a paid plan",
     "btn_search": "🔍 Find clients",
     "btn_keywords": "⚙️ My keywords",
     "btn_channels": "📢 My channels",
