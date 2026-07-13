@@ -52,35 +52,40 @@
 
 ---
 
-## 2. Инвентаризация кода (проверено по факту 13.07.2026, Fable)
+## 2. Инвентаризация кода (снято Fable 13.07; ✅ ВЕРИФИЦИРОВАНО исполнителем T0.3, 13.07.2026 — правки внесены)
 
 Где живут тарифная логика и тексты. ⚠️ Тексты бота лишь частично в `app/locales/` (welcome, меню, общие кнопки); остальное — RU-hardcode в хендлерах и worker'ах (известный долг, USERFLOW.md шапка).
 
 | Что | Где | Детали |
 |---|---|---|
-| Лимиты тарифов | `app/config.py` (§ Limits) | `max_segments_free/pro`, `max_channels_free/pro`, `max_keywords_free/pro`, `notifications_per_day_free/pro` |
-| Геттеры лимитов | `app/db/crud.py:210–233` | `get_max_keywords/channels/segments(plan)` — if/elif по плану, business = 60 |
-| Цены | `.env.example` (PRICE_PRO_MONTHLY_USD=5, PRICE_BUSINESS_MONTHLY_USD=15), `app/config.py` | |
-| Экран «Тариф и оплата» + оплата | `app/bot/handlers/plan.py` | `PLANS` (2 тарифа), `PERIODS` (1m/3m −10%/1y −20%), `_calc`, Stars + CryptoBot, `_activate_by_msg` |
-| Дублёр экрана тарифа (/plan) | `app/bot/handlers/start.py:442–464` | отдельный текст — риск рассинхрона |
-| Главное меню (4 кнопки) + /settings (подэкраны) + /subscriptions | `app/bot/handlers/start.py` (251, 388, 468) | шапка меню содержит `menu_notifications` «X/50» |
-| FSM-воронка, лимит сегментов, триал, оффер после триала | `app/bot/handlers/catalog_nav.py` (101, 511, 598, 703) | `get_max_segments`; гео-лимитов НЕТ вообще |
+| Лимиты тарифов | `app/config.py` (§ Limits) | v2 (T0.2): + `max_*_start`, `max_countries/cities_*`; `notifications_per_day_*` устар. |
+| Геттеры лимитов | `app/db/crud.py:210/219/228` | `get_max_keywords/channels/segments(plan)` — if/elif; **business/trial → `business_hidden_cap_*`=60, НЕ `max_*_pro`** |
+| Цены | `.env.example` + `app/config.py` | ⚠️ прод-`.env` переопределяет: сейчас в проде pro=$7, business=$15 |
+| Экран «Тариф и оплата» + оплата | `app/bot/handlers/plan.py` | `PLANS`(16, 2 тарифа), `PERIODS`(18), `_calc`(23), Stars(67)/CryptoBot(72), `_activate_by_msg`(148) |
+| Дублёр экрана тарифа (/plan) | `app/bot/handlers/start.py` | `_show_plan_via_message`, текст 452–458, кнопки pay_plan:pro/business 459–461; цены из settings ✓, но имена Pro/Business hardcode, нет start |
+| Главное меню (4 кнопки) | `app/bot/handlers/start.py:254–261` | ⚠️ **счётчик `menu_notifications` захардкожен `sent=0, limit=50`** — не живые данные! (T3.2 — не только лейбл, но и подстановка) |
+| Экран «Настройки» (menu:settings и /settings) | `app/bot/handlers/start.py` `_show_settings_via_message:467` | 6 кнопок: keywords/channels/subscriptions/language/instructions/about. НЕТ digest, НЕТ статистики |
+| /subscriptions | `app/bot/handlers/start.py` `_show_subscriptions_via_message:387` | |
+| **Misc-хендлеры: settings-callbacks, язык, about, рефералка, instructions** | `app/bot/handlers/discover.py` | ⚠️ **рефералка тут: `on_referral:150–217`** (НЕ в start.py, как было в §2); тексты RU 197 / EN 212 hardcode |
+| FSM-воронка, лимит сегментов, триал, оффер после триала | `app/bot/handlers/catalog_nav.py` (101, 511, 598, 703) | `get_max_segments`; **гео-лимитов НЕТ вообще** (подтверждено) |
 | Ключевые слова (лимиты, тексты) | `app/bot/handlers/keywords.py` (60, 105, 140, 169) | |
 | Свои каналы (лимиты, тексты) | `app/bot/handlers/channels.py` (75, 124, 162, 197) | |
-| Дневной лимит + предупреждение о лимите | `app/worker/sender.py:126–149`, `_send_limit_warning` | business/trial = 999999; ключ `limit_reached:{uid}:{date}` |
-| Форматы уведомлений Free/Paid | `app/worker/sender.py` `_format_notification`, `_build_keyboard` | RU-hardcode |
-| End-of-day отчёт (Free, 19:00) | `app/worker/end_of_day.py:40` | завязан на `notifications_per_day_free` |
-| Напоминания (trial/подписка 1-3-7, неактивность 14-28) + периодические Free | `app/worker/reminders.py` | цены захардкожены в текстах |
-| Рефералка (экран, бонусы) | `app/bot/handlers/start.py` (menu:referral), `app/bot/handlers/plan.py:_apply_referral_bonus` | |
+| Дневной лимит + предупреждение о лимите | `app/worker/sender.py:137–148`, `_send_limit_warning:276` | business/trial=999999; `check_daily_limit:137`, `LIMIT_REACHED_KEY:139/142` |
+| Форматы уведомлений Free/Paid | `app/worker/sender.py` `_format_notification:205`, `_build_keyboard:243` | RU-hardcode |
+| End-of-day отчёт (Free, 19:00) | `app/worker/end_of_day.py:40` | `max_n = notifications_per_day_free`; текст «Уведомлений сегодня: {count}/{max_n}» (43) |
+| Напоминания trial/подписка(1-3-7)/неактивность(14-28) | `app/worker/reminders.py` `REMINDER_MESSAGES:18–33` | ⚠️ **это plain-текст БЕЗ кнопок**; в тексте stale-числа: «10 уведомлений/день»(21), «150 уведомлений/день»(22) |
+| Периодические Free (weekly/niche/monthly) | `app/worker/reminders.py` `PERIODIC_MESSAGES:136`, `send_periodic:162` | одностроч. без цен и кнопок (T4.4 — если нужны кнопки, добавлять) |
+| Рефералка (бонус за оплату) | `app/bot/handlers/plan.py:_apply_referral_bonus:93` | |
 | users.plan | `app/db/models.py` | VARCHAR(20) — значение `start` влезает без миграции схемы |
 | Кэш подписок (plan в payload) | `app/cache/subscription_cache.py` | plan попадает в `sub:by_chat:*` — после смены тарифной логики нужна инвалидация |
 
 **Факты, влияющие на план:**
 - **CSV-экспорт НЕ реализован** (grep по коду пуст), хотя обещан в тексте экрана триала (USERFLOW экран 14). До реализации T5.2 — убрать из обещаний.
-- **Digest-режим (экран 20 USERFLOW) не реализован** — экран «Настройки» в start.py его не содержит.
+- **Digest-режим (экран 20 USERFLOW) не реализован** — экран «Настройки» его не содержит.
 - Экран статистики в боте не существует — новая фича T5.1.
 - Счётчики `stats:daily:{uid}:{date}:matched/sent` уже пишутся (D2) — сырьё для EOD v2 и статистики готово.
 - У владельца (user 152) 85/60 своих каналов после bulk-вставки — при ужесточении капов не сломать ему экран.
+- **T0.3-уточнение:** напоминания и периодические сообщения (reminders.py) — plain-текст без inline-кнопок. Задачи T4.3/T4.4/T4.6 при желании «кнопка апгрейда» должны ДОБАВИТЬ клавиатуру в `_maybe_send`/`_send_periodic`, а не только править текст. Учтено в скоупе этих задач.
 
 ---
 
@@ -124,7 +129,13 @@
 - `.env.example`: PRICE_START_MONTHLY_USD=9, PRICE_PRO_MONTHLY_USD=19, PRICE_BUSINESS_MONTHLY_USD=39, новые MAX_*; удалить NOTIFICATIONS_PER_DAY_* строки. Прод `.env` НЕ трогать до T6.3.
 **Приёмка:** конфиг импортируется; grep `notifications_per_day` по app/ находит только sender.py/end_of_day.py (снос в T1.2/T4.2); тест на матрицу лимитов.
 
-### [ ] T0.3 Ревизия инвентаризации (§2) исполнителем
+### [x] T0.3 Ревизия инвентаризации (§2) исполнителем
+**Выполнено: 13.07.2026, коммит 33a2fec. Примечания — расхождения, найденные при верификации (§2 обновлена):**
+1. **Рефералка — в `discover.py:150` (`on_referral`), НЕ в start.py** (§2 ошибочно указывала start.py). discover.py — целый файл misc-хендлеров (docstring: «Settings, language, about, referral, instructions»); callbacks menu:language/about/referral/instructions живут тут, в start.py только layout `_show_settings_via_message`. Влияет на T3.6 (текст рефералки) и T4.
+2. **Счётчик главного меню захардкожен** `get_text(..., sent=0, limit=50)` (start.py:254) — показывает всегда «0/50», не живые данные. T3.2 должна не только сменить лейбл, но и подставить реальный `matched`.
+3. **Напоминания/периодические (reminders.py) — plain-текст БЕЗ inline-кнопок.** stale-числа в текстах: «10 уведомлений/день» (стр.21) и «150 уведомлений/день» (стр.22) — причём Free там назван «10/день», расходится с 50 в других местах. T4.3/T4.4/T4.6 должны добавлять клавиатуру, не только текст.
+4. **Геттеры business/trial читают `business_hidden_cap_*`=60, а не `max_*_pro`** — при сборке матрицы T1.1 business ≠ «pro без лимита».
+5. Мелкий дрейф строк (не ошибки): sender daily-limit 137–148 (было 126–149); crud-геттеры 210/219/228 (было 210–233); /plan-дублёр 452–464 (было 442–464) — поправлено в §2.
 **Зачем:** таблица §2 снята Fable read-only; исполнитель обязан проверить её перед правками — расхождение, найденное на T3, стоит дороже.
 **Что сделать:** пройти по каждой строке §2, открыть указанные места, подтвердить/поправить номера строк и факты. Особо: где живёт экран рефералки, где периодические Free-сообщения (reminders.py?), что реально показывает /settings.
 **Приёмка:** таблица §2 актуальна (правки — прямо в ней с пометкой), список расхождений в «Найдено попутно».
@@ -437,3 +448,6 @@ _(исполнитель дописывает сюда, не расширяя с
 - У владельца (user 152) 85/60 своих каналов — при показе счётчиков «85/60» экран не должен ломаться (T3.3 учесть).
 - **T0.2:** прод-`.env` содержит `PRICE_PRO_MONTHLY_USD=7` (не 5 из старого .env.example и не 19 из нового) — прод-цена pro сейчас $7. Business=$15. Расхождение прод-`.env` ↔ .env.example устранится в T6.3; grandfathering (T6.1) — от $7/$15.
 - **T0.2:** геттеры лимитов (crud.py) для business/trial читают `business_hidden_cap_*` (60), а НЕ `max_*_pro` — учесть в T1.1 при сборке матрицы (business ≠ «pro без лимита», а кап 60).
+- **T0.3:** рефералка и все misc-callbacks (settings/язык/about/instructions/referral) — в `app/bot/handlers/discover.py` (не start.py). §2 исправлена.
+- **T0.3:** счётчик уведомлений в шапке главного меню (start.py:254) захардкожен `sent=0, limit=50` — всегда «0/50», не живые данные. Даже без тарифов это баг; T3.2 чинит.
+- **T0.3:** `reminders.py` шлёт напоминания и периодику plain-текстом без кнопок; Free там ошибочно назван «10 уведомлений/день» (стр.21). Кнопки апгрейда добавляются в T4.3/T4.4/T4.6.
