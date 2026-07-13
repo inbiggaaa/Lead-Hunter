@@ -15,7 +15,7 @@ from app.db.crud import (
 )
 from app.db.session import get_session
 from app.locales import get_text
-from app.bot.handlers.plan import plan_display_name, build_paywall
+from app.bot.handlers.plan import plan_display_name, paywall_screen
 
 router = Router()
 
@@ -106,7 +106,7 @@ async def on_add_keyword_prompt(callback: CallbackQuery, state: FSMContext):
         max_kw = get_max_keywords(user.plan)
 
         if current >= max_kw:
-            pw_text, pw_kb = build_paywall("keyword", user.plan, lang)
+            pw_text, pw_kb = await paywall_screen("keyword", user.plan, lang)
             await callback.message.edit_text(pw_text, reply_markup=pw_kb)
             await callback.answer()
             return
@@ -142,7 +142,7 @@ async def on_keyword_text(message: Message, state: FSMContext):
         current = await count_keywords(session, user.id)
         max_kw = get_max_keywords(user.plan)
         if current >= max_kw:
-            pw_text, pw_kb = build_paywall("keyword", user.plan, lang)
+            pw_text, pw_kb = await paywall_screen("keyword", user.plan, lang)
             await message.answer(pw_text, reply_markup=pw_kb)
             await state.clear()
             return

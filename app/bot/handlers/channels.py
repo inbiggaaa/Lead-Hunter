@@ -15,7 +15,7 @@ from app.db.crud import (
 )
 from app.db.session import get_session
 from app.locales import get_text
-from app.bot.handlers.plan import plan_display_name, build_paywall
+from app.bot.handlers.plan import plan_display_name, paywall_screen
 
 router = Router()
 
@@ -124,7 +124,7 @@ async def on_add_channel_prompt(callback: CallbackQuery, state: FSMContext):
         current = await count_watched_chats(session, user.id)
         max_ch = get_max_channels(user.plan)
         if current >= max_ch:
-            pw_text, pw_kb = build_paywall("channel", user.plan, lang)
+            pw_text, pw_kb = await paywall_screen("channel", user.plan, lang)
             await callback.message.edit_text(pw_text, reply_markup=pw_kb)
             await callback.answer()
             return
@@ -164,7 +164,7 @@ async def on_channel_username(message: Message, state: FSMContext):
         current = await count_watched_chats(session, user.id)
         max_ch = get_max_channels(user.plan)
         if current >= max_ch:
-            pw_text, pw_kb = build_paywall("channel", user.plan, lang)
+            pw_text, pw_kb = await paywall_screen("channel", user.plan, lang)
             await message.answer(pw_text, reply_markup=pw_kb)
             await state.clear()
             return

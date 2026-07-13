@@ -51,13 +51,13 @@ async def on_settings(callback: CallbackQuery):
 
 async def build_stats_screen(user, lang: str) -> tuple[str, InlineKeyboardMarkup]:
     """Экран статистики (T5.1): Free/Старт → пейволл; Профи — 7 дн.; Бизнес/Trial — 30 дн. + по направлениям."""
-    from app.bot.handlers.plan import build_paywall
+    from app.bot.handlers.plan import paywall_screen
     from app.db.crud import get_daily_lead_counts, get_user_subscriptions
     from app.cache.subscription_cache import get_segment_stats
 
     plan = user.plan if user else "free"
     if plan in ("free", "start"):
-        return build_paywall("stats", plan, lang)
+        return await paywall_screen("stats", plan, lang)
 
     full = plan in ("business", "trial")
     days = 30 if full else 7
@@ -163,7 +163,7 @@ def _build_csv(rows) -> str:
 @router.callback_query(F.data == "menu:csv")
 async def on_csv_export(callback: CallbackQuery):
     from aiogram.types import BufferedInputFile
-    from app.bot.handlers.plan import build_paywall
+    from app.bot.handlers.plan import paywall_screen
     from app.db.crud import get_sent_log_for_export
 
     async for session in get_session():
@@ -173,7 +173,7 @@ async def on_csv_export(callback: CallbackQuery):
         rows = await get_sent_log_for_export(session, user.id, 30) if plan in ("business", "trial") else []
 
     if plan not in ("business", "trial"):
-        text, kb = build_paywall("csv", plan, lang)
+        text, kb = await paywall_screen("csv", plan, lang)
         await callback.message.edit_text(text, reply_markup=kb)
         await callback.answer()
         return

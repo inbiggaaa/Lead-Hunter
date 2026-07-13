@@ -101,6 +101,13 @@ def paywall_text(trigger: str, current_plan: str, lang: str) -> str:
     return get_text(lang, f"paywall_{trigger}",
                     plan=plan_display_name(nxt, lang), price=PLANS[nxt]["usd_monthly"])
 
+async def paywall_screen(trigger: str, current_plan: str, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    """build_paywall + счётчик показа (T6.4) — единая точка инструментации."""
+    from app.cache.subscription_cache import record_paywall
+    await record_paywall(trigger)
+    return build_paywall(trigger, current_plan, lang)
+
+
 def build_paywall(trigger: str, current_plan: str, lang: str) -> tuple[str, InlineKeyboardMarkup]:
     """Полноэкранный пейволл с кнопкой апгрейда на следующий тариф (T4.1)."""
     nxt = next_plan_for(trigger, current_plan)

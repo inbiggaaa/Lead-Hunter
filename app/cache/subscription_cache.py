@@ -239,6 +239,20 @@ async def increment_daily_stats(user_id: int, date_str: str, field: str) -> int:
     return value
 
 
+async def record_paywall(trigger: str) -> None:
+    """T6.4: счётчик показов пейволла по триггеру за день (мониторинг конверсии). TTL 40д.
+    Fail-safe: аналитика НЕ должна ломать показ пейволла, если Redis недоступен."""
+    from datetime import datetime, timezone
+    try:
+        redis = await get_redis()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        key = f"stats:paywall:{trigger}:{today}"
+        await redis.incr(key)
+        await redis.expire(key, 40 * 86400)
+    except Exception:
+        logger.debug("record_paywall skipped (redis unavailable)")
+
+
 DIGEST_KEY = "digest:{user_id}"  # T5.3: буфер отложенных уведомлений
 
 
