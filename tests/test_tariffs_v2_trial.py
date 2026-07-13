@@ -51,6 +51,14 @@ async def test_trial_expired_has_button_and_no_dead_tariffs(capture_bot):
 
 
 async def test_non_upgrade_type_no_keyboard(capture_bot):
-    # subscription_expired пока не в _UPGRADE_KB_TYPES (кнопка добавится в T4.6)
+    # subscription_expired пока без клавиатуры (кнопка добавится в T4.6)
     call = await _send(capture_bot, "subscription_expired", 1)
     assert call.kwargs["reply_markup"] is None
+
+
+async def test_inactive_winback_has_search_button(capture_bot):
+    # T4.4: winback неактивности → re-engage кнопка «Поиск клиентов»
+    call = await _send(capture_bot, "inactive", 14)
+    kb = call.kwargs["reply_markup"]
+    cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "menu:search" in cbs

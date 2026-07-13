@@ -27,6 +27,16 @@ def _upgrade_kb() -> InlineKeyboardMarkup:
         callback_data="menu:plan")]])
 
 
+def _reminder_kb(rtype: str):
+    """Клавиатура напоминания: апгрейд для конверсионных типов, re-engage для winback."""
+    if rtype in _UPGRADE_KB_TYPES:
+        return _upgrade_kb()
+    if rtype == "inactive":
+        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+            text="🔍 Поиск клиентов", callback_data="menu:search")]])
+    return None
+
+
 REMINDER_MESSAGES = {
     # trial_ending — ДО истечения (T4.3): предупредить, пока доступ ещё есть
     "trial_ending": {
@@ -151,7 +161,7 @@ async def _maybe_send(session, user: User, rtype: str, day: int):
         return
     if "{start}" in message:
         message = message.format(start=settings.price_start_monthly_usd)
-    kb = _upgrade_kb() if rtype in _UPGRADE_KB_TYPES else None
+    kb = _reminder_kb(rtype)
 
     # Send via Bot API
     bot = Bot(token=settings.bot_token)
@@ -204,6 +214,10 @@ async def _send_periodic(msg_type: str):
     if not message:
         return
 
+    # CTA-подвал (T4.4): контакты открыты на платном тарифе — Старт от $N.
+    message += (f"\n\n🔒 Контакты авторов открыты на платном тарифе — "
+                f"Старт от ${settings.price_start_monthly_usd}/мес.")
+    kb = _upgrade_kb()
     bot = Bot(token=settings.bot_token)
 
     async with async_session_factory() as session:
@@ -224,7 +238,7 @@ async def _send_periodic(msg_type: str):
                 continue
 
             try:
-                await bot.send_message(user.telegram_id, message)
+                await bot.send_message(user.telegram_id, message, reply_markup=kb)
             except Exception:
                 continue
 
