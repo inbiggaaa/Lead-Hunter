@@ -439,28 +439,14 @@ async def _show_subscriptions_via_message(message: Message, lang: str):
 
 
 async def _show_plan_via_message(message: Message, lang: str):
-    """Show plan & payment screen via message.answer() — used by /plan."""
+    """Show plan & payment screen via message.answer() — used by /plan.
+    Единый рендер с экраном menu:plan (T3.1) — без рассинхрона."""
     from app.db.crud import get_user
-    from app.config import settings
+    from app.bot.handlers.plan import build_plan_screen
 
     async for session in get_session():
         user = await get_user(session, message.from_user.id)
-        plan_name = user.plan.capitalize() if user else "Free"
-
-    pro_price = settings.price_pro_monthly_usd
-    biz_price = settings.price_business_monthly_usd
-    text = (
-        f"💰 Тариф и оплата\n\n"
-        f"Твой тариф: {plan_name}\n\n"
-        f"🚀 Pro — от ${pro_price}/мес\n"
-        f"💎 Business — от ${biz_price}/мес\n\n"
-        f"Скидки: 3 мес = -10%, 1 год = -20%"
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Pro", callback_data="pay_plan:pro")],
-        [InlineKeyboardButton(text="💎 Business", callback_data="pay_plan:business")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
-    ])
+        text, kb = build_plan_screen(user, lang)
     await message.answer(text, reply_markup=kb)
 
 

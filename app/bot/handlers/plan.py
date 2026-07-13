@@ -49,17 +49,44 @@ def payment_error_kb(plan: str, period_key: str, method: str, lang: str) -> Inli
         [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data=f"pay_plan:{plan}")],
     ])
 
+PLAN_DISPLAY = {
+    "ru": {"free": "Free", "start": "Старт", "pro": "Профи", "business": "Бизнес", "trial": "Business (триал)"},
+    "en": {"free": "Free", "start": "Start", "pro": "Pro", "business": "Business", "trial": "Business (trial)"},
+}
+
+def plan_display_name(plan: str, lang: str) -> str:
+    return PLAN_DISPLAY.get(lang, PLAN_DISPLAY["ru"]).get(plan, plan.capitalize())
+
+def build_plan_screen(user, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Единый рендер экрана «Тариф и оплата» (T3.1) — для menu:plan и /plan.
+    Цены — из settings (PLANS); текущий план отмечается галочкой."""
+    current = user.plan if user else "free"
+    text = (
+        f"{get_text(lang, 'plan_title')}\n\n"
+        f"{get_text(lang, 'plan_current', plan=plan_display_name(current, lang))}\n\n"
+        f"{get_text(lang, 'plan_card_start', price=PLANS['start']['usd_monthly'])}\n\n"
+        f"{get_text(lang, 'plan_card_pro', price=PLANS['pro']['usd_monthly'])}\n\n"
+        f"{get_text(lang, 'plan_card_business', price=PLANS['business']['usd_monthly'])}\n\n"
+        f"{get_text(lang, 'plan_discounts')}"
+    )
+    rows = []
+    for plan_key in ("start", "pro", "business"):
+        price = PLANS[plan_key]["usd_monthly"]
+        if plan_key == current:
+            label = get_text(lang, "plan_btn_current", name=plan_display_name(plan_key, lang))
+        else:
+            label = get_text(lang, f"plan_btn_{plan_key}", price=price)
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"pay_plan:{plan_key}")])
+    rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")])
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
 @router.callback_query(F.data == "menu:plan")
 async def on_plan_menu(callback: CallbackQuery):
     async for s in get_session():
         u = await get_user(s, callback.from_user.id)
-        pn = u.plan.capitalize() if u else "Free"; await s.commit()
-    pro, biz = PLANS["pro"]["usd_monthly"], PLANS["business"]["usd_monthly"]
-    text = f"💰 Тариф и оплата\n\nТвой тариф: {pn}\n\n🚀 Pro — от ${pro}/мес\n💎 Business — от ${biz}/мес\n\nСкидки: 3 мес = -10%, 1 год = -20%"
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Pro", callback_data="pay_plan:pro")],
-        [InlineKeyboardButton(text="💎 Business", callback_data="pay_plan:business")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:main")]])
+        lang = u.language if u else "ru"
+        text, kb = build_plan_screen(u, lang)
+        await s.commit()
     await callback.message.edit_text(text, reply_markup=kb); await callback.answer()
 
 @router.callback_query(F.data.startswith("pay_plan:"))

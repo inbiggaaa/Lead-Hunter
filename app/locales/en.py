@@ -59,6 +59,29 @@ TEXTS = {
     "btn_en": "🇬🇧 English",
     "language_set": "✅ Language set: English",
 
+    # ── Plan & payment screen (T3.1) ──
+    "plan_title": "💰 Plan & payment",
+    "plan_current": "Your plan: {plan}",
+    "plan_card_start": (
+        "🎯 Start — ${price}/mo\n"
+        "• 1 category · 1 country / 3 cities\n"
+        "• 10 keywords · 1 channel · contacts shown"
+    ),
+    "plan_card_pro": (
+        "🚀 Pro — ${price}/mo\n"
+        "• 5 categories · 5 countries\n"
+        "• 50 keywords · 10 channels · regex · stats"
+    ),
+    "plan_card_business": (
+        "🏆 Business — ${price}/mo\n"
+        "• No limits · CSV · full stats"
+    ),
+    "plan_discounts": "3 mo −10% · year −20%",
+    "plan_btn_start": "🎯 Start — ${price}",
+    "plan_btn_pro": "🚀 Pro — ${price}",
+    "plan_btn_business": "🏆 Business — ${price}",
+    "plan_btn_current": "✅ {name} · yours",
+
     # ── Payment error (T2.2) ──
     "pay_error_body": (
         "❌ <b>Payment failed</b>\n\n"
