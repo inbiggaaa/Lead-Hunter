@@ -8,6 +8,7 @@ from app.worker.heartbeat import heartbeat_loop
 from app.worker.reminders import reminders_loop
 from app.worker.end_of_day import end_of_day_loop
 from app.worker.payment_checker import payment_checker_loop
+from app.worker.digest import digest_flush_loop
 from app.config import settings
 from app.userbot.poller import ChannelPoller
 
@@ -40,6 +41,7 @@ async def main():
         reminders_loop(),
         end_of_day_loop(),
         payment_checker_loop(),
+        digest_flush_loop(),
     )
 
 

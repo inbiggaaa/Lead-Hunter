@@ -78,6 +78,7 @@ async def rebuild_subscription_cache(chat_username: str) -> None:
             "telegram_id": user.telegram_id,
             "lang": user.language,
             "plan": user.plan,
+            "digest_mode": getattr(user, "digest_mode", "instant"),
             "subscriptions": sub_geo,
             "keyword_texts": keyword_texts,
         })
@@ -236,6 +237,27 @@ async def increment_daily_stats(user_id: int, date_str: str, field: str) -> int:
     value = await redis.incr(key)
     await redis.expireat(key, await _midnight_timestamp())
     return value
+
+
+DIGEST_KEY = "digest:{user_id}"  # T5.3: буфер отложенных уведомлений
+
+
+async def buffer_digest(user_id: int, payload: dict) -> None:
+    """T5.3: отложить уведомление в буфер digest-пользователя (flush по расписанию)."""
+    redis = await get_redis()
+    key = DIGEST_KEY.format(user_id=user_id)
+    await redis.rpush(key, json.dumps(payload, default=str))
+    await redis.expire(key, 2 * 86400)  # страховка от зависших буферов
+
+
+async def pop_all_digest(user_id: int) -> list[dict]:
+    """T5.3: забрать и очистить весь буфер digest-пользователя."""
+    redis = await get_redis()
+    key = DIGEST_KEY.format(user_id=user_id)
+    items = await redis.lrange(key, 0, -1)
+    if items:
+        await redis.delete(key)
+    return [json.loads(i) for i in items]
 
 
 SEG_STAT_KEY = "stats:seg:{user_id}:{date}:{segment_id}"

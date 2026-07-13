@@ -100,6 +100,13 @@ TEXTS = {
     "stats_empty": "За выбранный период заявок пока нет.",
     "btn_stats": "📈 Статистика",
     "btn_csv": "📥 CSV-экспорт",
+    "btn_digest": "🔔 Режим уведомлений",
+    "digest_header": "📬 {count} новых заявок за период:",
+    "digest_title": "🔔 Режим получения уведомлений",
+    "digest_instant": "⚡ Мгновенно",
+    "digest_hourly": "🕐 Раз в час",
+    "digest_daily2": "🌅 2 раза в день",
+    "digest_saved": "✅ Режим обновлён",
     "csv_caption": "📥 Заявки за {days} дней ({count} шт.)",
     "csv_empty": "За {days} дней заявок для экспорта пока нет.",
 

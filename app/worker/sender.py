@@ -126,6 +126,21 @@ class NotificationSender:
         from datetime import datetime, timezone
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+        matched = payload.get("matched_segments", [])
+        seg_label = ", ".join(m.get("title", "") for m in matched) if matched else None
+        meta = {
+            "chat_username": payload.get("chat_username"), "sender": payload.get("sender"),
+            "segment": seg_label, "message_id": payload.get("message_id"),
+        }
+
+        # T5.3: digest-режим — не-срочные откладываем в буфер (flush по расписанию),
+        # срочные (🔥) всегда доставляем мгновенно. mark_sent сразу — для дедупа.
+        if payload.get("digest_mode", "instant") != "instant" and not payload.get("is_urgent"):
+            from app.cache.subscription_cache import buffer_digest
+            await buffer_digest(user_id, payload)
+            await mark_sent(user_id, message_hash, False, content_hash=content_hash, meta=meta)
+            return
+
         # Build and send message
         text = self._format_notification(payload)
         kb = self._build_keyboard(payload)
@@ -134,15 +149,8 @@ class NotificationSender:
         if not delivered:
             return
 
-        matched = payload.get("matched_segments", [])
-        seg_label = ", ".join(m.get("title", "") for m in matched) if matched else None
         await mark_sent(user_id, message_hash, payload.get("is_urgent", False),
-                       content_hash=content_hash, meta={
-                           "chat_username": payload.get("chat_username"),
-                           "sender": payload.get("sender"),
-                           "segment": seg_label,
-                           "message_id": payload.get("message_id"),
-                       })
+                       content_hash=content_hash, meta=meta)
         await increment_daily_stats(user_id, today, "sent")
         await record_latency(payload.get("msg_ts"))
 

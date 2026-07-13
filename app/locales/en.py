@@ -101,6 +101,13 @@ TEXTS = {
     "stats_empty": "No leads in the selected period yet.",
     "btn_stats": "📈 Statistics",
     "btn_csv": "📥 CSV export",
+    "btn_digest": "🔔 Notification mode",
+    "digest_header": "📬 {count} new leads for the period:",
+    "digest_title": "🔔 Notification delivery mode",
+    "digest_instant": "⚡ Instant",
+    "digest_hourly": "🕐 Hourly",
+    "digest_daily2": "🌅 Twice a day",
+    "digest_saved": "✅ Mode updated",
     "csv_caption": "📥 Leads for {days} days ({count})",
     "csv_empty": "No leads to export for the last {days} days.",
 

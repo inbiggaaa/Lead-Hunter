@@ -1852,6 +1852,7 @@ class ChannelPoller:
                 "telegram_id": user["telegram_id"],
                 "lang": lang,
                 "plan": user.get("plan", "free"),
+                "digest_mode": user.get("digest_mode", "instant"),
                 "chat_username": chat_username,
                 "text": message_text,
                 "sender": sender,

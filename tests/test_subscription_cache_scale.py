@@ -102,8 +102,10 @@ async def test_rebuild_format_unchanged_and_empty_users_dropped(seed):
 
     u_sub = by_uid[ids["u_sub"]]
     assert set(u_sub.keys()) == {
-        "user_id", "telegram_id", "lang", "plan", "subscriptions", "keyword_texts",
+        "user_id", "telegram_id", "lang", "plan", "digest_mode",
+        "subscriptions", "keyword_texts",
     }
+    assert u_sub["digest_mode"] == "instant"  # T5.3: дефолт
     assert u_sub["subscriptions"] == [{
         "segment_id": ids["segment_id"],
         "country_id": ids["country_id"],

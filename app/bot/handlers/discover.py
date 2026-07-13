@@ -39,6 +39,7 @@ async def on_settings(callback: CallbackQuery):
         [InlineKeyboardButton(text=get_text(lang, "btn_subscriptions"), callback_data="menu:subs")],
         [InlineKeyboardButton(text=get_text(lang, "btn_stats"), callback_data="menu:stats")],
         [InlineKeyboardButton(text=get_text(lang, "btn_csv"), callback_data="menu:csv")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_digest"), callback_data="menu:digest")],
         [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
         [InlineKeyboardButton(text="📖 Инструкции" if lang == "ru" else "📖 Instructions", callback_data="menu:instructions")],
         [InlineKeyboardButton(text=get_text(lang, "btn_about"), callback_data="menu:about")],
@@ -99,6 +100,45 @@ async def on_stats(callback: CallbackQuery):
     text, kb = await build_stats_screen(user, lang)
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
+
+
+def _digest_kb(lang: str, current: str) -> InlineKeyboardMarkup:
+    """Экран выбора режима доставки (T5.3) — текущий отмечен точкой."""
+    rows = []
+    for mode in ("instant", "hourly", "daily2"):
+        mark = "🔘 " if mode == current else "⚪ "
+        rows.append([InlineKeyboardButton(
+            text=mark + get_text(lang, f"digest_{mode}"), callback_data=f"digest:{mode}")])
+    rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:settings")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data == "menu:digest")
+async def on_digest_menu(callback: CallbackQuery):
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        lang = user.language if user else "ru"
+        current = user.digest_mode if user else "instant"
+    await callback.message.edit_text(get_text(lang, "digest_title"), reply_markup=_digest_kb(lang, current))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("digest:"))
+async def on_digest_set(callback: CallbackQuery):
+    mode = callback.data.split(":")[1]
+    if mode not in ("instant", "hourly", "daily2"):
+        await callback.answer()
+        return
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        lang = user.language if user else "ru"
+        if user:
+            user.digest_mode = mode
+            await session.commit()
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()  # digest_mode едет в кэше подписок
+    await callback.message.edit_text(get_text(lang, "digest_title"), reply_markup=_digest_kb(lang, mode))
+    await callback.answer(get_text(lang, "digest_saved"))
 
 
 def _build_csv(rows) -> str:
