@@ -11,6 +11,7 @@ TEXTS = {
         "<b>What you get:</b>\n\n"
         "✔️ A steady flow of inbound leads — no manual searching\n"
         "✔️ Setup by category, geography, and keywords\n"
+        "✔️ Unlimited notifications on every plan\n"
         "✔️ First-contact advantage over competitors\n"
         "✔️ 24/7 automated operation\n\n"
         "Lead Hunter AI handles client discovery — "

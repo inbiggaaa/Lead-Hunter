@@ -117,7 +117,8 @@ async def on_about(callback: CallbackQuery):
             f"🎯 29 направлений бизнеса\n"
             f"⚡ Заявки за 2 секунды\n"
             f"🤖 AI-фильтр спама\n"
-            f"🔒 Контакты клиентов (Pro/Business)\n"
+            f"📬 Уведомления без лимита\n"
+            f"🔒 Контакты клиентов — на платном тарифе\n"
             f"💬 Ответ в 1 клик\n"
             f"🆓 5 дней Business бесплатно\n\n"
             f"Не жди, пока клиент найдёт конкурента.\n"
@@ -133,14 +134,17 @@ async def on_about(callback: CallbackQuery):
             f"🎯 29 business categories\n"
             f"⚡ Leads in 2 seconds\n"
             f"🤖 AI spam filter\n"
-            f"🔒 Client contacts (Pro/Business)\n"
+            f"📬 Unlimited notifications\n"
+            f"🔒 Client contacts — on a paid plan\n"
             f"💬 Reply in 1 click\n"
             f"🆓 5-day Business trial free\n\n"
             f"Don't wait for the client to find a competitor.\n"
             f"Start getting leads right now.\n"
             f"👇 Tap «Find clients» in the main menu."
         )
+    search_label = "🔍 Поиск клиентов" if lang == "ru" else "🔍 Find clients"
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=search_label, callback_data="menu:search")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:settings")],
     ])
     await callback.message.edit_text(text, reply_markup=kb)
