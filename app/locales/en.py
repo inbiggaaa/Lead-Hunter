@@ -84,6 +84,15 @@ TEXTS = {
     "plan_btn_business": "🏆 Business — ${price}",
     "plan_btn_current": "✅ {name} · yours",
 
+    # ── End-of-day report for Free (T4.2) ──
+    "eod_body": (
+        "📊 <b>Your day</b>\n\n"
+        "New leads today: {count}.\n"
+        "Contacts are hidden — Free shows only the text.\n\n"
+        "Each hidden contact goes to whoever replies first."
+    ),
+    "eod_btn": "🎯 Unlock contacts — from ${price}/mo",
+
     # ── Contextual paywalls (T4.1) ──
     "paywall_title": "🔒 Current plan limit",
     "paywall_keyword": "More keywords — on {plan} (${price}/mo).",
