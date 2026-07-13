@@ -17,7 +17,6 @@ from app.cache.subscription_cache import (
     mark_sent,
     is_duplicate,
     is_content_duplicate,
-    check_daily_limit,
     increment_daily_stats,
     QUEUE_DEAD_LETTER,
 )
@@ -106,9 +105,7 @@ class NotificationSender:
     async def _send_notification(self, payload: dict):
         """Send a single notification to a user."""
         user_id = payload["user_id"]
-        telegram_id = payload["telegram_id"]
         message_hash = payload["message_hash"]
-        plan = payload.get("plan", "free")
 
         # Deduplication by message identity
         if await is_duplicate(user_id, message_hash):
@@ -123,30 +120,11 @@ class NotificationSender:
             )
             return
 
-        # Daily limit
+        # Дневной лимит уведомлений отменён (#81): метрика ценности — широта
+        # покрытия (направления × гео), а не объём доставок. Счётчик sent
+        # сохраняется для статистики (T5.1) и end-of-day отчётов.
         from datetime import datetime, timezone
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        max_per_day = (
-            settings.notifications_per_day_free
-            if plan == "free"
-            else settings.notifications_per_day_pro
-        )
-        if plan == "business" or plan == "trial":
-            max_per_day = 999999
-
-        if await check_daily_limit(user_id, today, max_per_day):
-            # Limit reached → send limit warning once
-            from app.cache.subscription_cache import LIMIT_REACHED_KEY
-            from app.cache import get_redis
-            redis = await get_redis()
-            limit_key = LIMIT_REACHED_KEY.format(user_id=user_id, date=today)
-            already_warned = await redis.get(limit_key)
-
-            if not already_warned:
-                redis = await get_redis()
-                await redis.set(limit_key, "1")
-                await self._send_limit_warning(telegram_id, payload.get("lang", "ru"))
-            return
 
         # Build and send message
         text = self._format_notification(payload)
@@ -272,26 +250,3 @@ class NotificationSender:
                 rows.append(buttons)
 
         return InlineKeyboardMarkup(inline_keyboard=rows)
-
-    async def _send_limit_warning(self, telegram_id: int, lang: str):
-        """Send daily limit reached warning."""
-        text = (
-            "⚠️ Лимит уведомлений на сегодня исчерпан.\n\n"
-            "На Free-тарифе — 50 уведомлений в день.\n"
-            "💰 Перейди на Pro или Business чтобы снять лимит."
-            if lang == "ru"
-            else
-            "⚠️ Daily notification limit reached.\n\n"
-            "Free plan: 50 notifications/day.\n"
-            "💰 Upgrade to Pro or Business for unlimited."
-        )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="💰 Тариф и оплата" if lang == "ru" else "💰 Plan & payment",
-                callback_data="menu:plan",
-            )],
-        ])
-        try:
-            await self.bot.send_message(telegram_id, text, reply_markup=kb)
-        except Exception:
-            pass

@@ -157,7 +157,13 @@
 - `plan.py PLANS` — добавить start; проверить все места сравнения `plan == "pro"` / `in ("pro", "business", "trial")` по коду (grep) — везде, где решается «платный или нет» (контакты, regex, кнопки), start должен считаться платным.
 **Приёмка:** unit-тесты матрицы (все 5 планов × все лимиты); grep `plan ==` не находит мест, где start ошибочно попадает во Free-ветку.
 
-### [ ] T1.2 Снятие дневного лимита уведомлений
+### [x] T1.2 Снятие дневного лимита уведомлений
+**Выполнено: 13.07.2026, коммит a6fbf86. Примечания:**
+- sender.py `_send_notification`: удалён весь блок Daily limit (max_per_day, ветка business/trial=999999, check_daily_limit, LIMIT_REACHED_KEY, вызов _send_limit_warning). Сохранён `today` (нужен для `increment_daily_stats(sent)` — статистика T5.1/EOD не пострадала). Удалён метод `_send_limit_warning` и его RU/EN-тексты; убраны неиспользуемые локальные `plan`, `telegram_id`; импорт `check_daily_limit` снят.
+- subscription_cache.py: удалены `LIMIT_REACHED_KEY` и функция `check_daily_limit` (единственные потребители — sender). `_midnight_timestamp`/`increment_daily_stats` сохранены (используются статистикой).
+- test_sender.py: убран obsolete-patch `check_daily_limit` из `_quiet_patches`; +2 теста (`test_free_plan_not_rate_limited` — free доставляется; `test_no_daily_limit_symbols_left` — символы механизма отсутствуют).
+- Приёмка: grep `limit_reached|check_daily_limit|999999` по app/ — пусто; `notifications_per_day` остался только в config.py (устар.) + end_of_day.py (снос в T4.2). Сьют: **302 passed**, 4 пред­существующих poller-фейла.
+- НЕ тронут (по скоупу): CTA-кнопка Free-формата «💰 Активировать подписку» (sender.py:241) — меняется в T3.5.
 **Зачем:** ядро решения #81.
 **Что сделать:**
 - `app/worker/sender.py`: удалить блок Daily limit (`check_daily_limit`, ветка business/trial=999999, `_send_limit_warning`, работа с `LIMIT_REACHED_KEY`). **Счётчик `increment_daily_stats(sent)` СОХРАНИТЬ** — сырьё для EOD v2 и статистики T5.1.

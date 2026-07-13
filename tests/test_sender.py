@@ -48,7 +48,6 @@ def _quiet_patches():
     return [
         patch("app.worker.sender.is_duplicate", new=AsyncMock(return_value=False)),
         patch("app.worker.sender.is_content_duplicate", new=AsyncMock(return_value=False)),
-        patch("app.worker.sender.check_daily_limit", new=AsyncMock(return_value=False)),
         patch("app.worker.sender.mark_sent", new=AsyncMock()),
         patch("app.worker.sender.increment_daily_stats", new=AsyncMock()),
     ]
@@ -208,3 +207,21 @@ def test_paid_keyboard_keeps_buttons(plan):
     urls = _keyboard_urls(kb)
     assert "https://t.me/test_chat/77" in urls
     assert "https://t.me/lead_author" in urls
+
+
+# ═══ T1.2: дневной лимит уведомлений отменён (#81) ═══
+
+
+async def test_free_plan_not_rate_limited():
+    """Free-пользователь получает уведомление независимо от объёма за день.
+    До #81 sender гасил доставку на 50/день; теперь блока лимита нет."""
+    sender = _make_sender()
+    await _run_send(sender, _payload(plan="free"))
+    assert sender.bot.send_message.await_count == 1
+
+
+def test_no_daily_limit_symbols_left():
+    """В sender не осталось ссылок на снятый механизм лимита."""
+    import app.worker.sender as s
+    assert not hasattr(s.NotificationSender, "_send_limit_warning")
+    assert "check_daily_limit" not in dir(s)

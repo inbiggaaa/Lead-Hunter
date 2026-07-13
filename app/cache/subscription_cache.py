@@ -18,7 +18,6 @@ CACHE_CHAT_KEY = "sub:by_chat:{chat_username}"
 QUEUE_NOTIFICATIONS = "queue:notifications"
 QUEUE_DEAD_LETTER = "dlq:notifications"
 HEARTBEAT_KEY = "heartbeat:userbot:1"
-LIMIT_REACHED_KEY = "limit_reached:{user_id}:{date}"
 STATS_DAILY_KEY = "stats:daily:{user_id}:{date}"
 CLASS_CACHE_KEY = "class:cache:{message_hash}"
 
@@ -232,14 +231,6 @@ async def increment_daily_stats(user_id: int, date_str: str, field: str) -> int:
     value = await redis.incr(key)
     await redis.expireat(key, await _midnight_timestamp())
     return value
-
-
-async def check_daily_limit(user_id: int, date_str: str, max_per_day: int) -> bool:
-    """Check if user has exceeded daily notification limit. Returns True if limit reached."""
-    redis = await get_redis()
-    key = STATS_DAILY_KEY.format(user_id=user_id, date=date_str) + ":sent"
-    count = int(await redis.get(key) or 0)
-    return count >= max_per_day
 
 
 async def _midnight_timestamp() -> int:
