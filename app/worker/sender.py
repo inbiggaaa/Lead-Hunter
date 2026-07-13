@@ -201,7 +201,7 @@ class NotificationSender:
             # D1 (DECISIONS #79): Free — no links at all. Chat name as plain
             # text, sender hidden entirely; the paywall line below is honest.
             msg += f"💬 @{chat}"
-            msg += "\n\n🔒 Контакты скрыты на Free-тарифе.\n💰 Активируй подписку чтобы видеть отправителя."
+            msg += "\n\n🔒 Контакты скрыты. Этому клиенту сейчас ответит кто-то другой."
         else:
             msg += f"💬 <a href='https://t.me/{chat}/{msg_id}'>@{chat}</a>"
             if sender:
@@ -238,7 +238,9 @@ class NotificationSender:
             # D1 (DECISIONS #79): no «💬 Чат» button on Free — the link led
             # straight to the lead's message, making the paywall nominal.
             rows.append([
-                InlineKeyboardButton(text="💰 Активировать подписку", callback_data="menu:plan"),
+                InlineKeyboardButton(
+                    text=f"🎯 Открыть контакты — от ${settings.price_start_monthly_usd}/мес",
+                    callback_data="menu:plan"),
             ])
         else:
             buttons = []

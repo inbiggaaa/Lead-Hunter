@@ -180,12 +180,12 @@ def test_free_format_no_links():
 
 
 def test_free_keyboard_no_chat_button():
-    """Free: кнопки «💬 Чат» нет, «💰 Активировать подписку» и 👍👎 на месте."""
+    """Free: кнопки «💬 Чат» нет, CTA «Открыть контакты» и 👍👎 на месте (T3.5)."""
     sender = _make_sender()
     kb = sender._build_keyboard(_payload(plan="free"))
     assert _keyboard_urls(kb) == []
     all_texts = [btn.text for row in kb.inline_keyboard for btn in row]
-    assert "💰 Активировать подписку" in all_texts
+    assert any("Открыть контакты" in t for t in all_texts)
     assert "👍" in all_texts and "👎" in all_texts
 
 
