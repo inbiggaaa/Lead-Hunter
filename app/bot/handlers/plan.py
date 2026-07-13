@@ -234,6 +234,40 @@ async def _apply_referral_bonus(user_id: int):
                 f"🎁 Реферал оплатил!\n\n👤 Реферер: {ref_name}\n➕ +{settings.referral_bonus_days} дней"
             )
 
+async def maybe_offer_annual(db_user_id: int, telegram_id: int, plan: str, period_key: str):
+    """T4.5: на 2-м подряд МЕСЯЧНОМ платеже одного плана — однократно предложить годовую (−20%)."""
+    if period_key != "1m":
+        return
+    from app.cache import get_redis
+    redis = await get_redis()
+    flag = f"upsell:annual:{telegram_id}"
+    if await redis.get(flag):
+        return  # уже предлагали
+
+    from sqlalchemy import func, select as sa_select
+    async for s in get_session():
+        cnt = (await s.execute(sa_select(func.count(Subscription.id)).where(
+            Subscription.user_id == db_user_id, Subscription.plan == plan,
+            Subscription.period == "1m", Subscription.payment_status == "paid"))).scalar() or 0
+    if cnt < 2:
+        return
+
+    await redis.set(flag, "1")
+    year = _calc(plan, "1y")
+    monthly_year = PLANS[plan]["usd_monthly"] * 12
+    text = (f"💡 Помесячно ты платишь ${monthly_year:.0f} за год.\n"
+            f"Годовая {PLANS[plan]['name']} — ${year['total']:.0f} (−20%, ≈2 месяца в подарок).")
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text=f"💳 Годовая — ${year['total']:.0f}", callback_data=f"pay_period:{plan}:1y")]])
+    from aiogram import Bot
+    bot = Bot(token=settings.bot_token)
+    try:
+        await bot.send_message(telegram_id, text, reply_markup=kb)
+    except Exception:
+        logger.exception("Annual upsell send failed for %d", telegram_id)
+    finally:
+        await bot.session.close()
+
 async def _activate_by_msg(message, plan, period_key, method, invoice_id):
     # Политика (#81): оплата всегда устанавливает оплаченный план и срок 30×months
     # ОТ ТЕКУЩЕГО МОМЕНТА. Оплата более дешёвого плана при активном дорогом = даунгрейд
@@ -245,6 +279,7 @@ async def _activate_by_msg(message, plan, period_key, method, invoice_id):
         now = datetime.datetime.now(datetime.timezone.utc); exp = now + datetime.timedelta(days=30 * info["months"])
         s.add(Subscription(user_id=u.id, plan=plan, period=period_key, expires_at=exp, payment_method=method, payment_status="paid", invoice_id=invoice_id, amount=info["total"]))
         u.plan = plan; u.plan_activated_at = now; u.plan_expires_at = exp; await s.commit()
+        user_db_id = u.id
     # Смена плана меняет формат уведомлений (Free скрывает контакты) — сбросить
     # кэш подписок сразу, иначе оплаченный пользователь до TTL (1ч) видел бы Free.
     from app.cache.subscription_cache import invalidate_all_subscription_caches
@@ -254,3 +289,4 @@ async def _activate_by_msg(message, plan, period_key, method, invoice_id):
     info2 = _calc(plan, period_key)
     asyncio.create_task(notify_new_subscription(message.from_user.username, message.from_user.id, plan, period_key, "direct", info2["total"]))
     await message.answer(f"✅ Оплата прошла! Тариф: {info['plan_name']}\nСрок: {info['period_label']}\nДействует до: {exp.strftime('%d.%m.%Y')}")
+    await maybe_offer_annual(user_db_id, message.from_user.id, plan, period_key)

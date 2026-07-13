@@ -123,6 +123,10 @@ async def _activate(data: dict, invoice_id: str):
     finally:
         await bot.session.close()
 
+    # T4.5: годовой апселл на 2-м подряд месячном платеже
+    from app.bot.handlers.plan import maybe_offer_annual
+    await maybe_offer_annual(user_id, chat_id, plan, period_key)
+
 
 async def _get_user_for_notify(user_id: int):
     from app.db.session import async_session_factory
