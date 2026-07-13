@@ -83,6 +83,14 @@ TEXTS = {
     "plan_btn_business": "🏆 Бизнес — ${price}",
     "plan_btn_current": "✅ {name} · твой",
 
+    # ── Контекстные пейволлы (T4.1) ──
+    "paywall_title": "🔒 Лимит текущего тарифа",
+    "paywall_keyword": "Больше ключевых слов — на тарифе {plan} (${price}/мес).",
+    "paywall_direction": "Больше направлений и стран — на тарифе {plan} (${price}/мес).",
+    "paywall_country": "Несколько стран — на тарифе {plan} (${price}/мес).",
+    "paywall_city": "Города без лимита — на тарифе {plan} (${price}/мес).",
+    "paywall_channel": "Больше своих каналов — на тарифе {plan} (${price}/мес).",
+
     # ── Ошибка оплаты (T2.2) ──
     "pay_error_body": (
         "❌ <b>Оплата не прошла</b>\n\n"

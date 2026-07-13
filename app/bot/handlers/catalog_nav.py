@@ -23,6 +23,7 @@ from app.db.crud import (
 )
 from app.db.session import get_session
 from app.locales import get_text
+from app.bot.handlers.plan import paywall_text
 
 router = Router()
 
@@ -244,7 +245,9 @@ async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
         selected.remove(seg_id)
     else:
         if current + total_selected >= max_seg:
-            await callback.answer(f"Лимит: {max_seg} направлений", show_alert=True)
+            await callback.answer(
+                paywall_text("direction", data.get("plan", "free"), data.get("lang", "ru")),
+                show_alert=True)
             return
         selected.append(seg_id)
 
@@ -356,16 +359,10 @@ async def _show_countries(callback: CallbackQuery, state: FSMContext, lang: str)
 
 # ═══════════════ STEP 2: Choose country ═══════════════
 
-def _geo_limit_msg(kind: str, lang: str) -> str:
-    """Интерим-сообщение о гео-лимите тарифа (#81).
-    TODO T4.1: заменить контекстным пейволлом с кнопкой апгрейда."""
-    if kind == "city":
-        return ("На этом тарифе — до 3 городов. Профи снимает лимит городов."
-                if lang == "ru" else
-                "This plan allows up to 3 cities. Pro removes the city limit.")
-    return ("На этом тарифе — 1 страна. Профи — до 5 стран."
-            if lang == "ru" else
-            "This plan allows 1 country. Pro — up to 5 countries.")
+def _geo_limit_msg(kind: str, plan: str, lang: str) -> str:
+    """Гео-лимит тарифа в alert'е воронки (T4.1) — унифицированная копия пейволла.
+    Полноэкранный пейволл здесь не подходит: показ экрана потерял бы FSM-выбор."""
+    return paywall_text(kind, plan, lang)
 
 
 @router.callback_query(CatStates.choosing_country, F.data.startswith("cat:country:"))
@@ -384,7 +381,7 @@ async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
 
     # Гео-лимит по стране (#81). При числах v2 обычно подчинён лимиту сегментов.
     if not countries_within_limit(plan, existing_countries, country_id):
-        await callback.answer(_geo_limit_msg("country", lang), show_alert=True)
+        await callback.answer(_geo_limit_msg("country", plan, lang), show_alert=True)
         return
 
     await state.update_data(country_id=country_id, plan=plan)
@@ -466,7 +463,7 @@ async def on_toggle_city(callback: CallbackQuery, state: FSMContext):
     else:
         # Гео-лимит по городам в одной подписке (#81).
         if not cities_within_limit(plan, len(selected) + 1):
-            await callback.answer(_geo_limit_msg("city", lang), show_alert=True)
+            await callback.answer(_geo_limit_msg("city", plan, lang), show_alert=True)
             return
         selected.append(city_id)
 
@@ -543,9 +540,10 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
         existing = await get_user_subscriptions(session, user.id)
+        user_plan = user.plan
 
     if current + len(selected_segments) > max_seg:
-        await callback.answer(f"Лимит: {max_seg}", show_alert=True)
+        await callback.answer(paywall_text("direction", user_plan, lang), show_alert=True)
         return
 
     # Filter out existing subscriptions silently
@@ -630,7 +628,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
         if current + len(selected_segments) > max_seg:
-            await callback.answer(f"Лимит: {max_seg}", show_alert=True)
+            await callback.answer(paywall_text("direction", user.plan, lang), show_alert=True)
             return
 
         existing_subs = await get_user_subscriptions(session, user.id)
@@ -638,10 +636,10 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         # Гео-лимиты (control-проверка от гонок/устаревшего стейта) — #81
         existing_countries = {s.country_id for s in existing_subs}
         if not countries_within_limit(user.plan, existing_countries, country_id):
-            await callback.answer(_geo_limit_msg("country", lang), show_alert=True)
+            await callback.answer(_geo_limit_msg("country", user.plan, lang), show_alert=True)
             return
         if mode == "cities" and not cities_within_limit(user.plan, len(selected_cities)):
-            await callback.answer(_geo_limit_msg("city", lang), show_alert=True)
+            await callback.answer(_geo_limit_msg("city", user.plan, lang), show_alert=True)
             return
 
         # Create subscriptions — silently skip duplicates

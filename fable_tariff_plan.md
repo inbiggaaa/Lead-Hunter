@@ -307,7 +307,14 @@
 
 ## ФАЗА T4 — Воронки продаж
 
-### [ ] T4.1 Контекстные пейволлы в момент боли (ядро конверсии)
+### [x] T4.1 Контекстные пейволлы в момент боли (ядро конверсии)
+**Выполнено: 13.07.2026, коммит e4d97e3. Примечания:**
+- Компонент в plan.py: `next_plan_for(trigger, plan)` (маршрут апгрейда `_UPGRADE_PATH`), `paywall_text(...)` (строка-benefit для alert'ов), `build_paywall(...)` (полноэкранный: заголовок + строка + кнопка `pay_plan:<next>` + назад). RU+EN locales (`paywall_title/keyword/direction/country/city/channel`).
+- **Маршрут апгрейда (важно):** для keyword free→start→pro→business; для direction/country/city/channel у free и start лимит ОДИНАКОВ → сразу **pro** (совпадает с таблицей триггеров плана: «2-е направление → Профи»). pro→business везде.
+- **Полноэкранный пейволл** (edit_text + кнопка) — в management-экранах: keyword-add (2 точки), channel-add (2 точки). Кнопка ведёт на pay_plan:<next_plan>.
+- **Alert с унифицированной копией** — в FSM-воронке (on_toggle_segment, on_country_chosen, on_toggle_city, _show_confirmation, on_subscribe ×3): полноэкранный пейволл потерял бы FSM-выбор, поэтому alert, но текст — тот же `paywall_text`. `_geo_limit_msg` теперь делегирует в `paywall_text`.
+- Regex-триггер: в коде нет gated regex-кнопки (regex — только display-mark `[RegEx]`), точки пейволла нет — пропущено. CSV-триггер — после T5.2.
+- Цикла импорта нет (plan.py не импортирует catalog_nav/keywords/channels). Тест `tests/test_tariffs_v2_paywall.py` (6): маршруты, кнопка→pay_plan, локали+цена, полноэкранный. grep голых «Лимит исчерпан/Лимит: {max}» по хендлерам — пусто.
 **Зачем:** пользователь, упершийся в лимит, — самый горячий покупатель; сейчас он видит голый отказ.
 **Что сделать:** единый компонент «paywall(trigger, next_plan)» (locales-ключи по триггеру) и его вызов из всех точек:
 | Триггер | Кто упирается | Что показать |

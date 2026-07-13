@@ -80,6 +80,37 @@ def build_plan_screen(user, lang: str) -> tuple[str, InlineKeyboardMarkup]:
     rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")])
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
+# Контекстные пейволлы (T4.1): минимальный план, снимающий лимит триггера,
+# по текущему плану. direction/geo/channel у free и start одинаковы → сразу pro.
+_UPGRADE_PATH = {
+    "keyword":   {"free": "start", "start": "pro", "pro": "business"},
+    "direction": {"free": "pro", "start": "pro", "pro": "business"},
+    "country":   {"free": "pro", "start": "pro", "pro": "business"},
+    "city":      {"free": "pro", "start": "pro", "pro": "business"},
+    "channel":   {"free": "pro", "start": "pro", "pro": "business"},
+}
+
+def next_plan_for(trigger: str, current_plan: str) -> str:
+    return _UPGRADE_PATH.get(trigger, {}).get(current_plan, "business")
+
+def paywall_text(trigger: str, current_plan: str, lang: str) -> str:
+    """Строка пейволла: что даёт следующий тариф + его цена (для alert'ов воронки)."""
+    nxt = next_plan_for(trigger, current_plan)
+    return get_text(lang, f"paywall_{trigger}",
+                    plan=plan_display_name(nxt, lang), price=PLANS[nxt]["usd_monthly"])
+
+def build_paywall(trigger: str, current_plan: str, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Полноэкранный пейволл с кнопкой апгрейда на следующий тариф (T4.1)."""
+    nxt = next_plan_for(trigger, current_plan)
+    text = f"{get_text(lang, 'paywall_title')}\n\n{paywall_text(trigger, current_plan, lang)}"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=get_text(lang, f"plan_btn_{nxt}", price=PLANS[nxt]["usd_monthly"]),
+            callback_data=f"pay_plan:{nxt}")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
+    ])
+    return text, kb
+
 @router.callback_query(F.data == "menu:plan")
 async def on_plan_menu(callback: CallbackQuery):
     async for s in get_session():

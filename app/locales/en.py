@@ -84,6 +84,14 @@ TEXTS = {
     "plan_btn_business": "🏆 Business — ${price}",
     "plan_btn_current": "✅ {name} · yours",
 
+    # ── Contextual paywalls (T4.1) ──
+    "paywall_title": "🔒 Current plan limit",
+    "paywall_keyword": "More keywords — on {plan} (${price}/mo).",
+    "paywall_direction": "More categories and countries — on {plan} (${price}/mo).",
+    "paywall_country": "Multiple countries — on {plan} (${price}/mo).",
+    "paywall_city": "Unlimited cities — on {plan} (${price}/mo).",
+    "paywall_channel": "More channels — on {plan} (${price}/mo).",
+
     # ── Payment error (T2.2) ──
     "pay_error_body": (
         "❌ <b>Payment failed</b>\n\n"
