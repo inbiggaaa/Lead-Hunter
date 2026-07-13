@@ -99,10 +99,14 @@ TEXTS = {
     "stats_byseg_header": "По направлениям:",
     "stats_empty": "За выбранный период заявок пока нет.",
     "btn_stats": "📈 Статистика",
+    "btn_csv": "📥 CSV-экспорт",
+    "csv_caption": "📥 Заявки за {days} дней ({count} шт.)",
+    "csv_empty": "За {days} дней заявок для экспорта пока нет.",
 
     # ── Контекстные пейволлы (T4.1) ──
     "paywall_title": "🔒 Лимит текущего тарифа",
     "paywall_stats": "Статистика заявок — на тарифе {plan} (${price}/мес).",
+    "paywall_csv": "CSV-экспорт заявок — на тарифе {plan} (${price}/мес).",
     "paywall_keyword": "Больше ключевых слов — на тарифе {plan} (${price}/мес).",
     "paywall_direction": "Больше направлений и стран — на тарифе {plan} (${price}/мес).",
     "paywall_country": "Несколько стран — на тарифе {plan} (${price}/мес).",

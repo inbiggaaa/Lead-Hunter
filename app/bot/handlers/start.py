@@ -488,6 +488,7 @@ async def _show_settings_via_message(message: Message, lang: str):
         [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
         [InlineKeyboardButton(text=get_text(lang, "btn_subscriptions"), callback_data="menu:subs")],
         [InlineKeyboardButton(text=get_text(lang, "btn_stats"), callback_data="menu:stats")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_csv"), callback_data="menu:csv")],
         [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
         [InlineKeyboardButton(
             text="📖 Инструкции" if lang == "ru" else "📖 Instructions",

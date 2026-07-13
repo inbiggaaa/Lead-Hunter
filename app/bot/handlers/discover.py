@@ -38,6 +38,7 @@ async def on_settings(callback: CallbackQuery):
         [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
         [InlineKeyboardButton(text=get_text(lang, "btn_subscriptions"), callback_data="menu:subs")],
         [InlineKeyboardButton(text=get_text(lang, "btn_stats"), callback_data="menu:stats")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_csv"), callback_data="menu:csv")],
         [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
         [InlineKeyboardButton(text="📖 Инструкции" if lang == "ru" else "📖 Instructions", callback_data="menu:instructions")],
         [InlineKeyboardButton(text=get_text(lang, "btn_about"), callback_data="menu:about")],
@@ -97,6 +98,54 @@ async def on_stats(callback: CallbackQuery):
         lang = user.language if user else "ru"
     text, kb = await build_stats_screen(user, lang)
     await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
+
+
+def _build_csv(rows) -> str:
+    """CSV из строк sent_log (T5.2): метаданные, без текста заявки."""
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["date", "chat", "segment", "sender", "link", "urgent"])
+    for r in rows:
+        link = (f"https://t.me/{r.chat_username}/{r.message_id}"
+                if r.chat_username and r.message_id else "")
+        w.writerow([
+            r.sent_at.strftime("%Y-%m-%d %H:%M") if r.sent_at else "",
+            r.chat_username or "", r.segment or "",
+            f"@{r.sender}" if r.sender else "", link,
+            "1" if r.is_urgent else "",
+        ])
+    return buf.getvalue()
+
+
+@router.callback_query(F.data == "menu:csv")
+async def on_csv_export(callback: CallbackQuery):
+    from aiogram.types import BufferedInputFile
+    from app.bot.handlers.plan import build_paywall
+    from app.db.crud import get_sent_log_for_export
+
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        lang = user.language if user else "ru"
+        plan = user.plan if user else "free"
+        rows = await get_sent_log_for_export(session, user.id, 30) if plan in ("business", "trial") else []
+
+    if plan not in ("business", "trial"):
+        text, kb = build_paywall("csv", plan, lang)
+        await callback.message.edit_text(text, reply_markup=kb)
+        await callback.answer()
+        return
+
+    if not rows:
+        await callback.answer(get_text(lang, "csv_empty", days=30), show_alert=True)
+        return
+
+    data = _build_csv(rows).encode("utf-8-sig")  # BOM — Excel корректно откроет UTF-8
+    doc = BufferedInputFile(data, filename="leadhunter_leads.csv")
+    await callback.message.answer_document(
+        doc, caption=get_text(lang, "csv_caption", days=30, count=len(rows)))
     await callback.answer()
 
 

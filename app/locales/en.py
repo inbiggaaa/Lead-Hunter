@@ -100,10 +100,14 @@ TEXTS = {
     "stats_byseg_header": "By category:",
     "stats_empty": "No leads in the selected period yet.",
     "btn_stats": "📈 Statistics",
+    "btn_csv": "📥 CSV export",
+    "csv_caption": "📥 Leads for {days} days ({count})",
+    "csv_empty": "No leads to export for the last {days} days.",
 
     # ── Contextual paywalls (T4.1) ──
     "paywall_title": "🔒 Current plan limit",
     "paywall_stats": "Lead statistics — on {plan} (${price}/mo).",
+    "paywall_csv": "CSV export — on {plan} (${price}/mo).",
     "paywall_keyword": "More keywords — on {plan} (${price}/mo).",
     "paywall_direction": "More categories and countries — on {plan} (${price}/mo).",
     "paywall_country": "Multiple countries — on {plan} (${price}/mo).",

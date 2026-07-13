@@ -263,6 +263,18 @@ def get_max_cities_per_sub(plan: str) -> int:
     return _plan_limits(plan)["cities"]
 
 
+async def get_sent_log_for_export(session: AsyncSession, user_id: int, days: int) -> list:
+    """T5.2: строки sent_log пользователя за `days` дней для CSV (метаданные, без текста)."""
+    from datetime import datetime, timedelta, timezone
+    from app.db.models import SentLog
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (await session.execute(
+        select(SentLog).where(SentLog.user_id == user_id, SentLog.sent_at >= since)
+        .order_by(SentLog.sent_at.desc())
+    )).scalars().all()
+    return list(rows)
+
+
 async def get_daily_lead_counts(session: AsyncSession, user_id: int, days: int) -> dict:
     """T5.1: {дата 'YYYY-MM-DD' → число доставленных заявок} за последние `days` дней (из sent_log)."""
     from datetime import datetime, timedelta, timezone

@@ -134,8 +134,15 @@ class NotificationSender:
         if not delivered:
             return
 
+        matched = payload.get("matched_segments", [])
+        seg_label = ", ".join(m.get("title", "") for m in matched) if matched else None
         await mark_sent(user_id, message_hash, payload.get("is_urgent", False),
-                       content_hash=content_hash)
+                       content_hash=content_hash, meta={
+                           "chat_username": payload.get("chat_username"),
+                           "sender": payload.get("sender"),
+                           "segment": seg_label,
+                           "message_id": payload.get("message_id"),
+                       })
         await increment_daily_stats(user_id, today, "sent")
         await record_latency(payload.get("msg_ts"))
 

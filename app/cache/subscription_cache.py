@@ -204,15 +204,20 @@ async def is_content_duplicate(user_id: int, content_hash: str) -> bool:
         return result.scalar_one_or_none() is not None
 
 
-async def mark_sent(user_id: int, message_hash: str, is_urgent: bool = False, content_hash: str | None = None) -> None:
-    """Mark a notification as sent. Uses ON CONFLICT to avoid IntegrityError."""
+async def mark_sent(user_id: int, message_hash: str, is_urgent: bool = False,
+                    content_hash: str | None = None, meta: dict | None = None) -> None:
+    """Mark a notification as sent. Uses ON CONFLICT to avoid IntegrityError.
+    `meta` (T5.2): {chat_username, sender, segment, message_id} для CSV-экспорта."""
     from app.db.models import SentLog
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+    meta = meta or {}
     async with async_session_factory() as session:
         stmt = pg_insert(SentLog).values(
             user_id=user_id, message_hash=message_hash,
             is_urgent=is_urgent, content_hash=content_hash,
+            chat_username=meta.get("chat_username"), sender=meta.get("sender"),
+            segment=meta.get("segment"), message_id=meta.get("message_id"),
         ).on_conflict_do_nothing(index_elements=["user_id", "message_hash"])
         await session.execute(stmt)
         await session.commit()
