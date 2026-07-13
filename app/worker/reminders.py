@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
 from app.config import settings
@@ -15,20 +16,74 @@ logger = logging.getLogger(__name__)
 
 # ── Reminders ──
 
+# Типы напоминаний с кнопкой апгрейда «🎯 Тарифы» (T4.3/T4.4/T4.6/T7.2).
+_UPGRADE_KB_TYPES = {"trial_ending", "trial_expired", "winback_missed"}
+
+GRACE_DAYS = 7  # T7.1: сколько дней после истечения платный доступ сохраняется (мягкий grace)
+
+
+def _upgrade_kb() -> InlineKeyboardMarkup:
+    from app.config import settings
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text=f"🎯 Тарифы — от ${settings.price_start_monthly_usd}/мес",
+        callback_data="menu:plan")]])
+
+
+def _reminder_kb(rtype: str, user_plan: str | None = None):
+    """Клавиатура напоминания: апгрейд / re-engage / продление текущего плана."""
+    if rtype in _UPGRADE_KB_TYPES:
+        return _upgrade_kb()
+    if rtype == "inactive":
+        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+            text="🔍 Поиск клиентов", callback_data="menu:search")]])
+    if rtype in ("subscription_ending", "subscription_expired") and user_plan in ("start", "pro", "business"):
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"pay_plan:{user_plan}")],
+            [InlineKeyboardButton(text="📋 Другие тарифы", callback_data="menu:plan")],
+        ])
+    return None
+
+
 REMINDER_MESSAGES = {
+    # trial_ending — ДО истечения (T4.3): предупредить, пока доступ ещё есть
+    "trial_ending": {
+        2: "⏳ Пробный период заканчивается через 2 дня.\n"
+           "Потом контакты клиентов скроются. Сохрани доступ — тариф Старт от ${start}/мес.",
+        1: "⏳ Завтра пробный период закончится.\n"
+           "Заявки останутся, но без контактов. Тариф Старт (${start}/мес) оставит их открытыми.",
+    },
     "trial_expired": {
-        1: "⏰ Ваш пробный период закончился. Перейди на Pro или Business чтобы продолжить получать заявки! 💰",
-        3: "👋 Прошло 3 дня с окончания триала. На Free-тарифе ты получаешь 10 уведомлений/день — апни до Pro чтобы снять лимит.",
-        7: "📊 Неделя после триала. Как успехи? Напомню: на Pro ты получаешь полные контакты и 150 уведомлений/день.",
+        1: "⏰ Пробный период закончился. Заявки приходят, но контакты скрыты.\n"
+           "Открой их снова — тариф Старт от ${start}/мес.",
+        3: "🔒 3 дня без контактов. Каждая заявка уходит тому, кто ответил первым.\n"
+           "Верни доступ — от ${start}/мес.",
+        7: "📊 Неделя на Free. Заявки видны, а отправитель — нет.\n"
+           "Открой контакты — тариф Старт от ${start}/мес.",
+    },
+    # subscription_ending — ДО истечения (T4.6): продли без перерыва
+    "subscription_ending": {
+        5: "⏳ Подписка заканчивается через 5 дней.\n"
+           "Продли, чтобы получать заявки без перерыва.",
     },
     "subscription_expired": {
-        1: "⏰ Твоя подписка истекла. Продли чтобы не терять заявки! 💰",
-        3: "👋 3 дня без подписки. Заявки продолжают приходить, но с ограничениями Free.",
-        7: "📊 Неделя без подписки. Самое время вернуться!",
+        1: "⏰ Подписка закончилась. Контакты снова скрыты.\n"
+           "Продли, чтобы отвечать клиентам первым.",
+        3: "🔒 3 дня без подписки. Заявки приходят, но без контактов.\n"
+           "Верни доступ — продли подписку.",
+        7: "📊 Неделя без подписки. Клиенты по-прежнему пишут в чатах.\n"
+           "Продли, чтобы видеть их контакты.",
     },
     "inactive": {
         14: "👋 Давно не виделись! За 2 недели появились новые заявки по твоим направлениям. Загляни!",
         28: "📊 Месяц без активности. Твои подписки всё ещё работают — может, настроим новые направления?",
+    },
+    # winback_missed — реактивация бывших платящих (T7.2): цифра пропущенного в СВОЕЙ нише
+    "winback_missed": {
+        14: "📊 За 2 недели без подписки в твоей нише прошло {missed} заявок — "
+            "ты их видел, но контакты были скрыты.\n"
+            "Верни доступ и отвечай первым — тариф Старт от ${start}/мес.",
+        28: "📊 Месяц без подписки: {missed} заявок в твоей нише прошли мимо (контакты скрыты).\n"
+            "Каждая — клиент, которому ответил кто-то другой. Верни доступ от ${start}/мес.",
     },
 }
 
@@ -51,23 +106,78 @@ async def send_reminders():
             user.plan = "free"
             logger.info("Trial expired for user %d → downgraded to free", user.telegram_id)
         await session.commit()
-        # Trial expired reminders
-        trial_users = (await session.execute(
+
+        # T7.1: downgrade платных после grace (доступ реально истекает; подписки-ниша СОХРАНЯЮТСЯ).
+        # subscription_expired (дни 1/3/7) успевают отработать в grace-окне до даунгрейда.
+        expired_paid = (await session.execute(
+            select(User).where(
+                User.plan.in_(["start", "pro", "business"]),
+                User.plan_expires_at.isnot(None),
+                User.plan_expires_at < today - timedelta(days=GRACE_DAYS),
+            )
+        )).scalars().all()
+        for user in expired_paid:
+            user.plan = "free"
+            logger.info("Paid plan expired for user %d (>%dd) → free (subs kept)",
+                        user.telegram_id, GRACE_DAYS)
+        if expired_paid:
+            await session.commit()
+            from app.cache.subscription_cache import invalidate_all_subscription_caches
+            await invalidate_all_subscription_caches()
+
+        # trial_ending (ДО истечения) — для активных триалов (T4.3)
+        active_trial = (await session.execute(
             select(User).where(
                 User.plan == "trial",
                 User.plan_expires_at.isnot(None),
             )
         )).scalars().all()
+        for user in active_trial:
+            days_until = (user.plan_expires_at.date() - today).days
+            if days_until in (2, 1):
+                await _maybe_send(session, user, "trial_ending", days_until)
 
-        for user in trial_users:
+        # Бывшие платные/триалы (free + expiry в прошлом; never-trial free имеют expiry=NULL).
+        # Разграничение (T7.2): есть оплаченная Subscription → бывший ПЛАТЯЩИЙ (winback_missed);
+        # нет → бывший ТРИАЛ (trial_expired). Иначе платящий получил бы «пробный период закончился».
+        from app.db.crud import get_paid_subscriber_ids, count_leads_since
+        paid_ids = await get_paid_subscriber_ids(session)
+        former = (await session.execute(
+            select(User).where(
+                User.plan == "free",
+                User.plan_expires_at.isnot(None),
+            )
+        )).scalars().all()
+        for user in former:
             days_since = (today - user.plan_expires_at.date()).days
-            if days_since in (1, 3, 7):
-                await _maybe_send(session, user, "trial_expired", days_since)
+            if user.id in paid_ids:
+                # T7.2: реактивация бывшего платящего — цифра пропущенного в нише
+                if days_since in (14, 28):
+                    missed = await count_leads_since(session, user.id, user.plan_expires_at)
+                    if missed > 0:
+                        await _maybe_send(session, user, "winback_missed", days_since, missed=missed)
+            else:
+                # бывший триал (T4.3-фикс: раньше выборка plan=='trial' → срабатывало НИКОГДА)
+                if days_since in (1, 3, 7):
+                    await _maybe_send(session, user, "trial_expired", days_since)
 
-        # Subscription expired reminders
+        # subscription_ending (ДО истечения, за 5 дней) — активные платные, вкл. start (T4.6)
+        active_paid = (await session.execute(
+            select(User).where(
+                User.plan.in_(["start", "pro", "business"]),
+                User.plan_expires_at.isnot(None),
+                User.plan_expires_at >= today,
+            )
+        )).scalars().all()
+        for user in active_paid:
+            days_until = (user.plan_expires_at.date() - today).days
+            if days_until == 5:
+                await _maybe_send(session, user, "subscription_ending", 5)
+
+        # subscription_expired (ПОСЛЕ истечения) — вкл. start (T4.6-фикс: раньше только pro/business)
         expired_users = (await session.execute(
             select(User).where(
-                User.plan.in_(["pro", "business"]),
+                User.plan.in_(["start", "pro", "business"]),
                 User.plan_expires_at.isnot(None),
                 User.plan_expires_at < today,
             )
@@ -94,8 +204,8 @@ async def send_reminders():
     logger.info("Reminder check complete")
 
 
-async def _maybe_send(session, user: User, rtype: str, day: int):
-    """Send reminder if not already sent and not disabled."""
+async def _maybe_send(session, user: User, rtype: str, day: int, missed: int | None = None):
+    """Send reminder if not already sent and not disabled. `missed` — для winback_missed (T7.2)."""
     # Check if already sent
     result = await session.execute(
         select(Reminder).where(
@@ -113,11 +223,20 @@ async def _maybe_send(session, user: User, rtype: str, day: int):
     message = REMINDER_MESSAGES.get(rtype, {}).get(day)
     if not message:
         return
+    fmt = {"start": settings.price_start_monthly_usd}
+    if missed is not None:
+        fmt["missed"] = missed
+    if "{" in message:
+        message = message.format(**fmt)
+    kb = _reminder_kb(rtype, getattr(user, "plan", None))
+    if rtype == "winback_missed":
+        from app.cache.subscription_cache import record_paywall
+        await record_paywall("winback")  # T7.3: метрика реактивации
 
     # Send via Bot API
     bot = Bot(token=settings.bot_token)
     try:
-        await bot.send_message(user.telegram_id, message)
+        await bot.send_message(user.telegram_id, message, reply_markup=kb)
     except Exception:
         logger.exception("Failed to send reminder to %d", user.telegram_id)
         return
@@ -165,6 +284,10 @@ async def _send_periodic(msg_type: str):
     if not message:
         return
 
+    # CTA-подвал (T4.4): контакты открыты на платном тарифе — Старт от $N.
+    message += (f"\n\n🔒 Контакты авторов открыты на платном тарифе — "
+                f"Старт от ${settings.price_start_monthly_usd}/мес.")
+    kb = _upgrade_kb()
     bot = Bot(token=settings.bot_token)
 
     async with async_session_factory() as session:
@@ -185,7 +308,7 @@ async def _send_periodic(msg_type: str):
                 continue
 
             try:
-                await bot.send_message(user.telegram_id, message)
+                await bot.send_message(user.telegram_id, message, reply_markup=kb)
             except Exception:
                 continue
 

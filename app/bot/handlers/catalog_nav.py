@@ -8,7 +8,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.db.crud import (
+    cities_within_limit,
     count_user_subscriptions,
+    countries_within_limit,
     create_subscription,
     get_categories,
     get_countries,
@@ -21,6 +23,7 @@ from app.db.crud import (
 )
 from app.db.session import get_session
 from app.locales import get_text
+from app.bot.handlers.plan import paywall_text
 
 router = Router()
 
@@ -242,7 +245,9 @@ async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
         selected.remove(seg_id)
     else:
         if current + total_selected >= max_seg:
-            await callback.answer(f"Лимит: {max_seg} направлений", show_alert=True)
+            await callback.answer(
+                paywall_text("direction", data.get("plan", "free"), data.get("lang", "ru")),
+                show_alert=True)
             return
         selected.append(seg_id)
 
@@ -354,13 +359,32 @@ async def _show_countries(callback: CallbackQuery, state: FSMContext, lang: str)
 
 # ═══════════════ STEP 2: Choose country ═══════════════
 
+def _geo_limit_msg(kind: str, plan: str, lang: str) -> str:
+    """Гео-лимит тарифа в alert'е воронки (T4.1) — унифицированная копия пейволла.
+    Полноэкранный пейволл здесь не подходит: показ экрана потерял бы FSM-выбор."""
+    return paywall_text(kind, plan, lang)
+
+
 @router.callback_query(CatStates.choosing_country, F.data.startswith("cat:country:"))
 async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
     country_id = int(callback.data.split(":")[2])
     data = await state.get_data()
     lang = data.get("lang", "ru")
 
-    await state.update_data(country_id=country_id)
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        existing_countries = (
+            {s.country_id for s in await get_user_subscriptions(session, user.id)}
+            if user else set()
+        )
+    plan = user.plan if user else "free"
+
+    # Гео-лимит по стране (#81). При числах v2 обычно подчинён лимиту сегментов.
+    if not countries_within_limit(plan, existing_countries, country_id):
+        await callback.answer(_geo_limit_msg("country", plan, lang), show_alert=True)
+        return
+
+    await state.update_data(country_id=country_id, plan=plan)
 
     text = "Где именно ищешь?"
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -431,10 +455,16 @@ async def on_toggle_city(callback: CallbackQuery, state: FSMContext):
     city_id = int(callback.data.split(":")[2])
     data = await state.get_data()
     selected: list[int] = data.get("selected_cities", [])
+    plan = data.get("plan", "free")
+    lang = data.get("lang", "ru")
 
     if city_id in selected:
         selected.remove(city_id)
     else:
+        # Гео-лимит по городам в одной подписке (#81).
+        if not cities_within_limit(plan, len(selected) + 1):
+            await callback.answer(_geo_limit_msg("city", plan, lang), show_alert=True)
+            return
         selected.append(city_id)
 
     await state.update_data(selected_cities=selected)
@@ -510,9 +540,10 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
         existing = await get_user_subscriptions(session, user.id)
+        user_plan = user.plan
 
     if current + len(selected_segments) > max_seg:
-        await callback.answer(f"Лимит: {max_seg}", show_alert=True)
+        await callback.answer(paywall_text("direction", user_plan, lang), show_alert=True)
         return
 
     # Filter out existing subscriptions silently
@@ -597,12 +628,23 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
         if current + len(selected_segments) > max_seg:
-            await callback.answer(f"Лимит: {max_seg}", show_alert=True)
+            await callback.answer(paywall_text("direction", user.plan, lang), show_alert=True)
+            return
+
+        existing_subs = await get_user_subscriptions(session, user.id)
+
+        # Гео-лимиты (control-проверка от гонок/устаревшего стейта) — #81
+        existing_countries = {s.country_id for s in existing_subs}
+        if not countries_within_limit(user.plan, existing_countries, country_id):
+            await callback.answer(_geo_limit_msg("country", user.plan, lang), show_alert=True)
+            return
+        if mode == "cities" and not cities_within_limit(user.plan, len(selected_cities)):
+            await callback.answer(_geo_limit_msg("city", user.plan, lang), show_alert=True)
             return
 
         # Create subscriptions — silently skip duplicates
         created = 0
-        existing_pairs = {(s.segment_id, s.country_id) for s in await get_user_subscriptions(session, user.id)}
+        existing_pairs = {(s.segment_id, s.country_id) for s in existing_subs}
         for seg_id in selected_segments:
             if (seg_id, country_id) in existing_pairs:
                 continue
@@ -657,19 +699,26 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         break
 
     if is_first:
+        from app.config import settings as _s
+        from app.bot.handlers.plan import PLANS as _PLANS
         text = (
-            "🎉 Готово! Ты получил 5 дней Business-тарифа.\n\n"
+            f"🎉 Готово! Тебе открыт пробный период — {_s.trial_days} дней уровня Бизнес.\n\n"
             f"📌 Направления:\n" + "\n".join(seg_names) + "\n"
             f"🌍 Страна: {country_name}\n"
         )
         if city_labels:
             text += f"🏙 Города: {', '.join(city_labels)}\n"
         text += f"\n✅ Создано подписок: {created}\n"
-        text += "Заявки начнут приходить в ближайшее время."
+        text += "Заявки с полными контактами начнут приходить в ближайшее время.\n\n"
+        text += (
+            f"⏳ После пробного периода контакты скроются. "
+            f"Тариф Старт открывает их снова — от ${_PLANS['start']['usd_monthly']}/мес."
+        )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
         ])
     else:
+        from app.bot.handlers.plan import PLANS as _PLANS
         text = f"✅ Добавлено подписок: {created}\n\n"
         text += "📌\n" + "\n".join(seg_names) + "\n"
         text += f"🌍 {country_name}"
@@ -678,10 +727,12 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         kb_rows = [[InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")]]
         if show_upgrade:
             text += (
-                "\n\n💡 На бесплатном тарифе контакты клиентов скрыты.\n"
-                "Оформи подписку чтобы видеть отправителя и отвечать первым!"
+                "\n\n🔒 На бесплатном тарифе контакты клиентов скрыты.\n"
+                "Тариф Старт открывает отправителя и кнопку «Ответить» — отвечай первым."
             )
-            kb_rows.insert(0, [InlineKeyboardButton(text="💰 Перейти на Pro", callback_data="menu:plan")])
+            kb_rows.insert(0, [InlineKeyboardButton(
+                text=f"🎯 Открыть контакты — от ${_PLANS['start']['usd_monthly']}/мес",
+                callback_data="menu:plan")])
         kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()

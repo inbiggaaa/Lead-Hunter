@@ -205,30 +205,114 @@ async def delete_subscription(session: AsyncSession, sub_id: int, user_id: int) 
     return result.rowcount > 0
 
 
-# ── Limits helpers ──
+# ── Limits helpers (тарифы v2, #81 — единая матрица) ──
+
+# Гео-«без лимита» для pro-городов и business/trial. Реальный потолок — общий
+# кап подписок business_hidden_cap_* (60), он же ограничивает число стран.
+_GEO_UNLIMITED = 9999
+
+
+def _plan_limits(plan: str) -> dict:
+    """Матрица лимитов одного плана. business/trial → общий кап 60 (не БД-безлимит).
+    Неизвестный план → free (least privilege). Free = start по гео."""
+    from app.config import settings
+    business = {
+        "segments": settings.business_hidden_cap_segments,
+        "channels": settings.business_hidden_cap_channels,
+        "keywords": settings.business_hidden_cap_keywords,
+        "countries": _GEO_UNLIMITED, "cities": _GEO_UNLIMITED,
+    }
+    matrix = {
+        "free": {
+            "segments": settings.max_segments_free, "channels": settings.max_channels_free,
+            "keywords": settings.max_keywords_free, "countries": settings.max_countries_start,
+            "cities": settings.max_cities_start,
+        },
+        "start": {
+            "segments": settings.max_segments_start, "channels": settings.max_channels_start,
+            "keywords": settings.max_keywords_start, "countries": settings.max_countries_start,
+            "cities": settings.max_cities_start,
+        },
+        "pro": {
+            "segments": settings.max_segments_pro, "channels": settings.max_channels_pro,
+            "keywords": settings.max_keywords_pro, "countries": settings.max_countries_pro,
+            "cities": _GEO_UNLIMITED,
+        },
+        "business": business, "trial": business,
+    }
+    return matrix.get(plan, matrix["free"])
+
 
 def get_max_keywords(plan: str) -> int:
-    from app.config import settings
-    if plan == "free":
-        return settings.max_keywords_free
-    if plan == "pro":
-        return settings.max_keywords_pro
-    return settings.business_hidden_cap_keywords  # trial, business
+    return _plan_limits(plan)["keywords"]
 
 
 def get_max_channels(plan: str) -> int:
-    from app.config import settings
-    if plan == "free":
-        return settings.max_channels_free
-    if plan == "pro":
-        return settings.max_channels_pro
-    return settings.business_hidden_cap_channels  # trial, business
+    return _plan_limits(plan)["channels"]
 
 
 def get_max_segments(plan: str) -> int:
-    from app.config import settings
-    if plan == "free":
-        return settings.max_segments_free  # 1 — but existing subs from trial are preserved
-    if plan == "pro":
-        return settings.max_segments_pro
-    return settings.business_hidden_cap_segments  # trial, business
+    return _plan_limits(plan)["segments"]
+
+
+def get_max_countries(plan: str) -> int:
+    return _plan_limits(plan)["countries"]
+
+
+def get_max_cities_per_sub(plan: str) -> int:
+    return _plan_limits(plan)["cities"]
+
+
+async def count_leads_since(session: AsyncSession, user_id: int, since) -> int:
+    """T7.2: число доставленных заявок пользователю с момента `since` (из sent_log)."""
+    from app.db.models import SentLog
+    return (await session.execute(
+        select(func.count(SentLog.id)).where(
+            SentLog.user_id == user_id, SentLog.sent_at >= since)
+    )).scalar() or 0
+
+
+async def get_paid_subscriber_ids(session: AsyncSession) -> set:
+    """T7.2: user_id всех, у кого есть ОПЛАЧЕННАЯ подписка (отличить бывших платящих от бывших триалов)."""
+    from app.db.models import Subscription
+    rows = (await session.execute(
+        select(Subscription.user_id).where(Subscription.payment_status == "paid").distinct()
+    )).scalars().all()
+    return set(rows)
+
+
+async def get_sent_log_for_export(session: AsyncSession, user_id: int, days: int) -> list:
+    """T5.2: строки sent_log пользователя за `days` дней для CSV (метаданные, без текста)."""
+    from datetime import datetime, timedelta, timezone
+    from app.db.models import SentLog
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (await session.execute(
+        select(SentLog).where(SentLog.user_id == user_id, SentLog.sent_at >= since)
+        .order_by(SentLog.sent_at.desc())
+    )).scalars().all()
+    return list(rows)
+
+
+async def get_daily_lead_counts(session: AsyncSession, user_id: int, days: int) -> dict:
+    """T5.1: {дата 'YYYY-MM-DD' → число доставленных заявок} за последние `days` дней (из sent_log)."""
+    from datetime import datetime, timedelta, timezone
+    from app.db.models import SentLog
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (await session.execute(
+        select(func.date(SentLog.sent_at), func.count(SentLog.id))
+        .where(SentLog.user_id == user_id, SentLog.sent_at >= since)
+        .group_by(func.date(SentLog.sent_at))
+    )).all()
+    return {str(d): c for d, c in rows}
+
+
+def cities_within_limit(plan: str, n_cities: int) -> bool:
+    """Число городов в одной подписке не превышает лимит плана (тарифы v2, #81)."""
+    return n_cities <= get_max_cities_per_sub(plan)
+
+
+def countries_within_limit(plan: str, existing_country_ids, new_country_id: int) -> bool:
+    """Добавление страны не выводит число distinct-стран за лимит плана.
+    При утверждённых числах v2 обычно подчинён лимиту подписок (стран = сегментов),
+    но защищает при их будущей смене через .env."""
+    return len(set(existing_country_ids) | {new_country_id}) <= get_max_countries(plan)

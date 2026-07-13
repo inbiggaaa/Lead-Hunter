@@ -231,28 +231,43 @@ async def _finish_onboarding(callback: CallbackQuery, lang: str):
 async def _show_menu_from_db(message: Message, telegram_id: int):
     """Show main menu using language and plan from DB."""
     import datetime
+    plan = "free"
+    user_id = None
     async for session in get_session():
         from app.db.crud import get_user
+        from app.bot.handlers.plan import plan_display_name
         user = await get_user(session, telegram_id)
         lang = user.language if user else "ru"
         plan_name = "Free"
         if user:
-            plan_name = user.plan.capitalize()
-            if user.plan == "trial" and user.plan_expires_at:
+            plan = user.plan
+            user_id = user.id
+            plan_name = plan_display_name(user.plan, lang)
+            if user.plan in ("trial", "start", "pro", "business") and user.plan_expires_at:
                 days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
-                plan_name = f"Trial ({max(0, days_left)} дн)"
-            elif user.plan in ("pro", "business") and user.plan_expires_at:
-                days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
-                plan_name = f"{user.plan.capitalize()} ({max(0, days_left)} дн)"
-    await _show_menu(message, lang, plan_name)
+                plan_name = f"{plan_name} ({max(0, days_left)} дн)"
+    matched = await _matched_today(user_id) if user_id else 0
+    await _show_menu(message, lang, plan_name, matched=matched, is_free=(plan == "free"))
 
 
-async def _show_menu(message: Message, lang: str, plan_name: str = "Free"):
+async def _matched_today(user_id: int) -> int:
+    """Заявок сматчено пользователю сегодня (stats:daily:{id}:{date}:matched, D2)."""
+    import datetime
+    from app.cache import get_redis
+    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    redis = await get_redis()
+    return int(await redis.get(f"stats:daily:{user_id}:{today}:matched") or 0)
+
+
+async def _show_menu(message: Message, lang: str, plan_name: str = "Free",
+                     matched: int = 0, is_free: bool = True):
     text = (
         f"{get_text(lang, 'menu_header')}\n\n"
         f"{get_text(lang, 'menu_plan', plan=plan_name)}\n"
-        f"{get_text(lang, 'menu_notifications', sent=0, limit=50)}\n"
+        f"{get_text(lang, 'menu_notifications', matched=matched)}\n"
     )
+    if is_free:
+        text += f"{get_text(lang, 'menu_free_hidden')}\n"
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=get_text(lang, "btn_search"), callback_data="menu:search")],
@@ -368,6 +383,17 @@ async def cmd_settings(message: Message):
     lang = await _get_user_lang_for_message(message)
     await _show_settings_via_message(message, lang)
 
+@router.message(Command("stats"))
+async def cmd_stats(message: Message):
+    """Show lead statistics directly (T5.1)."""
+    from app.bot.handlers.discover import build_stats_screen
+    from app.db.crud import get_user
+    async for session in get_session():
+        user = await get_user(session, message.from_user.id)
+        lang = user.language if user else "ru"
+    text, kb = await build_stats_screen(user, lang)
+    await message.answer(text, reply_markup=kb)
+
 
 @router.message(Command("chatid"))
 async def cmd_chatid(message: Message):
@@ -386,7 +412,7 @@ async def _get_user_lang_for_message(message: Message) -> str:
 
 async def _show_subscriptions_via_message(message: Message, lang: str):
     """Show subscriptions list via message.answer() — used by /subscriptions."""
-    from app.db.crud import get_user, get_user_subscriptions, get_max_segments
+    from app.db.crud import get_user, get_user_subscriptions, get_max_segments, get_max_countries
     from app.db.models import Segment, Country, SubscriptionCity, City
     from sqlalchemy import select as sa_select
 
@@ -397,6 +423,8 @@ async def _show_subscriptions_via_message(message: Message, lang: str):
         subs = await get_user_subscriptions(session, user.id)
         current = len(subs)
         max_seg = get_max_segments(user.plan)
+        distinct_countries = len({s.country_id for s in subs})
+        max_countries = get_max_countries(user.plan)
 
         segs = (await session.execute(sa_select(Segment))).scalars().all()
         seg_names = {s.id: (s.emoji or "") + " " + (s.title_ru if lang == "ru" else (s.title_en or s.title_ru)) for s in segs}
@@ -412,7 +440,10 @@ async def _show_subscriptions_via_message(message: Message, lang: str):
                 )).scalars().all()
                 sub_cities_map[sub.id] = [city_names.get(cid, f"#{cid}") for cid in sc]
 
+    countries_cap = "∞" if max_countries >= 9999 else str(max_countries)
     text = f"📋 Мои подписки ({current}/{max_seg})\n\n"
+    if subs:
+        text += f"🌍 Стран задействовано: {distinct_countries}/{countries_cap}\n\n"
     if not subs:
         text += "У тебя пока нет подписок.\nНажми 🔍 Поиск клиентов чтобы найти первых!"
 
@@ -439,28 +470,14 @@ async def _show_subscriptions_via_message(message: Message, lang: str):
 
 
 async def _show_plan_via_message(message: Message, lang: str):
-    """Show plan & payment screen via message.answer() — used by /plan."""
+    """Show plan & payment screen via message.answer() — used by /plan.
+    Единый рендер с экраном menu:plan (T3.1) — без рассинхрона."""
     from app.db.crud import get_user
-    from app.config import settings
+    from app.bot.handlers.plan import build_plan_screen
 
     async for session in get_session():
         user = await get_user(session, message.from_user.id)
-        plan_name = user.plan.capitalize() if user else "Free"
-
-    pro_price = settings.price_pro_monthly_usd
-    biz_price = settings.price_business_monthly_usd
-    text = (
-        f"💰 Тариф и оплата\n\n"
-        f"Твой тариф: {plan_name}\n\n"
-        f"🚀 Pro — от ${pro_price}/мес\n"
-        f"💎 Business — от ${biz_price}/мес\n\n"
-        f"Скидки: 3 мес = -10%, 1 год = -20%"
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Pro", callback_data="pay_plan:pro")],
-        [InlineKeyboardButton(text="💎 Business", callback_data="pay_plan:business")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
-    ])
+        text, kb = build_plan_screen(user, lang)
     await message.answer(text, reply_markup=kb)
 
 
@@ -470,6 +487,9 @@ async def _show_settings_via_message(message: Message, lang: str):
         [InlineKeyboardButton(text=get_text(lang, "btn_keywords"), callback_data="menu:keywords")],
         [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
         [InlineKeyboardButton(text=get_text(lang, "btn_subscriptions"), callback_data="menu:subs")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_stats"), callback_data="menu:stats")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_csv"), callback_data="menu:csv")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_digest"), callback_data="menu:digest")],
         [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
         [InlineKeyboardButton(
             text="📖 Инструкции" if lang == "ru" else "📖 Instructions",

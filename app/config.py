@@ -95,13 +95,25 @@ class Settings(BaseSettings):
     # Monitoring
     sentry_dsn: str = ""
 
-    # Limits
+    # Limits (тарифы v2, #81 — метрика ценности = широта покрытия)
     max_segments_free: int = 1
-    max_segments_pro: int = 3
+    max_segments_start: int = 1
+    max_segments_pro: int = 5
     max_channels_free: int = 1
-    max_channels_pro: int = 15
+    max_channels_start: int = 1
+    max_channels_pro: int = 10
     max_keywords_free: int = 1
+    max_keywords_start: int = 10
     max_keywords_pro: int = 50
+    # Гео-лимиты (#81): free = start; pro ограничивает страны, города без лимита;
+    # business/trial — без гео-лимитов (действует общий кап подписок 60).
+    max_countries_start: int = 1
+    max_cities_start: int = 3
+    max_countries_pro: int = 5
+    # УСТАРЕЛО #81: дневной лимит уведомлений отменён, поля БОЛЬШЕ НЕ ЧИТАЮТСЯ кодом
+    # (последнее использование снято в T4.2). НЕ удалять до T6.3: прод-.env ещё
+    # содержит NOTIFICATIONS_PER_DAY_*, а config = extra_forbidden → удаление поля
+    # уронит старт до чистки прод-.env. Удаляются вместе в окне деплоя T6.3.
     notifications_per_day_free: int = 50
     notifications_per_day_pro: int = 150
     trial_days: int = 5
@@ -150,9 +162,10 @@ class Settings(BaseSettings):
     # Session backup (used by backup.sh, not Python)
     session_backup_passphrase: str = ""
 
-    # Prices
-    price_pro_monthly_usd: int = 5
-    price_business_monthly_usd: int = 15
+    # Prices (тарифы v2, #81)
+    price_start_monthly_usd: int = 9
+    price_pro_monthly_usd: int = 19
+    price_business_monthly_usd: int = 39
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

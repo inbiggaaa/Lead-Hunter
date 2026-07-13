@@ -1771,7 +1771,7 @@ class ChannelPoller:
         from app.cache.subscription_cache import (
             get_interested_users, push_notification, build_message_hash,
             compute_content_hash, rebuild_subscription_cache,
-            increment_daily_stats,
+            increment_daily_stats, increment_segment_stat,
         )
 
         message_hash = build_message_hash(chat_username, message_id)
@@ -1852,6 +1852,7 @@ class ChannelPoller:
                 "telegram_id": user["telegram_id"],
                 "lang": lang,
                 "plan": user.get("plan", "free"),
+                "digest_mode": user.get("digest_mode", "instant"),
                 "chat_username": chat_username,
                 "text": message_text,
                 "sender": sender,
@@ -1867,6 +1868,12 @@ class ChannelPoller:
             # «sent» инкрементит sender после фактической доставки.
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             await increment_daily_stats(user["user_id"], today, "matched")
+
+            # T5.1: по-сегментная статистика (экран Бизнес «по направлениям», TTL 35д).
+            # Только для сегментных матчей — пересечение ниш пользователя и матча.
+            if match_type == "segment":
+                for sid in ({s["segment_id"] for s in subscriptions} & matched_segment_ids):
+                    await increment_segment_stat(user["user_id"], today, sid)
 
     # ═══════════════ KEYWORD LOADING ═══════════════
 

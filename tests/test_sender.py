@@ -48,7 +48,6 @@ def _quiet_patches():
     return [
         patch("app.worker.sender.is_duplicate", new=AsyncMock(return_value=False)),
         patch("app.worker.sender.is_content_duplicate", new=AsyncMock(return_value=False)),
-        patch("app.worker.sender.check_daily_limit", new=AsyncMock(return_value=False)),
         patch("app.worker.sender.mark_sent", new=AsyncMock()),
         patch("app.worker.sender.increment_daily_stats", new=AsyncMock()),
     ]
@@ -181,16 +180,16 @@ def test_free_format_no_links():
 
 
 def test_free_keyboard_no_chat_button():
-    """Free: кнопки «💬 Чат» нет, «💰 Активировать подписку» и 👍👎 на месте."""
+    """Free: кнопки «💬 Чат» нет, CTA «Открыть контакты» и 👍👎 на месте (T3.5)."""
     sender = _make_sender()
     kb = sender._build_keyboard(_payload(plan="free"))
     assert _keyboard_urls(kb) == []
     all_texts = [btn.text for row in kb.inline_keyboard for btn in row]
-    assert "💰 Активировать подписку" in all_texts
+    assert any("Открыть контакты" in t for t in all_texts)
     assert "👍" in all_texts and "👎" in all_texts
 
 
-@pytest.mark.parametrize("plan", ["pro", "business", "trial"])
+@pytest.mark.parametrize("plan", ["start", "pro", "business", "trial"])
 def test_paid_format_keeps_links(plan):
     """Paid/Trial: ссылки на сообщение и отправителя не тронуты."""
     sender = _make_sender()
@@ -200,7 +199,7 @@ def test_paid_format_keeps_links(plan):
     assert "Контакты скрыты" not in text
 
 
-@pytest.mark.parametrize("plan", ["pro", "business", "trial"])
+@pytest.mark.parametrize("plan", ["start", "pro", "business", "trial"])
 def test_paid_keyboard_keeps_buttons(plan):
     """Paid/Trial: кнопки «💬 Чат» и «💬 Написать» на месте."""
     sender = _make_sender()
@@ -208,3 +207,21 @@ def test_paid_keyboard_keeps_buttons(plan):
     urls = _keyboard_urls(kb)
     assert "https://t.me/test_chat/77" in urls
     assert "https://t.me/lead_author" in urls
+
+
+# ═══ T1.2: дневной лимит уведомлений отменён (#81) ═══
+
+
+async def test_free_plan_not_rate_limited():
+    """Free-пользователь получает уведомление независимо от объёма за день.
+    До #81 sender гасил доставку на 50/день; теперь блока лимита нет."""
+    sender = _make_sender()
+    await _run_send(sender, _payload(plan="free"))
+    assert sender.bot.send_message.await_count == 1
+
+
+def test_no_daily_limit_symbols_left():
+    """В sender не осталось ссылок на снятый механизм лимита."""
+    import app.worker.sender as s
+    assert not hasattr(s.NotificationSender, "_send_limit_warning")
+    assert "check_daily_limit" not in dir(s)

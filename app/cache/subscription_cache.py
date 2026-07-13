@@ -18,7 +18,6 @@ CACHE_CHAT_KEY = "sub:by_chat:{chat_username}"
 QUEUE_NOTIFICATIONS = "queue:notifications"
 QUEUE_DEAD_LETTER = "dlq:notifications"
 HEARTBEAT_KEY = "heartbeat:userbot:1"
-LIMIT_REACHED_KEY = "limit_reached:{user_id}:{date}"
 STATS_DAILY_KEY = "stats:daily:{user_id}:{date}"
 CLASS_CACHE_KEY = "class:cache:{message_hash}"
 
@@ -79,6 +78,7 @@ async def rebuild_subscription_cache(chat_username: str) -> None:
             "telegram_id": user.telegram_id,
             "lang": user.language,
             "plan": user.plan,
+            "digest_mode": getattr(user, "digest_mode", "instant"),
             "subscriptions": sub_geo,
             "keyword_texts": keyword_texts,
         })
@@ -205,15 +205,20 @@ async def is_content_duplicate(user_id: int, content_hash: str) -> bool:
         return result.scalar_one_or_none() is not None
 
 
-async def mark_sent(user_id: int, message_hash: str, is_urgent: bool = False, content_hash: str | None = None) -> None:
-    """Mark a notification as sent. Uses ON CONFLICT to avoid IntegrityError."""
+async def mark_sent(user_id: int, message_hash: str, is_urgent: bool = False,
+                    content_hash: str | None = None, meta: dict | None = None) -> None:
+    """Mark a notification as sent. Uses ON CONFLICT to avoid IntegrityError.
+    `meta` (T5.2): {chat_username, sender, segment, message_id} для CSV-экспорта."""
     from app.db.models import SentLog
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+    meta = meta or {}
     async with async_session_factory() as session:
         stmt = pg_insert(SentLog).values(
             user_id=user_id, message_hash=message_hash,
             is_urgent=is_urgent, content_hash=content_hash,
+            chat_username=meta.get("chat_username"), sender=meta.get("sender"),
+            segment=meta.get("segment"), message_id=meta.get("message_id"),
         ).on_conflict_do_nothing(index_elements=["user_id", "message_hash"])
         await session.execute(stmt)
         await session.commit()
@@ -234,12 +239,69 @@ async def increment_daily_stats(user_id: int, date_str: str, field: str) -> int:
     return value
 
 
-async def check_daily_limit(user_id: int, date_str: str, max_per_day: int) -> bool:
-    """Check if user has exceeded daily notification limit. Returns True if limit reached."""
+async def record_paywall(trigger: str) -> None:
+    """T6.4: счётчик показов пейволла по триггеру за день (мониторинг конверсии). TTL 40д.
+    Fail-safe: аналитика НЕ должна ломать показ пейволла, если Redis недоступен."""
+    from datetime import datetime, timezone
+    try:
+        redis = await get_redis()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        key = f"stats:paywall:{trigger}:{today}"
+        await redis.incr(key)
+        await redis.expire(key, 40 * 86400)
+    except Exception:
+        logger.debug("record_paywall skipped (redis unavailable)")
+
+
+DIGEST_KEY = "digest:{user_id}"  # T5.3: буфер отложенных уведомлений
+
+
+async def buffer_digest(user_id: int, payload: dict) -> None:
+    """T5.3: отложить уведомление в буфер digest-пользователя (flush по расписанию)."""
     redis = await get_redis()
-    key = STATS_DAILY_KEY.format(user_id=user_id, date=date_str) + ":sent"
-    count = int(await redis.get(key) or 0)
-    return count >= max_per_day
+    key = DIGEST_KEY.format(user_id=user_id)
+    await redis.rpush(key, json.dumps(payload, default=str))
+    await redis.expire(key, 2 * 86400)  # страховка от зависших буферов
+
+
+async def pop_all_digest(user_id: int) -> list[dict]:
+    """T5.3: забрать и очистить весь буфер digest-пользователя."""
+    redis = await get_redis()
+    key = DIGEST_KEY.format(user_id=user_id)
+    items = await redis.lrange(key, 0, -1)
+    if items:
+        await redis.delete(key)
+    return [json.loads(i) for i in items]
+
+
+SEG_STAT_KEY = "stats:seg:{user_id}:{date}:{segment_id}"
+SEG_STAT_TTL_DAYS = 35  # T5.1: по-сегментная статистика для экрана «30 дней»
+
+
+async def increment_segment_stat(user_id: int, date_str: str, segment_id: int) -> None:
+    """T5.1: +1 к заявкам пользователя по сегменту за день. TTL 35 дней (персистентно,
+    в отличие от matched/sent, которые гаснут в полночь)."""
+    from datetime import datetime, timedelta, timezone
+    redis = await get_redis()
+    key = SEG_STAT_KEY.format(user_id=user_id, date=date_str, segment_id=segment_id)
+    await redis.incr(key)
+    await redis.expire(key, SEG_STAT_TTL_DAYS * 86400)
+
+
+async def get_segment_stats(user_id: int, segment_ids: list[int], days: int) -> dict[int, int]:
+    """Сумма заявок по каждому сегменту за последние `days` дней (T5.1)."""
+    from datetime import datetime, timedelta, timezone
+    if not segment_ids:
+        return {}
+    redis = await get_redis()
+    today = datetime.now(timezone.utc).date()
+    dates = [(today - timedelta(days=d)).strftime("%Y-%m-%d") for d in range(days)]
+    totals: dict[int, int] = {}
+    for sid in segment_ids:
+        keys = [SEG_STAT_KEY.format(user_id=user_id, date=dt, segment_id=sid) for dt in dates]
+        vals = await redis.mget(keys)
+        totals[sid] = sum(int(v) for v in vals if v)
+    return totals
 
 
 async def _midnight_timestamp() -> int:

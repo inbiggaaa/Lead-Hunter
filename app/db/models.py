@@ -43,6 +43,8 @@ class User(Base):
     source: Mapped[str] = mapped_column(String(20), default="direct")
     admin_note: Mapped[str | None] = mapped_column(Text)
     onboarded: Mapped[bool] = mapped_column(Boolean, default=False)
+    # T5.3: режим доставки уведомлений — instant / hourly / daily2 (2 раза в день)
+    digest_mode: Mapped[str] = mapped_column(String(10), default="instant")
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -128,6 +130,11 @@ class SentLog(Base):
     message_hash: Mapped[str] = mapped_column(String(64))
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_urgent: Mapped[bool] = mapped_column(Boolean, default=False)
+    # T5.2: метаданные для CSV-экспорта Бизнеса (без полного текста заявки).
+    chat_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sender: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    segment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     sent_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

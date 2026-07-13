@@ -48,6 +48,7 @@ async def check_pending_payments():
                 await remove_pending(invoice_id)
                 paid_count += 1
             elif status == "expired":
+                await _notify_expired(data)
                 await remove_pending(invoice_id)
                 logger.info("Expired invoice removed: %s", invoice_id)
         except Exception:
@@ -92,6 +93,11 @@ async def _activate(data: dict, invoice_id: str):
         user.plan_expires_at = expires
         await session.commit()
 
+    # Смена плана меняет формат уведомлений (Free скрывает контакты) — сбросить
+    # кэш подписок сразу, иначе оплаченный пользователь до TTL (1ч) видел бы Free.
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()
+
     # Apply referral bonus
     from app.bot.handlers.plan import _apply_referral_bonus
     await _apply_referral_bonus(user_id)
@@ -117,6 +123,10 @@ async def _activate(data: dict, invoice_id: str):
     finally:
         await bot.session.close()
 
+    # T4.5: годовой апселл на 2-м подряд месячном платеже
+    from app.bot.handlers.plan import maybe_offer_annual
+    await maybe_offer_annual(user_id, chat_id, plan, period_key)
+
 
 async def _get_user_for_notify(user_id: int):
     from app.db.session import async_session_factory
@@ -124,6 +134,27 @@ async def _get_user_for_notify(user_id: int):
     from sqlalchemy import select
     async with async_session_factory() as s:
         return (await s.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+
+
+async def _notify_expired(data: dict):
+    """Уведомить пользователя об истёкшем крипто-инвойсе (T2.2) с кнопкой повтора."""
+    from aiogram import Bot
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from app.locales import get_text
+
+    user = await _get_user_for_notify(data["user_id"])
+    lang = user.language if user else "ru"
+    plan, period_key = data["plan"], data["period_key"]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text=get_text(lang, "pay_err_retry"), callback_data=f"pay_period:{plan}:{period_key}")]])
+    bot = Bot(token=settings.bot_token)
+    try:
+        await bot.send_message(data["chat_id"], get_text(lang, "pay_error_expired"),
+                               reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        logger.exception("Failed to notify expired invoice for user %s", data.get("user_id"))
+    finally:
+        await bot.session.close()
 
 
 async def payment_checker_loop():
