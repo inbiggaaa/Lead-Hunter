@@ -983,7 +983,12 @@ winback
 
 **Цель:** доказать функциональную и смысловую целостность до полного включения.
 
-### [ ] U10.1 Создать сценарную матрицу
+### [x] U10.1 Создать сценарную матрицу
+
+Выполнено: 14.07.2026, коммит `4156208`. Проверка: 12 persona × RU/EN,
+обязательные happy/back/cancel/empty/error paths и разделение AUTO/STAGING/LIVE в
+`docs/userflow_u10_scenario_matrix.md`. Отклонения: фактические RU/EN отметки
+остаются пустыми до ручного staging-прогона.
 
 Минимум:
 
@@ -1004,7 +1009,13 @@ winback
 
 Для каждой persona пройти все экраны, back/cancel/error/empty states.
 
-### [ ] U10.2 Автоматизировать screen snapshots
+### [x] U10.2 Автоматизировать screen snapshots
+
+Выполнено: 14.07.2026, коммит `4156208`. Проверка: 80 snapshot tests, расширенный
+userflow regression suite 134 passed. Проверяются locale schema/placeholders,
+Telegram limits, HTML, EN mixed-language gate, deny-list, callbacks, plan/paywall,
+payment error, lifecycle и Free/Paid/private lead contracts. Отклонения: handlers,
+требующие БД/Telegram/payment provider, остаются в staging-части матрицы.
 
 Генерировать текст и keyboard каждого экрана для RU/EN с тестовыми данными.
 Проверять:
