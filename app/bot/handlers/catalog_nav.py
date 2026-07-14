@@ -326,6 +326,7 @@ async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(CatStates.choosing_category, F.data == "cat:to_country")
+@router.callback_query(CatStates.choosing_segments, F.data == "cat:to_country")
 async def on_segments_done(callback: CallbackQuery, state: FSMContext):
     """User clicked 'Done' on category screen — flatten selected subcategories and proceed."""
     data = await state.get_data()
