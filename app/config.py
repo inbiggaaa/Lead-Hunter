@@ -98,18 +98,28 @@ class Settings(BaseSettings):
     # Limits (тарифы v2, #81 — метрика ценности = широта покрытия)
     max_segments_free: int = 1
     max_segments_start: int = 1
-    max_segments_pro: int = 5
+    max_segments_pro: int = 3
+    max_segments_business: int = 12
     max_channels_free: int = 1
     max_channels_start: int = 1
     max_channels_pro: int = 10
+    max_channels_business: int = 50
     max_keywords_free: int = 1
-    max_keywords_start: int = 10
-    max_keywords_pro: int = 50
-    # Гео-лимиты (#81): free = start; pro ограничивает страны, города без лимита;
-    # business/trial — без гео-лимитов (действует общий кап подписок 60).
+    max_keywords_start: int = 3
+    max_keywords_pro: int = 20
+    max_keywords_business: int = 50
+    # Гео-лимиты: Free/Start — одна страна и один город; Pro — до 3 стран
+    # и 9 distinct-городов суммарно; Business/Trial — до 9 стран, города без лимита.
+    max_cities_free: int = 1
     max_countries_start: int = 1
-    max_cities_start: int = 3
-    max_countries_pro: int = 5
+    max_cities_start: int = 1
+    max_countries_pro: int = 3
+    max_cities_pro: int = 9
+    max_countries_business: int = 9
+    # Deprecated env compatibility; runtime matrix does not read these fields.
+    business_hidden_cap_channels: int = 60
+    business_hidden_cap_keywords: int = 60
+    business_hidden_cap_segments: int = 60
     trial_days: int = 5
     referral_trial_bonus: int = 3
     referral_bonus_days: int = 7
@@ -147,9 +157,6 @@ class Settings(BaseSettings):
     review_score_threshold: float = 0.90  # ниже → канал в needs_review (карантин)
     hot_interval_cap: int = 1200          # seconds, effective interval ceiling (20 min)
     daily_report_hour: int = 19
-    business_hidden_cap_channels: int = 60
-    business_hidden_cap_keywords: int = 60
-    business_hidden_cap_segments: int = 60
     stars_per_usd: int = 100
     admin_channel_id: int = 0
 

@@ -66,17 +66,18 @@ TEXTS = {
     "plan_current": "Your plan: {plan}",
     "plan_card_start": (
         "🎯 Start — ${price}/mo\n"
-        "• 1 category · 1 country / 3 cities\n"
-        "• 10 keywords · 1 channel · contacts shown"
+        "• 1 service · 1 country · 1 city\n"
+        "• 3 keywords · 1 channel · full contacts"
     ),
     "plan_card_pro": (
         "🚀 Pro — ${price}/mo\n"
-        "• 5 categories · 5 countries\n"
-        "• 50 keywords · 10 channels · regex · stats"
+        "• 3 services · 3 countries · up to 9 cities\n"
+        "• 20 keywords · 10 channels · regex · stats"
     ),
     "plan_card_business": (
         "🏆 Business — ${price}/mo\n"
-        "• No limits · CSV · full stats"
+        "• 12 services · 9 countries · unlimited cities\n"
+        "• 50 keywords · 50 channels · CSV · full stats"
     ),
     "plan_discounts": "3 mo −10% · year −20%",
     "plan_btn_start": "🎯 Start — ${price}",
@@ -118,7 +119,7 @@ TEXTS = {
     "paywall_keyword": "More keywords — on {plan} (${price}/mo).",
     "paywall_direction": "More categories and countries — on {plan} (${price}/mo).",
     "paywall_country": "Multiple countries — on {plan} (${price}/mo).",
-    "paywall_city": "Unlimited cities — on {plan} (${price}/mo).",
+    "paywall_city": "More cities — on {plan} (${price}/mo).",
     "paywall_channel": "More channels — on {plan} (${price}/mo).",
 
     # ── Payment error (T2.2) ──

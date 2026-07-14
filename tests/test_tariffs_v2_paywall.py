@@ -10,7 +10,7 @@ def _cbs(kb):
 
 
 def test_upgrade_path_keyword():
-    # keyword: free→start (10 слов), start→pro (50), pro→business (∞)
+    # keyword: free→start (3 фразы), start→pro (20), pro→business (50)
     assert next_plan_for("keyword", "free") == "start"
     assert next_plan_for("keyword", "start") == "pro"
     assert next_plan_for("keyword", "pro") == "business"
@@ -45,4 +45,4 @@ def test_paywall_text_localized_and_priced(lang):
 def test_paywall_full_screen_has_title_and_line():
     text, _ = build_paywall("city", "free", "ru")
     assert "Лимит текущего тарифа" in text
-    assert "Города без лимита" in text
+    assert "Больше городов" in text

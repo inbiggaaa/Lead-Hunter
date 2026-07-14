@@ -207,26 +207,24 @@ async def delete_subscription(session: AsyncSession, sub_id: int, user_id: int) 
 
 # ── Limits helpers (тарифы v2, #81 — единая матрица) ──
 
-# Гео-«без лимита» для pro-городов и business/trial. Реальный потолок — общий
-# кап подписок business_hidden_cap_* (60), он же ограничивает число стран.
+# Гео-«без лимита» действует только для городов Business/Trial.
 _GEO_UNLIMITED = 9999
 
 
 def _plan_limits(plan: str) -> dict:
-    """Матрица лимитов одного плана. business/trial → общий кап 60 (не БД-безлимит).
-    Неизвестный план → free (least privilege). Free = start по гео."""
+    """Матрица лимитов покрытия. Неизвестный план → free (least privilege)."""
     from app.config import settings
     business = {
-        "segments": settings.business_hidden_cap_segments,
-        "channels": settings.business_hidden_cap_channels,
-        "keywords": settings.business_hidden_cap_keywords,
-        "countries": _GEO_UNLIMITED, "cities": _GEO_UNLIMITED,
+        "segments": settings.max_segments_business,
+        "channels": settings.max_channels_business,
+        "keywords": settings.max_keywords_business,
+        "countries": settings.max_countries_business, "cities": _GEO_UNLIMITED,
     }
     matrix = {
         "free": {
             "segments": settings.max_segments_free, "channels": settings.max_channels_free,
             "keywords": settings.max_keywords_free, "countries": settings.max_countries_start,
-            "cities": settings.max_cities_start,
+            "cities": settings.max_cities_free,
         },
         "start": {
             "segments": settings.max_segments_start, "channels": settings.max_channels_start,
@@ -236,7 +234,7 @@ def _plan_limits(plan: str) -> dict:
         "pro": {
             "segments": settings.max_segments_pro, "channels": settings.max_channels_pro,
             "keywords": settings.max_keywords_pro, "countries": settings.max_countries_pro,
-            "cities": _GEO_UNLIMITED,
+            "cities": settings.max_cities_pro,
         },
         "business": business, "trial": business,
     }
@@ -259,8 +257,13 @@ def get_max_countries(plan: str) -> int:
     return _plan_limits(plan)["countries"]
 
 
-def get_max_cities_per_sub(plan: str) -> int:
+def get_max_cities(plan: str) -> int:
+    """Максимум distinct-городов суммарно по всем поискам пользователя."""
     return _plan_limits(plan)["cities"]
+
+
+def plan_has_unlimited_cities(plan: str) -> bool:
+    return get_max_cities(plan) == _GEO_UNLIMITED
 
 
 async def count_leads_since(session: AsyncSession, user_id: int, since) -> int:
@@ -306,9 +309,19 @@ async def get_daily_lead_counts(session: AsyncSession, user_id: int, days: int) 
     return {str(d): c for d, c in rows}
 
 
+async def get_user_city_ids(session: AsyncSession, user_id: int) -> set[int]:
+    """Distinct города во всех поисках пользователя для общего лимита тарифа."""
+    rows = await session.execute(
+        select(SubscriptionCity.city_id)
+        .join(UserSubscription, UserSubscription.id == SubscriptionCity.subscription_id)
+        .where(UserSubscription.user_id == user_id)
+    )
+    return set(rows.scalars().all())
+
+
 def cities_within_limit(plan: str, n_cities: int) -> bool:
-    """Число городов в одной подписке не превышает лимит плана (тарифы v2, #81)."""
-    return n_cities <= get_max_cities_per_sub(plan)
+    """Общее число distinct-городов пользователя не превышает лимит плана."""
+    return n_cities <= get_max_cities(plan)
 
 
 def countries_within_limit(plan: str, existing_country_ids, new_country_id: int) -> bool:

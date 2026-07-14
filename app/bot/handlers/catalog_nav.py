@@ -16,9 +16,11 @@ from app.db.crud import (
     get_countries,
     get_cities,
     get_max_segments,
+    plan_has_unlimited_cities,
     get_segments_by_category,
     get_user,
     get_user_subscriptions,
+    get_user_city_ids,
     delete_subscription,
 )
 from app.db.session import get_session
@@ -386,12 +388,21 @@ async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
 
     await state.update_data(country_id=country_id, plan=plan)
 
-    text = "Где именно ищешь?"
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌍 По всей стране", callback_data="cat:geo:all")],
-        [InlineKeyboardButton(text="🏙 В городах", callback_data="cat:geo:cities")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories")],
-    ])
+    text = "Где именно ищешь?" if lang == "ru" else "Where should we look?"
+    geo_rows = []
+    if plan_has_unlimited_cities(plan):
+        geo_rows.append([InlineKeyboardButton(
+            text="🌍 По всей стране" if lang == "ru" else "🌍 Entire country",
+            callback_data="cat:geo:all",
+        )])
+    geo_rows.append([InlineKeyboardButton(
+        text="🏙 Выбрать города" if lang == "ru" else "🏙 Select cities",
+        callback_data="cat:geo:cities",
+    )])
+    geo_rows.append([InlineKeyboardButton(
+        text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories",
+    )])
+    kb = InlineKeyboardMarkup(inline_keyboard=geo_rows)
 
     await state.set_state(CatStates.choosing_geo)
     await callback.message.edit_text(text, reply_markup=kb)
@@ -413,6 +424,8 @@ async def on_geo_cities(callback: CallbackQuery, state: FSMContext):
 
     async for session in get_session():
         cities = await get_cities(session, country_id)
+        user = await get_user(session, callback.from_user.id)
+        existing_city_ids = await get_user_city_ids(session, user.id) if user else set()
 
     selected_cities: list[int] = data.get("selected_cities", [])
 
@@ -445,7 +458,9 @@ async def on_geo_cities(callback: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
     await state.set_state(CatStates.choosing_cities)
-    await state.update_data(selected_cities=selected_cities)
+    await state.update_data(
+        selected_cities=selected_cities, existing_city_ids=list(existing_city_ids),
+    )
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
@@ -461,8 +476,10 @@ async def on_toggle_city(callback: CallbackQuery, state: FSMContext):
     if city_id in selected:
         selected.remove(city_id)
     else:
-        # Гео-лимит по городам в одной подписке (#81).
-        if not cities_within_limit(plan, len(selected) + 1):
+        # Лимит считается по distinct-городам во всех поисках пользователя.
+        existing_city_ids = set(data.get("existing_city_ids", []))
+        total_city_ids = existing_city_ids | set(selected) | {city_id}
+        if not cities_within_limit(plan, len(total_city_ids)):
             await callback.answer(_geo_limit_msg("city", plan, lang), show_alert=True)
             return
         selected.append(city_id)
@@ -518,6 +535,12 @@ async def on_cities_done(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(CatStates.choosing_geo, F.data == "cat:geo:all")
 async def on_geo_all(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    plan = data.get("plan", "free")
+    lang = data.get("lang", "ru")
+    if not plan_has_unlimited_cities(plan):
+        await callback.answer(_geo_limit_msg("city", plan, lang), show_alert=True)
+        return
     await state.update_data(mode="all", selected_cities=[])
     await _show_confirmation(callback, state)
 
@@ -638,9 +661,12 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         if not countries_within_limit(user.plan, existing_countries, country_id):
             await callback.answer(_geo_limit_msg("country", user.plan, lang), show_alert=True)
             return
-        if mode == "cities" and not cities_within_limit(user.plan, len(selected_cities)):
-            await callback.answer(_geo_limit_msg("city", user.plan, lang), show_alert=True)
-            return
+        if mode == "cities":
+            existing_city_ids = await get_user_city_ids(session, user.id)
+            total_city_ids = existing_city_ids | set(selected_cities)
+            if not cities_within_limit(user.plan, len(total_city_ids)):
+                await callback.answer(_geo_limit_msg("city", user.plan, lang), show_alert=True)
+                return
 
         # Create subscriptions — silently skip duplicates
         created = 0

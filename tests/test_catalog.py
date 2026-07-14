@@ -19,11 +19,11 @@ class TestPlanLimits:
         assert get_max_segments("pro") == settings.max_segments_pro
 
     def test_trial_limits(self):
-        # Trial = Business = кап 60
-        assert get_max_segments("trial") == settings.business_hidden_cap_segments
+        # Trial повторяет актуальные лимиты Business
+        assert get_max_segments("trial") == settings.max_segments_business
 
     def test_business_limits(self):
-        assert get_max_segments("business") == settings.business_hidden_cap_segments
+        assert get_max_segments("business") == settings.max_segments_business
 
 
 class TestCountryFlags:

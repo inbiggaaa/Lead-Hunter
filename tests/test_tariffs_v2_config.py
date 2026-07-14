@@ -12,12 +12,16 @@ def test_start_plan_limit_fields_exist():
         "max_segments_start",
         "max_channels_start",
         "max_keywords_start",
+        "max_segments_business",
+        "max_channels_business",
+        "max_keywords_business",
     ):
         assert isinstance(getattr(settings, field), int), field
 
 
 def test_geo_limit_fields_exist():
-    for field in ("max_countries_start", "max_cities_start", "max_countries_pro"):
+    for field in ("max_cities_free", "max_countries_start", "max_cities_start",
+                  "max_countries_pro", "max_cities_pro", "max_countries_business"):
         assert isinstance(getattr(settings, field), int), field
 
 

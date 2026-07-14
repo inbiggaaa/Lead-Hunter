@@ -11,19 +11,21 @@ from app.db.crud import (
     get_max_channels,
     get_max_keywords,
     get_max_countries,
-    get_max_cities_per_sub,
+    get_max_cities,
 )
 
 
 @pytest.fixture
 def fixed_limits(monkeypatch):
     vals = {
-        "max_segments_free": 1, "max_segments_start": 1, "max_segments_pro": 5,
+        "max_segments_free": 1, "max_segments_start": 1, "max_segments_pro": 3,
+        "max_segments_business": 12,
         "max_channels_free": 1, "max_channels_start": 1, "max_channels_pro": 10,
-        "max_keywords_free": 1, "max_keywords_start": 10, "max_keywords_pro": 50,
-        "max_countries_start": 1, "max_cities_start": 3, "max_countries_pro": 5,
-        "business_hidden_cap_segments": 60, "business_hidden_cap_channels": 60,
-        "business_hidden_cap_keywords": 60,
+        "max_channels_business": 50,
+        "max_keywords_free": 1, "max_keywords_start": 3, "max_keywords_pro": 20,
+        "max_keywords_business": 50,
+        "max_cities_free": 1, "max_countries_start": 1, "max_cities_start": 1,
+        "max_countries_pro": 3, "max_cities_pro": 9, "max_countries_business": 9,
     }
     for k, v in vals.items():
         monkeypatch.setattr(settings, k, v)
@@ -33,41 +35,41 @@ def fixed_limits(monkeypatch):
 def test_segments_by_plan(fixed_limits):
     assert get_max_segments("free") == 1
     assert get_max_segments("start") == 1
-    assert get_max_segments("pro") == 5
-    assert get_max_segments("business") == 60
-    assert get_max_segments("trial") == 60
+    assert get_max_segments("pro") == 3
+    assert get_max_segments("business") == 12
+    assert get_max_segments("trial") == 12
 
 
 def test_keywords_by_plan(fixed_limits):
     assert get_max_keywords("free") == 1
-    assert get_max_keywords("start") == 10
-    assert get_max_keywords("pro") == 50
-    assert get_max_keywords("business") == 60
-    assert get_max_keywords("trial") == 60
+    assert get_max_keywords("start") == 3
+    assert get_max_keywords("pro") == 20
+    assert get_max_keywords("business") == 50
+    assert get_max_keywords("trial") == 50
 
 
 def test_channels_by_plan(fixed_limits):
     assert get_max_channels("free") == 1
     assert get_max_channels("start") == 1
     assert get_max_channels("pro") == 10
-    assert get_max_channels("business") == 60
-    assert get_max_channels("trial") == 60
+    assert get_max_channels("business") == 50
+    assert get_max_channels("trial") == 50
 
 
 def test_geo_countries_by_plan(fixed_limits):
-    # free = start по гео; pro ограничивает страны; business/trial — без гео-лимита
+    # Лимиты стран считаются глобально по distinct-странам пользователя.
     assert get_max_countries("free") == 1
     assert get_max_countries("start") == 1
-    assert get_max_countries("pro") == 5
-    assert get_max_countries("business") > 60
-    assert get_max_countries("trial") > 60
+    assert get_max_countries("pro") == 3
+    assert get_max_countries("business") == 9
+    assert get_max_countries("trial") == 9
 
 
-def test_geo_cities_per_sub_by_plan(fixed_limits):
-    assert get_max_cities_per_sub("free") == 3
-    assert get_max_cities_per_sub("start") == 3
-    assert get_max_cities_per_sub("pro") > 60  # города без лимита у pro
-    assert get_max_cities_per_sub("business") > 60
+def test_geo_cities_total_by_plan(fixed_limits):
+    assert get_max_cities("free") == 1
+    assert get_max_cities("start") == 1
+    assert get_max_cities("pro") == 9
+    assert get_max_cities("business") == 9999
 
 
 def test_unknown_plan_falls_back_to_free(fixed_limits):
