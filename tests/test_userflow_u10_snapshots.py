@@ -17,7 +17,7 @@ MESSAGE_LIMIT = 4096
 CAPTION_LIMIT = 1024
 CALLBACK_LIMIT = 64
 ALLOWED_HTML_TAGS = frozenset({"a", "b", "blockquote", "code", "em", "i", "pre", "s", "strong", "u"})
-LANGUAGE_PICKER_KEYS = frozenset({"btn_ru", "welcome_lang_prompt"})
+LANGUAGE_PICKER_KEYS = frozenset({"btn_ru", "welcome_title", "welcome_body", "welcome_lang_prompt"})
 DENIED_CLAIMS = (
     "заявка за 2 секунды",
     "гарантированный поток заявок",

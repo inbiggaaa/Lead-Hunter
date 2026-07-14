@@ -2,10 +2,22 @@
 
 TEXTS = {
     # ── Приветственный экран ──
-    "welcome_title": "🎯 <b>LeadHunter находит заявки на твои услуги в Telegram-чатах</b>",
+    "welcome_title": "🎯 <b>Lead Hunter AI — клиенты уже ищут твои услуги в Telegram!</b>",
     "welcome_body": (
-        "Настрой направление и географию — подходящие обращения будут приходить автоматически.\n\n"
-        "Первые 3 дня доступен Business-тариф: контакты, ссылки на чат и уведомления без лимита."
+        "Выбери направление деятельности и географию — <b>Lead Hunter AI</b> будет "
+        "отслеживать новые сообщения и находить подходящие запросы клиентов.\n\n"
+        "В базе сервиса — более 5.000+ Telegram-чатов и каналов.\n\n"
+        "Узнавай о новых запросах раньше и первым предлагай свои услуги!\n\n"
+        "Запусти первый поиск и бесплатно попробуй возможности тарифа Business "
+        "в течение 3 дней.\n\n"
+        "--//--//--\n\n"
+        "🎯 <b>Lead Hunter AI — potential clients are already looking for your "
+        "services on Telegram!</b>\n\n"
+        "Choose your industry and target location — <b>Lead Hunter AI</b> will "
+        "monitor new messages and find relevant customer requests.\n\n"
+        "The Lead Hunter AI database includes more than 5.000+ Telegram chats and channels.\n\n"
+        "Discover new opportunities sooner and be the first to offer your services!\n\n"
+        "Launch your first search and try Business features free for 3 days."
     ),
     "welcome_lang_prompt": "Выбери язык / Choose language:",
 
