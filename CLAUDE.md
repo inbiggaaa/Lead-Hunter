@@ -607,6 +607,7 @@ show_last_leads → done
 
 **ПАМЯТЬ USERFLOW (14.07.2026):** U0 завершена, коммит `b0ea4c0` в `feature/codex-userflow-v2`. После завершения базового userflow обязательно напомнить владельцу перейти к отдельному этапу: маркетинговые тексты и функционал, уведомления об окончании подписки, стимулы renewal и механики повторной подписки. До этого этапа не добавлять новые маркетинговые обещания.
 **U1 CHECKPOINT:** locale schema и RU/EN lead sender внедрены; 29 tests passed. U1 НЕ закрыта. Осталось: reminders, periodic, payment success, handlers/alerts и полные parity tests. U2 не начинать.
+**U1 CHECKPOINT 2:** reminders/periodic и CryptoBot payment success локализованы; 32 tests passed. Фаза НЕ закрыта: handlers/alerts, Stars success, parity snapshots, legacy cleanup.
 
 ### Последние записи (полный журнал — docs/SESSION_LOG.md)
 

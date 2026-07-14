@@ -9,6 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
 from app.config import settings
+from app.locales import get_text, normalize_language
 from app.db.models import User, Reminder, PeriodicPref
 from app.db.session import async_session_factory
 
@@ -22,24 +23,24 @@ _UPGRADE_KB_TYPES = {"trial_ending", "trial_expired", "winback_missed"}
 GRACE_DAYS = 7  # T7.1: сколько дней после истечения платный доступ сохраняется (мягкий grace)
 
 
-def _upgrade_kb() -> InlineKeyboardMarkup:
+def _upgrade_kb(lang: str) -> InlineKeyboardMarkup:
     from app.config import settings
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-        text=f"🎯 Тарифы — от ${settings.price_start_monthly_usd}/мес",
+        text=get_text(lang, "reminder_btn_plans", price=settings.price_start_monthly_usd),
         callback_data="menu:plan")]])
 
 
-def _reminder_kb(rtype: str, user_plan: str | None = None):
+def _reminder_kb(rtype: str, user_plan: str | None = None, lang: str = "ru"):
     """Клавиатура напоминания: апгрейд / re-engage / продление текущего плана."""
     if rtype in _UPGRADE_KB_TYPES:
-        return _upgrade_kb()
+        return _upgrade_kb(lang)
     if rtype == "inactive":
         return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-            text="🔍 Поиск клиентов", callback_data="menu:search")]])
+            text=get_text(lang, "reminder_btn_search"), callback_data="menu:search")]])
     if rtype in ("subscription_ending", "subscription_expired") and user_plan in ("start", "pro", "business"):
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"pay_plan:{user_plan}")],
-            [InlineKeyboardButton(text="📋 Другие тарифы", callback_data="menu:plan")],
+            [InlineKeyboardButton(text=get_text(lang, "reminder_btn_renew"), callback_data=f"pay_plan:{user_plan}")],
+            [InlineKeyboardButton(text=get_text(lang, "reminder_btn_other_plans"), callback_data="menu:plan")],
         ])
     return None
 
@@ -220,15 +221,17 @@ async def _maybe_send(session, user: User, rtype: str, day: int, missed: int | N
     if existing:
         return  # Already sent
 
-    message = REMINDER_MESSAGES.get(rtype, {}).get(day)
-    if not message:
+    lang = normalize_language(getattr(user, "language", None))
+    try:
+        message = get_text(lang, f"reminder_{rtype}_{day}")
+    except KeyError:
         return
     fmt = {"start": settings.price_start_monthly_usd}
     if missed is not None:
         fmt["missed"] = missed
     if "{" in message:
         message = message.format(**fmt)
-    kb = _reminder_kb(rtype, getattr(user, "plan", None))
+    kb = _reminder_kb(rtype, getattr(user, "plan", None), lang)
     if rtype == "winback_missed":
         from app.cache.subscription_cache import record_paywall
         await record_paywall("winback")  # T7.3: метрика реактивации
@@ -280,14 +283,10 @@ async def send_periodic_messages():
 
 async def _send_periodic(msg_type: str):
     """Send a periodic message to all eligible Free users."""
-    message = PERIODIC_MESSAGES.get(msg_type)
-    if not message:
-        return
+    message_key = f"periodic_{msg_type}"
 
-    # CTA-подвал (T4.4): контакты открыты на платном тарифе — Старт от $N.
-    message += (f"\n\n🔒 Контакты авторов открыты на платном тарифе — "
-                f"Старт от ${settings.price_start_monthly_usd}/мес.")
-    kb = _upgrade_kb()
+    # Text and CTA are resolved per user language below.
+    kb = None
     bot = Bot(token=settings.bot_token)
 
     async with async_session_factory() as session:
@@ -296,6 +295,9 @@ async def _send_periodic(msg_type: str):
         )).scalars().all()
 
         for user in users:
+            lang = normalize_language(getattr(user, "language", None))
+            message = get_text(lang, message_key) + "\n\n" + get_text(lang, "periodic_upgrade", price=settings.price_start_monthly_usd)
+            kb = _upgrade_kb(lang)
             # Check if user has disabled this type
             pref_result = await session.execute(
                 select(PeriodicPref).where(

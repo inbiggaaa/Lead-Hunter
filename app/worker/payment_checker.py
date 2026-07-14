@@ -7,6 +7,7 @@ import logging
 from app.cache import get_redis
 from app.payments.cryptobot import CryptoBotPaymentProvider
 from app.config import settings
+from app.locales import get_text, normalize_language
 
 logger = logging.getLogger(__name__)
 
@@ -108,15 +109,13 @@ async def _activate(data: dict, invoice_id: str):
     user_obj = await _get_user_for_notify(user_id)
     aio.create_task(notify_new_subscription(user_obj.username if user_obj else None, user_obj.telegram_id if user_obj else 0, plan, period_key, "direct", info["total"]))
 
-    # Notify user
+    # Notify user in the persisted language.
+    lang = normalize_language(getattr(user, "language", None))
     bot = Bot(token=settings.bot_token)
     try:
         await bot.send_message(
             chat_id,
-            f"✅ Оплата прошла!\n\n"
-            f"Тариф: {info['plan_name']}\n"
-            f"Срок: {info['period_label']}\n"
-            f"Действует до: {expires.strftime('%d.%m.%Y')}",
+            get_text(lang, "payment_success", plan=info["plan_name"], period=info["period_label"], date=expires.strftime("%d.%m.%Y")),
         )
     except Exception:
         logger.exception("Failed to notify user %d", user_id)
