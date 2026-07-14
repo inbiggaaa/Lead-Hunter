@@ -22,37 +22,12 @@ def fixed_geo(monkeypatch):
         monkeypatch.setattr(settings, k, v)
 
 
-# ── Города в одной подписке ──
+# ── Города не лимитируются; режим всей страны доступен всем ──
 
-def test_cities_start_caps_at_1(fixed_geo):
-    assert cities_within_limit("start", 1) is True
-    assert cities_within_limit("start", 2) is False
-
-
-def test_cities_free_same_as_start(fixed_geo):
-    assert cities_within_limit("free", 1) is True
-    assert cities_within_limit("free", 2) is False
-
-
-def test_cities_pro_caps_at_9(fixed_geo):
-    assert cities_within_limit("pro", 9) is True
-    assert cities_within_limit("pro", 10) is False
-
-
-def test_cities_business_unlimited_and_trial_uses_pro_limit(fixed_geo):
-    assert cities_within_limit("business", 50) is True
-    assert cities_within_limit("trial", 9) is True
-    assert cities_within_limit("trial", 10) is False
-
-
-# ── Режим всей страны ──
-
-def test_all_country_only_business(fixed_geo):
-    assert plan_has_unlimited_cities("free") is False
-    assert plan_has_unlimited_cities("start") is False
-    assert plan_has_unlimited_cities("pro") is False
-    assert plan_has_unlimited_cities("business") is True
-    assert plan_has_unlimited_cities("trial") is False
+def test_cities_and_all_country_are_unlimited_for_every_plan(fixed_geo):
+    for plan in ("free", "start", "pro", "business", "trial"):
+        assert cities_within_limit(plan, 10_000) is True
+        assert plan_has_unlimited_cities(plan) is True
 
 
 # ── Distinct-страны по подпискам ──

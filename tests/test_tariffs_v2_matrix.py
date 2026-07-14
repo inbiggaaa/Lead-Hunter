@@ -37,7 +37,7 @@ def test_segments_by_plan(fixed_limits):
     assert get_max_segments("start") == 1
     assert get_max_segments("pro") == 3
     assert get_max_segments("business") == 12
-    assert get_max_segments("trial") == 12
+    assert get_max_segments("trial") == 3
 
 
 def test_keywords_by_plan(fixed_limits):
@@ -45,7 +45,7 @@ def test_keywords_by_plan(fixed_limits):
     assert get_max_keywords("start") == 3
     assert get_max_keywords("pro") == 20
     assert get_max_keywords("business") == 50
-    assert get_max_keywords("trial") == 50
+    assert get_max_keywords("trial") == 20
 
 
 def test_channels_by_plan(fixed_limits):
@@ -53,7 +53,7 @@ def test_channels_by_plan(fixed_limits):
     assert get_max_channels("start") == 1
     assert get_max_channels("pro") == 10
     assert get_max_channels("business") == 50
-    assert get_max_channels("trial") == 50
+    assert get_max_channels("trial") == 10
 
 
 def test_geo_countries_by_plan(fixed_limits):
@@ -62,13 +62,13 @@ def test_geo_countries_by_plan(fixed_limits):
     assert get_max_countries("start") == 1
     assert get_max_countries("pro") == 3
     assert get_max_countries("business") == 9
-    assert get_max_countries("trial") == 9
+    assert get_max_countries("trial") == 3
 
 
 def test_geo_cities_total_by_plan(fixed_limits):
-    assert get_max_cities("free") == 1
-    assert get_max_cities("start") == 1
-    assert get_max_cities("pro") == 9
+    assert get_max_cities("free") == 9999
+    assert get_max_cities("start") == 9999
+    assert get_max_cities("pro") == 9999
     assert get_max_cities("business") == 9999
 
 

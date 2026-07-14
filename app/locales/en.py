@@ -74,19 +74,19 @@ TEXTS = {
     "plan_card_start": (
         "🎯 Start — ${price}/mo\n"
         "For a specialist working in one city\n"
-        "• 1 service · 1 country · 1 city\n"
+        "• 1 service · 1 country · unlimited cities\n"
         "• 3 keywords · 1 custom channel · full contacts"
     ),
     "plan_card_pro": (
         "🚀 Pro — ${price}/mo · recommended\n"
         "For active client acquisition across several locations\n"
-        "• up to 3 services · 3 countries · 9 cities\n"
+        "• up to 3 services · 3 countries · unlimited cities\n"
         "• 20 keywords · 10 custom channels · regex · statistics"
     ),
     "plan_card_business": (
         "🏆 Business — ${price}/mo\n"
         "For a team or agency with broad coverage\n"
-        "• up to 12 services · 9 countries · unlimited cities within them\n"
+        "• up to 12 services · 9 countries · unlimited cities\n"
         "• 50 keywords · 50 custom channels · CSV · full statistics"
     ),
     "plan_discounts": "Save more: 3 months −10% · year −20%",
@@ -190,9 +190,9 @@ TEXTS = {
     "catalog_continue": "✅ Continue ({count})",
     "catalog_select_service": "Select at least one service",
     "catalog_country": "Which country should we search in?",
-    "catalog_geo": "Where should we look?",
-    "catalog_all_country": "🌍 Entire country",
-    "catalog_select_cities": "🏙 Select cities",
+    "catalog_geo": "Should we look for clients in specific cities or across the entire country?",
+    "catalog_all_country": "Across the entire country",
+    "catalog_select_cities": "Select cities",
     "catalog_cities": "Select cities (selected: {count}):",
     "catalog_select_city": "Select at least one city",
     "catalog_confirm": "Confirm your search:",

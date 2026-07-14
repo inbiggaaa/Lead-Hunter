@@ -12,8 +12,8 @@
 | SEARCH-02 | `cat:open:*` | все | hardcode + localized DB titles | Segment, current searches | выбрать направления / categories | `catalog_nav.on_category_opened` |
 | SEARCH-03 | `cat:seg:*`, `cat:to_country` | все | hardcode alerts | selected segments, limits | выбрать страну / category | `catalog_nav.on_toggle_segment`, `on_to_country` |
 | SEARCH-04 | `cat:country:*` | все | localized DB names, hardcode frame | Country, existing countries | выбрать географию / categories | `catalog_nav.on_country_chosen` |
-| SEARCH-05 | `cat:geo:cities`, `cat:geo:all` | все; all only Business | RU/EN inline | plan, Country | города или вся страна / country | server guard + geo tests |
-| SEARCH-06 | `cat:city:*`, `cat:cities_done` | Free/Start/Pro/Trial/Business | hardcode + DB names | distinct user cities, limits | подтвердить города / country | `get_user_city_ids`, geo tests |
+| SEARCH-05 | `cat:geo:cities`, `cat:geo:all` | все; оба режима доступны всем | RU/EN inline | plan, Country | города или вся страна / country | server guard + geo tests |
+| SEARCH-06 | `cat:city:*`, `cat:cities_done` | Free/Start/Pro/Trial/Business | hardcode + DB names | selected cities, no city limit | подтвердить города / geo | `get_user_city_ids`, geo tests |
 | SEARCH-07 | confirmation state | все | hardcode | FSM selection, DB names | создать поиск / categories | `_show_confirmation` |
 | SEARCH-08 | `cat:subscribe` | все | hardcode | User, Subscription, cache | открыть список поисков / main | `on_subscribe`, повторная server validation |
 | SEARCH-ERR | search callback alerts, missing category | все | mixed hardcode | validation/support target | исправить выбор / предыдущий шаг | catalog router branches |

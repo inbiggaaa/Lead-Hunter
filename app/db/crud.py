@@ -207,7 +207,7 @@ async def delete_subscription(session: AsyncSession, sub_id: int, user_id: int) 
 
 # ── Limits helpers (тарифы v2, #81 — единая матрица) ──
 
-# Гео-«без лимита» действует только для городов Business.
+# Города не лимитируются ни на одном тарифе; sentinel нужен только для UI.
 _GEO_UNLIMITED = 9999
 
 
@@ -218,7 +218,7 @@ def _plan_limits(plan: str) -> dict:
         "segments": settings.max_segments_pro,
         "channels": settings.max_channels_pro,
         "keywords": settings.max_keywords_pro,
-        "countries": settings.max_countries_pro, "cities": settings.max_cities_pro,
+        "countries": settings.max_countries_pro, "cities": _GEO_UNLIMITED,
     }
     business = {
         "segments": settings.max_segments_business,
@@ -230,12 +230,12 @@ def _plan_limits(plan: str) -> dict:
         "free": {
             "segments": settings.max_segments_free, "channels": settings.max_channels_free,
             "keywords": settings.max_keywords_free, "countries": settings.max_countries_start,
-            "cities": settings.max_cities_free,
+            "cities": _GEO_UNLIMITED,
         },
         "start": {
             "segments": settings.max_segments_start, "channels": settings.max_channels_start,
             "keywords": settings.max_keywords_start, "countries": settings.max_countries_start,
-            "cities": settings.max_cities_start,
+            "cities": _GEO_UNLIMITED,
         },
         "pro": pro, "business": business, "trial": pro,
     }
@@ -264,7 +264,8 @@ def get_max_cities(plan: str) -> int:
 
 
 def plan_has_unlimited_cities(plan: str) -> bool:
-    return get_max_cities(plan) == _GEO_UNLIMITED
+    """Режим всей страны доступен на каждом тарифе."""
+    return True
 
 
 async def count_leads_since(session: AsyncSession, user_id: int, since) -> int:
@@ -321,8 +322,8 @@ async def get_user_city_ids(session: AsyncSession, user_id: int) -> set[int]:
 
 
 def cities_within_limit(plan: str, n_cities: int) -> bool:
-    """Общее число distinct-городов пользователя не превышает лимит плана."""
-    return n_cities <= get_max_cities(plan)
+    """Города не ограничиваются тарифом; лимиты действуют на страны и направления."""
+    return True
 
 
 def countries_within_limit(plan: str, existing_country_ids, new_country_id: int) -> bool:
