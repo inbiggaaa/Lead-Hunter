@@ -2,7 +2,7 @@
 
 import pytest
 from app.config import settings
-from app.db.crud import get_max_segments
+from app.db.crud import get_max_channels, get_max_keywords, get_max_segments
 
 
 class TestPlanLimits:
@@ -19,8 +19,10 @@ class TestPlanLimits:
         assert get_max_segments("pro") == settings.max_segments_pro
 
     def test_trial_limits(self):
-        # Trial повторяет актуальные лимиты Business
-        assert get_max_segments("trial") == settings.max_segments_business
+        # Trial повторяет актуальные лимиты Pro
+        assert get_max_segments("trial") == settings.max_segments_pro
+        assert get_max_channels("trial") == settings.max_channels_pro
+        assert get_max_keywords("trial") == settings.max_keywords_pro
 
     def test_business_limits(self):
         assert get_max_segments("business") == settings.max_segments_business

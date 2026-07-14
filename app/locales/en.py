@@ -8,7 +8,7 @@ TEXTS = {
         "отслеживать новые сообщения и находить подходящие запросы клиентов.\n\n"
         "В базе сервиса — более 5.000+ Telegram-чатов и каналов.\n\n"
         "Узнавай о новых запросах раньше и первым предлагай свои услуги!"
-        "Запусти первый поиск и бесплатно попробуй возможности тарифа Business "
+        "Запусти первый поиск и бесплатно попробуй возможности тарифа Про "
         "в течение 3 дней.\n\n"
         "--//--//--\n\n"
         "🎯 <b>Lead Hunter AI — potential clients are already looking for your "
@@ -17,7 +17,7 @@ TEXTS = {
         "monitor new messages and find relevant customer requests.\n\n"
         "The Lead Hunter AI database includes more than 5.000+ Telegram chats and channels.\n\n"
         "Discover new opportunities sooner and be the first to offer your services!"
-        "Launch your first search and try Business features free for 3 days."
+        "Launch your first search and try Pro features free for 3 days."
     ),
     "welcome_lang_prompt": "Выбери язык / Choose language:",
 
@@ -27,7 +27,7 @@ TEXTS = {
     "onb_step2_title": "Which country are you looking for clients in?",
     "onb_step2_placeholder": "Country selection coming in Phase 3",
     "onb_step3_title": (
-        "🎉 Done! You got 3 days of Business plan.\n"
+        "🎉 Done! You got 3 days of Pro plan.\n"
         "Here are your first leads:"
     ),
     "onb_step3_placeholder": "Leads coming in Phase 5",
@@ -216,10 +216,10 @@ TEXTS = {
         "🤖 Irrelevant-message filtering\n"
         "📬 Unlimited notifications on every plan\n"
         "🔒 Available contacts and chat links are included with paid plans\n"
-        "🆓 Your first search starts a free 3-day Business trial"),
-    "referral_share": "LeadHunter automatically finds client requests in Telegram chats by service and location. My link gives you {trial_days} free days of Business.\n\n{link}",
+        "🆓 Your first search starts a free 3-day Pro trial"),
+    "referral_share": "LeadHunter automatically finds client requests in Telegram chats by service and location. My link gives you {trial_days} free days of Pro.\n\n{link}",
     "referral_body": ("🎁 <b>Invite a friend</b>\n\n"
-        "Your friend gets +{referral_bonus} trial days — {trial_days} days of Business in total.\n"
+        "Your friend gets +{referral_bonus} trial days — {trial_days} days of Pro in total.\n"
         "After their first payment, you get +{bonus} days on your current or previous plan.\n"
         "If you have never had a plan, we activate Start.\n\n"
         "🔗 {link}\n\n📊 Invited: {invited} · paid: {activated} · credited: {bonus_days} days."),
@@ -238,7 +238,7 @@ TEXTS = {
     "search_created": "✅ Searches created: {count}",
     "search_added": "✅ Searches added: {count}",
     "search_delivery": "Relevant leads will arrive after new messages are processed.",
-    "trial_started": "🎉 Search started! Your Business trial is active until {date}.",
+    "trial_started": "🎉 Search started! Your Pro trial is active until {date}.",
     "trial_after": "After the trial, contacts will be hidden. Start unlocks them from ${price}/mo.",
     "free_after_search": "🔒 Free hides contacts. A paid plan unlocks available contacts and links.",
     "catalog_error_services": "No services selected. Start the setup again.",

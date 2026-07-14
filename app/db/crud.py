@@ -207,13 +207,19 @@ async def delete_subscription(session: AsyncSession, sub_id: int, user_id: int) 
 
 # ── Limits helpers (тарифы v2, #81 — единая матрица) ──
 
-# Гео-«без лимита» действует только для городов Business/Trial.
+# Гео-«без лимита» действует только для городов Business.
 _GEO_UNLIMITED = 9999
 
 
 def _plan_limits(plan: str) -> dict:
     """Матрица лимитов покрытия. Неизвестный план → free (least privilege)."""
     from app.config import settings
+    pro = {
+        "segments": settings.max_segments_pro,
+        "channels": settings.max_channels_pro,
+        "keywords": settings.max_keywords_pro,
+        "countries": settings.max_countries_pro, "cities": settings.max_cities_pro,
+    }
     business = {
         "segments": settings.max_segments_business,
         "channels": settings.max_channels_business,
@@ -231,12 +237,7 @@ def _plan_limits(plan: str) -> dict:
             "keywords": settings.max_keywords_start, "countries": settings.max_countries_start,
             "cities": settings.max_cities_start,
         },
-        "pro": {
-            "segments": settings.max_segments_pro, "channels": settings.max_channels_pro,
-            "keywords": settings.max_keywords_pro, "countries": settings.max_countries_pro,
-            "cities": settings.max_cities_pro,
-        },
-        "business": business, "trial": business,
+        "pro": pro, "business": business, "trial": pro,
     }
     return matrix.get(plan, matrix["free"])
 

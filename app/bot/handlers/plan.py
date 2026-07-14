@@ -58,8 +58,8 @@ def payment_error_kb(plan: str, period_key: str, method: str, lang: str) -> Inli
     ])
 
 PLAN_DISPLAY = {
-    "ru": {"free": "Free", "start": "Старт", "pro": "Профи", "business": "Бизнес", "trial": "Business (триал)"},
-    "en": {"free": "Free", "start": "Start", "pro": "Pro", "business": "Business", "trial": "Business (trial)"},
+    "ru": {"free": "Free", "start": "Старт", "pro": "Профи", "business": "Бизнес", "trial": "Про (триал)"},
+    "en": {"free": "Free", "start": "Start", "pro": "Pro", "business": "Business", "trial": "Pro (trial)"},
 }
 
 def plan_display_name(plan: str, lang: str) -> str:

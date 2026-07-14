@@ -47,7 +47,7 @@ async def on_settings(callback: CallbackQuery):
 
 
 async def build_stats_screen(user, lang: str) -> tuple[str, InlineKeyboardMarkup]:
-    """Экран статистики (T5.1): Free/Старт → пейволл; Профи — 7 дн.; Бизнес/Trial — 30 дн. + по направлениям."""
+    """Экран статистики (T5.1): Free/Старт → пейволл; Профи — 7 дн.; Бизнес — 30 дн. + по направлениям; Trial/Про — 7 дн."""
     from app.bot.handlers.plan import paywall_screen
     from app.db.crud import get_daily_lead_counts, get_user_subscriptions
     from app.cache.subscription_cache import get_segment_stats
@@ -56,7 +56,7 @@ async def build_stats_screen(user, lang: str) -> tuple[str, InlineKeyboardMarkup
     if plan in ("free", "start"):
         return await paywall_screen("stats", plan, lang, user)
 
-    full = plan in ("business", "trial")
+    full = plan == "business"
     days = 30 if full else 7
     async for s in get_session():
         by_day = await get_daily_lead_counts(s, user.id, days)
@@ -167,9 +167,9 @@ async def on_csv_export(callback: CallbackQuery):
         user = await get_user(session, callback.from_user.id)
         lang = user.language if user else "ru"
         plan = user.plan if user else "free"
-        rows = await get_sent_log_for_export(session, user.id, 30) if plan in ("business", "trial") else []
+        rows = await get_sent_log_for_export(session, user.id, 30) if plan == "business" else []
 
-    if plan not in ("business", "trial"):
+    if plan != "business":
         text, kb = await paywall_screen("csv", plan, lang, user)
         await callback.message.edit_text(text, reply_markup=kb)
         await callback.answer()

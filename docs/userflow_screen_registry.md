@@ -12,8 +12,8 @@
 | SEARCH-02 | `cat:open:*` | все | hardcode + localized DB titles | Segment, current searches | выбрать направления / categories | `catalog_nav.on_category_opened` |
 | SEARCH-03 | `cat:seg:*`, `cat:to_country` | все | hardcode alerts | selected segments, limits | выбрать страну / category | `catalog_nav.on_toggle_segment`, `on_to_country` |
 | SEARCH-04 | `cat:country:*` | все | localized DB names, hardcode frame | Country, existing countries | выбрать географию / categories | `catalog_nav.on_country_chosen` |
-| SEARCH-05 | `cat:geo:cities`, `cat:geo:all` | все; all only Business/Trial | RU/EN inline | plan, Country | города или вся страна / country | server guard + geo tests |
-| SEARCH-06 | `cat:city:*`, `cat:cities_done` | Free/Start/Pro/Business/Trial | hardcode + DB names | distinct user cities, limits | подтвердить города / country | `get_user_city_ids`, geo tests |
+| SEARCH-05 | `cat:geo:cities`, `cat:geo:all` | все; all only Business | RU/EN inline | plan, Country | города или вся страна / country | server guard + geo tests |
+| SEARCH-06 | `cat:city:*`, `cat:cities_done` | Free/Start/Pro/Trial/Business | hardcode + DB names | distinct user cities, limits | подтвердить города / country | `get_user_city_ids`, geo tests |
 | SEARCH-07 | confirmation state | все | hardcode | FSM selection, DB names | создать поиск / categories | `_show_confirmation` |
 | SEARCH-08 | `cat:subscribe` | все | hardcode | User, Subscription, cache | открыть список поисков / main | `on_subscribe`, повторная server validation |
 | SEARCH-ERR | search callback alerts, missing category | все | mixed hardcode | validation/support target | исправить выбор / предыдущий шаг | catalog router branches |
@@ -24,8 +24,8 @@
 | CHANNELS-01 | `menu:channels`, `/channels` | все | mixed | WatchedChat, limits | добавить/удалить / settings | channels handlers |
 | CHANNELS-02 | `ch:add`, FSM username, `ch:del:*` | все | RU hardcode + paywall locale | Telegram entity, limits | сохранить / список | channels handlers/tests |
 | SETTINGS-01 | `menu:settings`, `/settings` | все | mixed | User | открыть настройку / main | discover/start settings builders |
-| STATS-01 | `menu:stats`, `/stats` | Pro/Business/Trial; paywall others | locale | sent_log, Redis segment stats | тариф или назад / settings | `build_stats_screen`, tariff tests |
-| CSV-01 | `menu:csv` | Business/Trial; paywall others | locale | sent_log metadata, 30 days | получить CSV / settings | `on_csv`, CSV tests |
+| STATS-01 | `menu:stats`, `/stats` | Pro/Trial/Business; paywall others | locale | sent_log, Redis segment stats | тариф или назад / settings | `build_stats_screen`, tariff tests |
+| CSV-01 | `menu:csv` | Business; paywall others | locale | sent_log metadata, 30 days | получить CSV / settings | `on_csv`, CSV tests |
 | DIGEST-01 | `menu:digest`, `digest:*` | все | locale | `users.digest_mode` | выбрать режим / settings | discover + digest worker tests |
 | HELP-01 | `menu:instructions` | все | inline RU/EN | config | поиск / settings | discover handler |
 | ABOUT-01 | `menu:about` | все | inline RU/EN | config prices/trial | поиск / settings | discover handler |
@@ -39,7 +39,7 @@
 | PAY-ERR | invoice error/expired/provider unavailable | payer | locale + RU alert | provider response | повторить / plan | error branches |
 | PAYWALL-01 | keyword/channel/direction/country/city/stats/csv | restricted plans | `paywall_*` | trigger, next plan, config price | upgrade / source screen | paywall component/tests |
 | LEAD-FREE | queue/digest lead | Free | RU-hardcode | event payload, plan | открыть тариф, feedback | sender tests; no contact links by decision #79 |
-| LEAD-PAID | queue/digest lead | Start/Pro/Business/Trial | RU-hardcode | payload with chat/sender/title | чат/автор, feedback | sender tests |
+| LEAD-PAID | queue/digest lead | Start/Pro/Trial/Business | RU-hardcode | payload with chat/sender/title | чат/автор, feedback | sender tests |
 | FEEDBACK-01 | `fb:*:*:*` | все | mixed RU/EN hardcode | Feedback, message identity | confirm rating | feedback handler |
 | EOD-01 | daily Free report | Free with leads | locale | daily matched/sent counters | upgrade | end_of_day + tests |
 | TRIAL-01 | trial ending 2/1 days | Trial | RU-hardcode | expiry/config | upgrade | reminders + tests |

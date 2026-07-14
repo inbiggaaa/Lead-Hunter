@@ -39,19 +39,20 @@ def test_cities_pro_caps_at_9(fixed_geo):
     assert cities_within_limit("pro", 10) is False
 
 
-def test_cities_business_unlimited(fixed_geo):
+def test_cities_business_unlimited_and_trial_uses_pro_limit(fixed_geo):
     assert cities_within_limit("business", 50) is True
-    assert cities_within_limit("trial", 50) is True
+    assert cities_within_limit("trial", 9) is True
+    assert cities_within_limit("trial", 10) is False
 
 
 # ── Режим всей страны ──
 
-def test_all_country_only_business_and_trial(fixed_geo):
+def test_all_country_only_business(fixed_geo):
     assert plan_has_unlimited_cities("free") is False
     assert plan_has_unlimited_cities("start") is False
     assert plan_has_unlimited_cities("pro") is False
     assert plan_has_unlimited_cities("business") is True
-    assert plan_has_unlimited_cities("trial") is True
+    assert plan_has_unlimited_cities("trial") is False
 
 
 # ── Distinct-страны по подпискам ──
@@ -75,5 +76,5 @@ def test_countries_pro_up_to_3(fixed_geo):
 def test_countries_business_caps_at_9(fixed_geo):
     assert countries_within_limit("business", set(range(1, 9)), 9) is True
     assert countries_within_limit("business", set(range(1, 10)), 10) is False
-    assert countries_within_limit("trial", set(range(1, 9)), 9) is True
-    assert countries_within_limit("trial", set(range(1, 10)), 10) is False
+    assert countries_within_limit("trial", {1, 2}, 3) is True
+    assert countries_within_limit("trial", {1, 2, 3}, 4) is False

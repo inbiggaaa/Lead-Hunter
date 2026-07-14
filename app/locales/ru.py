@@ -8,7 +8,7 @@ TEXTS = {
         "отслеживать новые сообщения и находить подходящие запросы клиентов.\n\n"
         "В базе сервиса — более 5.000+ Telegram-чатов и каналов.\n\n"
         "Узнавай о новых запросах раньше и первым предлагай свои услуги!"
-        "Запусти первый поиск и бесплатно попробуй возможности тарифа Business "
+        "Запусти первый поиск и бесплатно попробуй возможности тарифа Про "
         "в течение 3 дней.\n\n"
         "--//--//--\n\n"
         "🎯 <b>Lead Hunter AI — potential clients are already looking for your "
@@ -17,7 +17,7 @@ TEXTS = {
         "monitor new messages and find relevant customer requests.\n\n"
         "The Lead Hunter AI database includes more than 5.000+ Telegram chats and channels.\n\n"
         "Discover new opportunities sooner and be the first to offer your services!"
-        "Launch your first search and try Business features free for 3 days."
+        "Launch your first search and try Pro features free for 3 days."
     ),
     "welcome_lang_prompt": "Выбери язык / Choose language:",
 
@@ -27,7 +27,7 @@ TEXTS = {
     "onb_step2_title": "В какой стране ищешь клиентов?",
     "onb_step2_placeholder": "Выбор стран появится в Фазе 3",
     "onb_step3_title": (
-        "🎉 Готово! Ты получил 3 дня Business-тарифа.\n"
+        "🎉 Готово! Ты получил 3 дня тарифа Про.\n"
         "Вот твои первые заявки:"
     ),
     "onb_step3_placeholder": "Заявки появятся в Фазе 5",
@@ -216,10 +216,10 @@ TEXTS = {
         "🤖 Фильтрация нерелевантных сообщений\n"
         "📬 Уведомления без лимита на всех тарифах\n"
         "🔒 Найденные контакты и ссылки доступны на платном тарифе\n"
-        "🆓 Первый поиск запускает 3 дня Business бесплатно"),
-    "referral_share": "LeadHunter автоматически находит обращения клиентов в Telegram-чатах по направлению и географии. По моей ссылке — {trial_days} дней Business бесплатно.\n\n{link}",
+        "🆓 Первый поиск запускает 3 дня тарифа Про бесплатно"),
+    "referral_share": "LeadHunter автоматически находит обращения клиентов в Telegram-чатах по направлению и географии. По моей ссылке — {trial_days} дней тарифа Про бесплатно.\n\n{link}",
     "referral_body": ("🎁 <b>Пригласи друга</b>\n\n"
-        "Друг получит +{referral_bonus} дня к пробному периоду — всего {trial_days} дней Business.\n"
+        "Друг получит +{referral_bonus} дня к пробному периоду — всего {trial_days} дней тарифа Про.\n"
         "После первой оплаты друга ты получишь +{bonus} дней текущего или последнего тарифа.\n"
         "Если тарифа ещё не было — активируем Старт.\n\n"
         "🔗 {link}\n\n📊 Приглашено: {invited} · оплатили: {activated} · начислено: {bonus_days} дн."),
@@ -238,7 +238,7 @@ TEXTS = {
     "search_created": "✅ Поисков создано: {count}",
     "search_added": "✅ Поисков добавлено: {count}",
     "search_delivery": "Релевантные заявки начнут приходить после обработки новых сообщений.",
-    "trial_started": "🎉 Поиск запущен! Trial Business действует до {date}.",
+    "trial_started": "🎉 Поиск запущен! Триал Про действует до {date}.",
     "trial_after": "После trial контакты скроются. Старт открывает их от ${price}/мес.",
     "free_after_search": "🔒 На Free контакты скрыты. Платный тариф открывает доступные контакты и ссылки.",
     "catalog_error_services": "Направления не выбраны. Начни настройку заново.",
