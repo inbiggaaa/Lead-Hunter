@@ -1,6 +1,10 @@
+import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock
 
-from app.bot.handlers.catalog_nav import trial_days_for_source
+from aiogram.types import InlineKeyboardMarkup
+
+from app.bot.handlers.catalog_nav import _edit_text_or_replace_media, trial_days_for_source
 from app.config import settings
 
 ROOT = Path(__file__).parents[1]
@@ -32,3 +36,27 @@ def test_trial_and_onboarded_follow_first_search_commit_path():
     trial_pos = source.index("user.plan = \"trial\"")
     commit_pos = source.index("await session.commit()", trial_pos)
     assert create_pos < onboard_pos < trial_pos < commit_pos
+
+
+def test_first_catalog_screen_replaces_media_welcome() -> None:
+    message = AsyncMock()
+    message.text = None
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+    asyncio.run(_edit_text_or_replace_media(message, "catalog", keyboard))
+
+    message.edit_text.assert_not_awaited()
+    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    message.answer.assert_awaited_once_with("catalog", reply_markup=keyboard)
+
+
+def test_catalog_screen_still_edits_text_messages() -> None:
+    message = AsyncMock()
+    message.text = "welcome"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+    asyncio.run(_edit_text_or_replace_media(message, "catalog", keyboard))
+
+    message.edit_text.assert_awaited_once_with("catalog", reply_markup=keyboard)
+    message.edit_reply_markup.assert_not_awaited()
+    message.answer.assert_not_awaited()

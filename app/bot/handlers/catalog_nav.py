@@ -39,6 +39,17 @@ class CatStates(StatesGroup):
     confirm_subscription = State()
 
 
+async def _edit_text_or_replace_media(
+    message: Message, text: str, reply_markup: InlineKeyboardMarkup
+) -> None:
+    """Edit a text message, or replace a media welcome with a new text message."""
+    if message.text is not None:
+        await message.edit_text(text, reply_markup=reply_markup)
+        return
+    await message.edit_reply_markup(reply_markup=None)
+    await message.answer(text, reply_markup=reply_markup)
+
+
 # ── Language helpers ──
 
 async def _get_lang(callback: CallbackQuery, state: FSMContext) -> str:
@@ -157,7 +168,7 @@ async def on_show_categories(callback: CallbackQuery, state: FSMContext):
     from app.analytics import record_event
     await record_event("onboarding_started", user, context={"service_count": current})
     await state.set_state(CatStates.choosing_category)
-    await callback.message.edit_text(text, reply_markup=kb)
+    await _edit_text_or_replace_media(callback.message, text, kb)
     await callback.answer()
 
 
