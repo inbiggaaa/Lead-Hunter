@@ -104,10 +104,12 @@ def paywall_text(trigger: str, current_plan: str, lang: str) -> str:
     return get_text(lang, f"paywall_{trigger}",
                     plan=plan_display_name(nxt, lang), price=PLANS[nxt]["usd_monthly"])
 
-async def paywall_screen(trigger: str, current_plan: str, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+async def paywall_screen(trigger: str, current_plan: str, lang: str, user=None) -> tuple[str, InlineKeyboardMarkup]:
     """build_paywall + счётчик показа (T6.4) — единая точка инструментации."""
     from app.cache.subscription_cache import record_paywall
     await record_paywall(trigger)
+    from app.analytics import record_event
+    await record_event("paywall_viewed", user, trigger=trigger, context={"trigger": trigger, "target_plan": next_plan_for(trigger, current_plan)})
     return build_paywall(trigger, current_plan, lang)
 
 
@@ -136,6 +138,10 @@ async def on_plan_menu(callback: CallbackQuery):
 async def on_period_select(callback: CallbackQuery):
     plan = callback.data.split(":")[1]
     lang = await _get_lang(callback)
+    async for s in get_session():
+        analytics_user = await get_user(s, callback.from_user.id)
+    from app.analytics import record_event
+    await record_event("plan_selected", analytics_user, context={"target_plan": plan})
     text = get_text(lang, "payment_period_title", plan=plan_display_name(plan, lang)) + "\n\n"; kb_rows = []
     for key, p in PERIODS.items():
         info = _calc(plan, key)
@@ -149,6 +155,10 @@ async def on_period_select(callback: CallbackQuery):
 async def on_pay_method(callback: CallbackQuery):
     parts = callback.data.split(":"); plan, period_key = parts[1], parts[2]; info = _calc(plan, period_key)
     lang = await _get_lang(callback)
+    async for s in get_session():
+        analytics_user = await get_user(s, callback.from_user.id)
+    from app.analytics import record_event
+    await record_event("period_selected", analytics_user, context={"target_plan": plan, "period": period_key})
     text = get_text(lang, "payment_method_title", plan=plan_display_name(plan, lang), period=period_display_name(period_key, lang), total=f"{info['total']:.0f}")
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data=f"pay_exec:stars:{plan}:{period_key}")],
@@ -160,9 +170,14 @@ async def on_pay_method(callback: CallbackQuery):
 async def on_pay_execute(callback: CallbackQuery):
     _, method, plan, period_key = callback.data.split(":"); info = _calc(plan, period_key)
     lang = await _get_lang(callback)
+    async for s in get_session():
+        analytics_user = await get_user(s, callback.from_user.id)
+    from app.analytics import record_event
+    await record_event("payment_method_selected", analytics_user, context={"target_plan": plan, "period": period_key, "method": method})
     if method == "stars":
         try: await StarsPaymentProvider().create_invoice(callback.from_user.id, f"{plan}:{period_key}", info["stars"], info["total"])
         except Exception:
+            await record_event("payment_failed", analytics_user, context={"target_plan": plan, "period": period_key, "method": method, "success": False})
             logger.exception("Stars")
             lang = await _get_lang(callback)
             await callback.message.edit_text(get_text(lang, "pay_error_body"),
@@ -180,6 +195,7 @@ async def on_pay_execute(callback: CallbackQuery):
             from app.worker.payment_checker import add_pending
             await add_pending(r["invoice_id"], await _get_user_id(callback), plan, period_key, callback.from_user.id)
         except Exception:
+            await record_event("payment_failed", analytics_user, context={"target_plan": plan, "period": period_key, "method": method, "success": False})
             logger.exception("CryptoBot")
             lang = await _get_lang(callback)
             await callback.message.edit_text(get_text(lang, "pay_error_body"),
@@ -308,4 +324,7 @@ async def _activate_by_msg(message, plan, period_key, method, invoice_id):
     asyncio.create_task(notify_new_subscription(message.from_user.username, message.from_user.id, plan, period_key, "direct", info2["total"]))
     lang = normalize_language(getattr(u, "language", None))
     await message.answer(get_text(lang, "payment_success", plan=plan_display_name(plan, lang), period=period_display_name(period_key, lang), date=exp.strftime("%d.%m.%Y")))
+    from app.analytics import record_event, consume_conversion_trigger
+    trigger = await consume_conversion_trigger(u.id)
+    await record_event("payment_succeeded", u, trigger=trigger, context={"target_plan": plan, "period": period_key, "method": method, "success": True})
     await maybe_offer_annual(user_db_id, message.from_user.id, plan, period_key)

@@ -57,7 +57,7 @@ async def build_stats_screen(user, lang: str) -> tuple[str, InlineKeyboardMarkup
 
     plan = user.plan if user else "free"
     if plan in ("free", "start"):
-        return await paywall_screen("stats", plan, lang)
+        return await paywall_screen("stats", plan, lang, user)
 
     full = plan in ("business", "trial")
     days = 30 if full else 7
@@ -173,7 +173,7 @@ async def on_csv_export(callback: CallbackQuery):
         rows = await get_sent_log_for_export(session, user.id, 30) if plan in ("business", "trial") else []
 
     if plan not in ("business", "trial"):
-        text, kb = await paywall_screen("csv", plan, lang)
+        text, kb = await paywall_screen("csv", plan, lang, user)
         await callback.message.edit_text(text, reply_markup=kb)
         await callback.answer()
         return

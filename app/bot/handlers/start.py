@@ -57,6 +57,8 @@ async def cmd_start(message: Message):
                         days=settings.trial_days + settings.referral_trial_bonus
                     )
 
+        from app.analytics import record_event
+        await record_event("welcome_viewed", user)
         if not user.onboarded:
             await _show_welcome(message, lang)
         else:
@@ -101,6 +103,8 @@ async def on_language_select(callback: CallbackQuery):
         await set_language(session, callback.from_user.id, lang)
         user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username)
         is_onboarded = user.onboarded
+        from app.analytics import record_event
+        await record_event("language_selected", user, context={"success": True})
         await session.commit()
 
     await callback.message.edit_text(get_text(lang, "language_set"))

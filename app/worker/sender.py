@@ -184,6 +184,8 @@ class NotificationSender:
         await mark_sent(user_id, message_hash, payload.get("is_urgent", False),
                        content_hash=content_hash, meta=meta)
         await increment_daily_stats(user_id, today, "sent")
+        from app.analytics import record_event
+        await record_event("first_lead_delivered", user_id=user_id, language=payload.get("lang"), plan=payload.get("plan"), context={"lead_id": message_hash})
         await record_latency(payload.get("msg_ts"))
 
     async def _deliver_with_retry(self, payload: dict, text: str, kb) -> bool:

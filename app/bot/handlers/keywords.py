@@ -95,7 +95,7 @@ async def on_add_keyword_prompt(callback: CallbackQuery, state: FSMContext):
         max_kw = get_max_keywords(user.plan)
 
         if current >= max_kw:
-            pw_text, pw_kb = await paywall_screen("keyword", user.plan, lang)
+            pw_text, pw_kb = await paywall_screen("keyword", user.plan, lang, user)
             await callback.message.edit_text(pw_text, reply_markup=pw_kb)
             await callback.answer()
             return
@@ -126,7 +126,7 @@ async def on_keyword_text(message: Message, state: FSMContext):
         current = await count_keywords(session, user.id)
         max_kw = get_max_keywords(user.plan)
         if current >= max_kw:
-            pw_text, pw_kb = await paywall_screen("keyword", user.plan, lang)
+            pw_text, pw_kb = await paywall_screen("keyword", user.plan, lang, user)
             await message.answer(pw_text, reply_markup=pw_kb)
             await state.clear()
             return

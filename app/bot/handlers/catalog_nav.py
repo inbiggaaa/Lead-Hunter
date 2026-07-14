@@ -150,6 +150,8 @@ async def on_show_categories(callback: CallbackQuery, state: FSMContext):
     )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
+    from app.analytics import record_event
+    await record_event("onboarding_started", user, context={"service_count": current})
     await state.set_state(CatStates.choosing_category)
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
@@ -617,6 +619,8 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories")],
     ])
 
+    from app.analytics import record_event
+    await record_event("search_confirmation_viewed", user, context={"service_count": len(new_segments), "country_id": country_id, "city_count": len(selected_cities), "mode": mode})
     await state.set_state(CatStates.confirm_subscription)
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
@@ -695,6 +699,10 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             show_upgrade = (user.plan == "free")
 
         await session.commit()
+        from app.analytics import record_event
+        await record_event("search_created", user, context={"service_count": created, "country_id": country_id, "city_count": len(selected_cities), "mode": mode})
+        if is_first:
+            await record_event("trial_started", user)
 
     from app.cache.subscription_cache import invalidate_all_subscription_caches
     await invalidate_all_subscription_caches()

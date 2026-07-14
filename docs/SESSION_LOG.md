@@ -774,3 +774,9 @@ B4 (docs/eval/reality_audit.md): фильтр НЕ душит — блоки п�
 - Locale contract fail-fast: RU/EN keys и placeholders равны, unknown key = ошибка разработки, invalid language → RU + warning.
 - Gate exceptions только нейтральные: provider names, emoji-only feedback, билингвальный первый language screen, dynamic user data, technical `/chatid`.
 - Проверка: U1 suite 66 passed; imports/schema valid; diff check clean. Следующая фаза U2 analytics. Memory владельца про маркетинг/expiry/renewal после базового userflow сохраняется.
+
+
+**14.07.2026 — Userflow U2 ЗАКРЫТА; работа продолжается с U3.**
+- Privacy-safe Redis analytics: event dimensions language/plan/source, whitelist context без lead text, first-event dedup key, conversion trigger отдельно от immutable acquisition source.
+- Инструментированы welcome/language, onboarding/confirmation/search/trial, paywall, plan/period/method, payment success/failure, first delivered lead.
+- Funnel report zero-fills этапы. Проверка 49 passed. Прод не трогался.
