@@ -8,7 +8,7 @@ TEXTS = {
         "отслеживать новые сообщения и находить подходящие запросы клиентов.\n\n"
         "В базе сервиса — более 5.000+ Telegram-чатов и каналов. "
         "Узнавай о новых запросах раньше и первым предлагай свои услуги! "
-        "Запусти первый поиск и бесплатно попробуй возможности тарифа Про "
+        "Запусти первый поиск и <b>бесплатно попробуй возможности тарифа Про</b> "
         "в течение 3 дней.\n"
         "\n\n"
         "🎯 <b>Lead Hunter AI — potential clients are already looking for your "
@@ -17,7 +17,7 @@ TEXTS = {
         "monitor new messages and find relevant customer requests.\n\n"
         "The Lead Hunter AI database includes more than 5.000+ Telegram chats and channels. "
         "Discover new opportunities sooner and be the first to offer your services! "
-        "Launch your first search and try Pro features free for 3 days."
+        "Launch your first search and <b>try Pro features free</b> for 3 days."
     ),
     "welcome_lang_prompt": "Выбери язык / Choose language:",
 
@@ -170,7 +170,8 @@ TEXTS = {
     "list_empty_channels": "No custom channels yet. Add a channel to track it using your keywords.\n\nAvailable: {current}/{limit} ({plan})",
     "keywords_title": "Your custom keywords ({current}/{limit}):",
     "channels_title": "Your channels ({current}/{limit}):",
-    "keywords_prompt": "Send a keyword or phrase, for example: “looking for a chef”.\n\nAvailable: {remaining}/{limit} ({plan})\n\n/cancel — cancel.",
+    "keywords_prompt": "Send a keyword or phrase, for example: “looking for a chef”.\n\nAvailable: {remaining}/{limit} ({plan})",
+    "keyword_command_blocked": "Commands are not added as keywords. Send plain text.",
     "channels_prompt": "Send a channel , for example: .\n\nAvailable: {remaining}/{limit} ({plan})\n\n/cancel — cancel.",
     "input_too_short": "That value is too short. Try again or send /cancel.",
     "channel_invalid": "Invalid . Try again or send /cancel.",

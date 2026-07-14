@@ -54,7 +54,7 @@ async def show_keywords(callback: CallbackQuery, lang: str):
         current = len(keywords)
         max_kw = get_max_keywords(user.plan)
 
-    text = f"⚙️ {get_text(lang, 'btn_keywords')}\n\n"
+    text = get_text(lang, "btn_keywords") + "\n\n"
     if not keywords:
         text += get_text(lang, "list_empty_keywords", current=current, limit=max_kw, plan=plan_display_name(user.plan, lang))
     else:
@@ -113,6 +113,10 @@ async def on_keyword_text(message: Message, state: FSMContext):
     text = message.text.strip()
     lang = await _get_user_lang(message.from_user.id)
 
+    if text.startswith("/"):
+        await message.answer(get_text(lang, "keyword_command_blocked"))
+        return
+
     if len(text) < 2:
         await message.answer(get_text(lang, "input_too_short"))
         return
@@ -156,7 +160,7 @@ async def show_keywords_via_message(message: Message, lang: str):
         current = len(keywords)
         max_kw = get_max_keywords(user.plan)
 
-    text = f"⚙️ {get_text(lang, 'btn_keywords')}\n\n"
+    text = get_text(lang, "btn_keywords") + "\n\n"
     if keywords:
         text += get_text(lang, "keywords_title", current=current, limit=max_kw) + "\n\n"
         for kw in keywords:

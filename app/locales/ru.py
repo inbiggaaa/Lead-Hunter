@@ -8,7 +8,7 @@ TEXTS = {
         "отслеживать новые сообщения и находить подходящие запросы клиентов.\n\n"
         "В базе сервиса — более 5.000+ Telegram-чатов и каналов. "
         "Узнавай о новых запросах раньше и первым предлагай свои услуги! "
-        "Запусти первый поиск и бесплатно попробуй возможности тарифа Про "
+        "Запусти первый поиск и <b>бесплатно попробуй возможности тарифа Про</b> "
         "в течение 3 дней.\n"
         "\n\n"
         "🎯 <b>Lead Hunter AI — potential clients are already looking for your "
@@ -17,7 +17,7 @@ TEXTS = {
         "monitor new messages and find relevant customer requests.\n\n"
         "The Lead Hunter AI database includes more than 5.000+ Telegram chats and channels. "
         "Discover new opportunities sooner and be the first to offer your services! "
-        "Launch your first search and try Pro features free for 3 days."
+        "Launch your first search and <b>try Pro features free</b> for 3 days."
     ),
     "welcome_lang_prompt": "Выбери язык / Choose language:",
 
@@ -170,7 +170,8 @@ TEXTS = {
     "list_empty_channels": "Своих каналов пока нет. Добавь канал, чтобы отслеживать его по ключевым фразам.\n\nДоступно: {current}/{limit} ({plan})",
     "keywords_title": "Твои ключевые фразы ({current}/{limit}):",
     "channels_title": "Твои каналы ({current}/{limit}):",
-    "keywords_prompt": "Отправь ключевую фразу. Например: «ищу повара».\n\nДоступно ещё: {remaining}/{limit} ({plan})\n\n/cancel — отмена.",
+    "keywords_prompt": "Отправь ключевую фразу. Например: «ищу повара».\n\nДоступно ещё: {remaining}/{limit} ({plan})",
+    "keyword_command_blocked": "Команды не добавляются в ключевые фразы. Отправь обычный текст.",
     "channels_prompt": "Отправь  канала. Например: .\n\nДоступно ещё: {remaining}/{limit} ({plan})\n\n/cancel — отмена.",
     "input_too_short": "Слишком короткое значение. Попробуй ещё раз или отправь /cancel.",
     "channel_invalid": "Некорректный . Попробуй ещё раз или отправь /cancel.",
