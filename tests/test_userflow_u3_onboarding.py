@@ -102,3 +102,17 @@ def test_welcome_is_text_so_flow_stays_in_place() -> None:
     welcome = source[source.index("async def _show_welcome"):source.index("# ── Language selection")]
     assert "answer_photo" not in welcome
     assert "await message.answer(text, reply_markup=kb)" in welcome
+
+
+def test_search_created_invites_plan_after_launch() -> None:
+    source = (ROOT / "app/bot/handlers/catalog_nav.py").read_text()
+    subscribe = source[source.index("async def on_subscribe"):source.index("# ═══════════════ SUBSCRIPTIONS LIST")]
+    # Upsell is shown on the post-launch screen, not on the confirmation screen.
+    assert "search_upsell_after" in subscribe
+    assert 'callback_data="menu:plan"' in subscribe
+
+
+def test_trial_can_only_be_started_once() -> None:
+    source = (ROOT / "app/bot/handlers/catalog_nav.py").read_text()
+    assert "first_search_completed = created > 0 and not user.onboarded" in source
+    assert 'if first_search_completed and user.plan == "free":' in source

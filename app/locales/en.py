@@ -240,6 +240,7 @@ TEXTS = {
     "search_added": "✅ Searches added: {count}",
     "search_delivery": "Relevant leads will arrive after new messages are processed.",
     "trial_started": "🎉 Search started! Your Pro trial is active until {date}.",
+    "search_upsell_after": "💡 Want to unlock contacts and expand your limits right now? Pick a plan.",
     "trial_after": "After the trial, contacts will be hidden. Start unlocks them from ${price}/mo.",
     "free_after_search": "🔒 Free hides contacts. A paid plan unlocks available contacts and links.",
     "catalog_error_services": "No services selected. Start the setup again.",

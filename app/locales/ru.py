@@ -201,6 +201,7 @@ TEXTS = {
     "catalog_skipped": "📎 Уже добавлено: {count} (пропущено)",
     "catalog_country_line": "🌍 Страна: {country}",
     "catalog_cities_line": "🏙 Города: {cities}",
+    "search_upsell_after": "💡 Хотите открыть контакты и расширить лимиты прямо сейчас? Выберите тариф.",
     "catalog_activate_hint": "Нажми «Запустить поиск» для активации.",
     "catalog_activate": "✅ Запустить поиск",
     "catalog_error_country": "Страна не выбрана. Начни настройку заново.",

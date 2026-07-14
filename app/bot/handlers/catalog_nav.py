@@ -700,12 +700,16 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             )
             created += 1
 
-        # Activate trial if first subscription
+        # First created search completes onboarding once; free users get the one-time trial.
         is_first = current == 0 and created > 0
-        if is_first and user.plan == "free":
-            from app.config import settings
+        first_search_completed = created > 0 and not user.onboarded
+        if first_search_completed:
             from app.db.crud import set_onboarded
             await set_onboarded(session, callback.from_user.id)
+            user.onboarded = True
+
+        if first_search_completed and user.plan == "free":
+            from app.config import settings
             trial_length = trial_days_for_source(user.source)
             user.plan = "trial"
             user.plan_activated_at = datetime.datetime.now(datetime.timezone.utc)
@@ -762,8 +766,13 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             text += get_text(lang, "catalog_cities_line", cities=", ".join(city_labels)) + "\n"
         text += "\n" + get_text(lang, "search_created", count=created) + "\n"
         text += get_text(lang, "search_delivery") + "\n\n"
+        text += get_text(lang, "search_upsell_after")
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text=get_text(lang, "btn_plan"), callback_data="menu:plan"),
+                InlineKeyboardButton(text=get_text(lang, "btn_searches"), callback_data="menu:subs"),
+            ],
             [InlineKeyboardButton(text=get_text(lang, "btn_main_menu"), callback_data="menu:main")],
         ])
     else:
