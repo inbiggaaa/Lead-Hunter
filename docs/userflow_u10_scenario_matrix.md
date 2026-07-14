@@ -22,7 +22,7 @@ Checkpoint перед U10: `2fa3968`
 | Persona | Подготовка | Основной путь | Back / cancel / empty / error | RU | EN | Gate |
 |---|---|---|---|---:|---:|---|
 | Новый direct | новый `source=direct` | `/start` → язык → направление → страна → города → подтверждение → первый поиск → trial | назад на каждом шаге; `/cancel`; нет категорий/стран/городов; повторный callback | ☐ | ☐ | AUTO + STAGING |
-| Новый referral | новый deep-link `ref_CODE` | `/start ref_CODE` → язык → первый поиск → trial 8 дней | неверный/self/used code; отмена FSM; повторный `/start` | ☐ | ☐ | AUTO + STAGING |
+| Новый referral | новый deep-link `ref_CODE` | `/start ref_CODE` → язык → первый поиск → trial 7 дней | неверный/self/used code; отмена FSM; повторный `/start` | ☐ | ☐ | AUTO + STAGING |
 | Free с лидами | Free, lifecycle day 0/3/7/14, matched > 0 | скрытый lead → contextual paywall → EOD total/delivered/missed → тариф | токен лида истёк; нет sender/link; назад из paywall | ☐ | ☐ | AUTO + STAGING |
 | Free без лидов | Free, lifecycle day 0, matched = 0 | zero-lead diagnostic → «Проверить поиски» | пустые поиски; день 3/7/14 не создаёт лишнее сообщение | ☐ | ☐ | AUTO + STAGING |
 | Trial ending | Trial, expiry через 2/1 день | reminder → планы → период → способ оплаты | назад до plan; invoice failure/expiry | ☐ | ☐ | AUTO + STAGING |

@@ -298,60 +298,90 @@ async def on_successful_payment(message: Message):
         promo = parts[3] if len(parts) >= 5 and parts[3] == "wb25" else None
         await _activate_by_msg(message, parts[1], parts[2], "stars", payload, promo=promo)
 
-async def _apply_referral_bonus(user_id: int):
-    """Give bonus days to referrer when referral pays."""
-    from app.db.session import async_session_factory
-    from app.db.models import Referral, User
-    from sqlalchemy import select
-    import datetime as dt
+def referral_reward_plan(current_plan: str, last_paid_plan: str | None) -> str:
+    """Keep an active plan, restore the last paid plan, or fall back to Start."""
+    if current_plan in ("start", "pro", "business", "trial"):
+        return current_plan
+    if last_paid_plan in ("start", "pro", "business"):
+        return last_paid_plan
+    return "start"
+
+
+def referral_reward_expiry(
+    current_expiry: datetime.datetime | None,
+    now: datetime.datetime,
+    bonus_days: int,
+) -> datetime.datetime:
+    """Extend a future expiry; otherwise start the reward period now."""
+    base = current_expiry if current_expiry and current_expiry > now else now
+    return base + datetime.timedelta(days=bonus_days)
+
+
+async def _notify_referral_reward(referrer) -> None:
+    from aiogram import Bot
     from app.config import settings
 
-    async with async_session_factory() as s:
-        ref = (await s.execute(
-            select(Referral).where(Referral.referral_id == user_id, Referral.status == "pending")
-        )).scalar_one_or_none()
-        if not ref:
+    lang = normalize_language(referrer.language)
+    text = get_text(
+        lang, "referral_reward",
+        plan=plan_display_name(referrer.plan, lang),
+        days=settings.referral_bonus_days,
+        date=referrer.plan_expires_at.strftime("%d.%m.%Y"),
+    )
+    bot = Bot(token=settings.bot_token)
+    try:
+        await bot.send_message(referrer.telegram_id, text)
+    except Exception:
+        logger.exception("Failed to notify referrer %d", referrer.id)
+    finally:
+        await bot.session.close()
+
+
+async def _apply_referral_bonus(user_id: int) -> None:
+    """Activate the referrer's reward once after the referral pays."""
+    from app.config import settings
+    from app.db.models import Referral, User
+    from app.db.session import async_session_factory
+
+    async with async_session_factory() as session:
+        referral = (await session.execute(select(Referral).where(
+            Referral.referral_id == user_id, Referral.status == "pending"
+        ))).scalar_one_or_none()
+        if not referral:
             return
-
-        ref.status = "paid"
-        ref.activated_at = dt.datetime.now(dt.timezone.utc)
-
-        referrer = (await s.execute(
-            select(User).where(User.id == ref.referrer_id)
+        referrer = (await session.execute(
+            select(User).where(User.id == referral.referrer_id)
         )).scalar_one_or_none()
-
-        if referrer and referrer.plan in ("start", "pro", "business", "trial"):
-            if referrer.plan_expires_at:
-                referrer.plan_expires_at += dt.timedelta(days=settings.referral_bonus_days)
-            else:
-                referrer.plan_expires_at = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=settings.referral_bonus_days)
-
-        await s.commit()
-
-        # Notify referrer
-        if referrer:
-            from aiogram import Bot
-            bot = Bot(token=settings.bot_token)
-            try:
-                new_expiry = referrer.plan_expires_at.strftime("%d.%m.%Y") if referrer.plan_expires_at else "—"
-                await bot.send_message(
-                    referrer.telegram_id,
-                    f"🎁 Ваш реферал оплатил подписку!\n\n"
-                    f"➕ {settings.referral_bonus_days} дней добавлено к вашему тарифу.\n"
-                    f"📅 Подписка действует до: {new_expiry}"
-                )
-            except Exception:
-                pass
-            finally:
-                await bot.session.close()
-
-        # Notify admin
-        if referrer:
-            from app.worker.notify_admin import notify_admin
-            ref_name = f"@{referrer.username}" if referrer.username else f"ID:{referrer.telegram_id}"
-            await notify_admin(
-                f"🎁 Реферал оплатил!\n\n👤 Реферер: {ref_name}\n➕ +{settings.referral_bonus_days} дней"
-            )
+        if not referrer:
+            return
+        last_paid_plan = (await session.execute(select(Subscription.plan).where(
+            Subscription.user_id == referrer.id,
+            Subscription.payment_status == "paid",
+            Subscription.plan.in_(("start", "pro", "business")),
+        ).order_by(Subscription.created_at.desc()).limit(1))).scalar_one_or_none()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        reward_plan = referral_reward_plan(referrer.plan, last_paid_plan)
+        if referrer.plan != reward_plan or not referrer.plan_expires_at or referrer.plan_expires_at <= now:
+            referrer.plan_activated_at = now
+        referrer.plan = reward_plan
+        referrer.plan_expires_at = referral_reward_expiry(
+            referrer.plan_expires_at, now, settings.referral_bonus_days
+        )
+        referrer.free_lifecycle_at = None
+        referral.status = "paid"
+        referral.bonus_days = settings.referral_bonus_days
+        referral.referral_trial_bonus = settings.referral_trial_bonus
+        referral.activated_at = now
+        await session.commit()
+    from app.cache.subscription_cache import invalidate_all_subscription_caches
+    await invalidate_all_subscription_caches()
+    await _notify_referral_reward(referrer)
+    from app.worker.notify_admin import notify_admin
+    ref_name = f"@{referrer.username}" if referrer.username else f"ID:{referrer.telegram_id}"
+    await notify_admin(
+        f"🎁 Реферал оплатил!\n\n👤 Реферер: {ref_name}\n"
+        f"🎟 {referrer.plan} · +{settings.referral_bonus_days} дней"
+    )
 
 async def maybe_offer_annual(db_user_id: int, telegram_id: int, plan: str, period_key: str, lang: str = "ru"):
     """T4.5: на 2-м подряд МЕСЯЧНОМ платеже одного плана — однократно предложить годовую (−20%)."""
@@ -407,7 +437,7 @@ async def _activate_by_msg(message, plan, period_key, method, invoice_id, promo:
     # кэш подписок сразу, иначе оплаченный пользователь до TTL (1ч) видел бы Free.
     from app.cache.subscription_cache import invalidate_all_subscription_caches
     await invalidate_all_subscription_caches()
-    await _apply_referral_bonus(message.from_user.id)
+    await _apply_referral_bonus(user_db_id)
     from app.userbot.discovery import notify_new_subscription
     info2 = info
     asyncio.create_task(notify_new_subscription(message.from_user.username, message.from_user.id, plan, period_key, "direct", info2["total"]))

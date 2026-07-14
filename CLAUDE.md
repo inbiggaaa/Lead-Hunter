@@ -61,18 +61,19 @@ SaaS-сервис на базе Telegram-бота. Отслеживает соо
 | Статистика в боте | — | — | базовая (7 дн.) | полная (30 дн., по сегментам) |
 | CSV-экспорт | — | — | — | да |
 | Digest-режим | да | да | да | да |
-| Trial | — | — | — | 5 дней Business |
+| Trial | — | — | — | 3 дня Business; 7 дней по referral |
 | End-of-day отчёт | да (19:00, «скрытые контакты») | — | — | — |
 
 Скидки за период: 3 мес −10%, год −20%. Внутренние slug'и: `free`/`start`/`pro`/`business`/`trial`. Лимиты и цены задаются в `app/config.py` и при необходимости переопределяются через `.env`; runtime-источник истины — `_plan_limits()`.
 
 ### Trial и рефералы
 
-- Trial: 5 дней Business при первом прохождении воронки. +3 дня по реферальной ссылке (итого 8).
+- Trial: 3 дня Business после первого поиска. +4 дня по реферальной ссылке (итого 7).
 - По истечении → Free сразу в `plan_expires_at`: контакты и ссылки скрыты, поиски сохраняются.
 - Без подписки: максимум 2 скрытых teaser-лида и EOD-отчёт в дни 0/3/7/14; в день 30 — одноразовая скидка 25% на 3 месяца, 12 часов.
 - Старые календарные weekly/niche/monthly сообщения Free отключены.
-- Реферал: referrer +7 дней при оплате referral. Ограничение 10/мес.
+- После первой оплаты приглашённого referrer получает +10 дней текущего тарифа;
+  на Free восстанавливается последний оплаченный тариф, а без истории — Start. Ограничение 10/мес.
 - Механика: deep-link `t.me/LeadHunterBot?start=ref_CODE`.
 
 ### Оплата
@@ -381,8 +382,8 @@ referrals (
     referral_id     BIGINT UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     ref_code        VARCHAR(20) UNIQUE NOT NULL,
     status          VARCHAR(20) DEFAULT 'pending',
-    bonus_days      INT DEFAULT 7,
-    referral_trial_bonus INT DEFAULT 3,
+    bonus_days      INT DEFAULT 10,
+    referral_trial_bonus INT DEFAULT 4,
     activated_at    TIMESTAMPTZ,
     created_at      TIMESTAMPTZ DEFAULT now()
 )
@@ -508,7 +509,7 @@ show_last_leads → done
 ```
 
 - Free: single-select (1/1). Pro: multi-select (3/3→0). Business: unlimited.
-- Первая подписка → trial_activation (5 дней Business).
+- Первая подписка → trial_activation (3 дня Business; referral — 7 дней).
 - Существующий на Free → payment_offer.
 
 ---
@@ -642,7 +643,7 @@ show_last_leads → done
 | 23 | FSM CatStates с /cancel |
 | 26 | Retry: 403→блок, 429→retry_after, 5xx→3 ретрая + dead-letter |
 | 27 | Только inline-клавиатуры (кроме /start) |
-| 30 | Trial: 5 дней Business, понижение до Free |
+| 30 | Trial: 5 дней Business — ЗАМЕНЕНО решением #84: 3 дня, referral 7 |
 | 31 | Free: контакты скрыты, лимит 50/день — ЛИМИТНАЯ ЧАСТЬ ОТМЕНЕНА решением #81 (уведомления безлимитны); скрытые контакты остаются |
 | 49 | Напоминания: дни 1,3,7, кнопка отключения |
 | 53 | Рефералы: deep-link, двусторонний бонус |
@@ -670,3 +671,4 @@ show_last_leads → done
 **U10.1–U10.2 COMPLETE (14.07.2026, `4156208`):** создана исполнимая матрица 12 persona × RU/EN с AUTO/STAGING/LIVE gate и автоматические text+keyboard snapshots. Новый suite 80 passed; расширенный userflow regression 134 passed. Production/main/Docker не менялись. U10 НЕ закрыта: далее U10.3 ручная RU/EN/business/functional редактура, затем только по отдельной команде владельца U10.4 staging/live rollout и U10.5 сравнение метрик.
 **U10.3 REVIEW CHECKPOINT (14.07.2026):** read-only RU/EN/business/CTA аудит выполнен; находки записаны в `docs/userflow_u10_editorial_review.md`. По решению владельца пользовательские тексты сейчас не меняются: E-01–E-09 проверяются и согласуются во время совместного ручного userflow-прогона. U10.3 остаётся открытой.
 **U10 PRODUCTION MANUAL QA ACTIVE (14.07.2026 ~12:42 MSK):** production bot переключён на `feature/codex-userflow-v2`, Alembic `winback_u89`; backup `backups/pre_userflow_u10_2026-07-14_1230.sql`. Тестовый `BurnPM` (старый users.id=152) удалён после backup для чистого `/start`. Bot healthy/polling. Worker ОСТАНОВЛЕН на время UI-прохода; не запускать до отдельного шага lead QA. При rollout исправлены два Python 3.11 f-string blocker-а (`bd7aed1`). Compose трижды неожиданно автозапустил worker (`run`, `up`, даже `build`); каждый раз остановлен, FloodWait/ERROR/CRITICAL нет, инцидент записан в OPERATIONS.md §7.
+**TRIAL/REFERRAL CONTRACT #84 (14.07.2026):** trial = 3 дня Business после первого поиска; referral trial = 7 дней (+4). После первой оплаты приглашённого referrer однократно получает 10 дней: текущий тариф продлевается, на Free восстанавливается последний оплаченный, без истории активируется Start. Настройки сохраняются; RU/EN уведомление обязательно. Заменяет duration/bonus части решений #30/#54.

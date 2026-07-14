@@ -6,6 +6,13 @@ from app.config import settings
 ROOT = Path(__file__).parents[1]
 
 
+def test_trial_duration_contract_is_three_and_seven_days() -> None:
+    assert settings.trial_days == 3
+    assert settings.referral_trial_bonus == 4
+    assert settings.referral_bonus_days == 10
+    assert trial_days_for_source("referral") == 7
+
+
 def test_trial_duration_by_acquisition_source():
     assert trial_days_for_source("direct") == settings.trial_days
     assert trial_days_for_source("referral") == settings.trial_days + settings.referral_trial_bonus

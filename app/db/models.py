@@ -372,8 +372,8 @@ class Referral(Base):
     )
     ref_code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending")
-    bonus_days: Mapped[int] = mapped_column(Integer, default=7)
-    referral_trial_bonus: Mapped[int] = mapped_column(Integer, default=3)
+    bonus_days: Mapped[int] = mapped_column(Integer, default=10)
+    referral_trial_bonus: Mapped[int] = mapped_column(Integer, default=4)
     activated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

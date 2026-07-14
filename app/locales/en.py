@@ -5,7 +5,7 @@ TEXTS = {
     "welcome_title": "🎯 <b>LeadHunter finds requests for your services in Telegram chats</b>",
     "welcome_body": (
         "Set your service and location — relevant requests will arrive automatically.\n\n"
-        "Your first 5 days include the Business plan: contacts, chat links, and unlimited notifications."
+        "Your first 3 days include the Business plan: contacts, chat links, and unlimited notifications."
     ),
     "welcome_lang_prompt": "Выбери язык / Choose language:",
 
@@ -15,7 +15,7 @@ TEXTS = {
     "onb_step2_title": "Which country are you looking for clients in?",
     "onb_step2_placeholder": "Country selection coming in Phase 3",
     "onb_step3_title": (
-        "🎉 Done! You got 5 days of Business plan.\n"
+        "🎉 Done! You got 3 days of Business plan.\n"
         "Here are your first leads:"
     ),
     "onb_step3_placeholder": "Leads coming in Phase 5",
@@ -204,12 +204,14 @@ TEXTS = {
         "🤖 Irrelevant-message filtering\n"
         "📬 Unlimited notifications on every plan\n"
         "🔒 Available contacts and chat links are included with paid plans\n"
-        "🆓 Your first search starts a free 5-day Business trial"),
+        "🆓 Your first search starts a free 3-day Business trial"),
     "referral_share": "LeadHunter automatically finds client requests in Telegram chats by service and location. My link gives you {trial_days} free days of Business.\n\n{link}",
     "referral_body": ("🎁 <b>Invite a friend</b>\n\n"
         "Your friend gets +{referral_bonus} trial days — {trial_days} days of Business in total.\n"
-        "You get +{bonus} days on an active subscription after their first payment.\n\n"
+        "After their first payment, you get +{bonus} days on your current or previous plan.\n"
+        "If you have never had a plan, we activate Start.\n\n"
         "🔗 {link}\n\n📊 Invited: {invited} · paid: {activated} · credited: {bonus_days} days."),
+    "referral_reward": "🎁 Your friend subscribed!\n\n{days} days were added to your {plan} plan.\n📅 Valid until: {date}",
     "referral_share_btn": "📤 Share with a friend",
 
     "settings_title": "⚙️ Settings",

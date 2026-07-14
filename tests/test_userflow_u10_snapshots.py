@@ -32,8 +32,8 @@ DENIED_CLAIMS = (
 )
 SAMPLE_VALUES = {
     "activated": 2,
-    "bonus": 7,
-    "bonus_days": 14,
+    "bonus": 10,
+    "bonus_days": 20,
     "category": "Home services",
     "chat": "Test chat",
     "channel": "test_channel",
@@ -61,13 +61,13 @@ SAMPLE_VALUES = {
     "plan": "Pro",
     "preview": "Looking for a designer",
     "price": 19,
-    "referral_bonus": 3,
+    "referral_bonus": 4,
     "remaining": 8,
     "savings": 6,
     "sender": "client",
     "start": 9,
     "total": 51,
-    "trial_days": 8,
+    "trial_days": 7,
     "year_total": 182,
 }
 

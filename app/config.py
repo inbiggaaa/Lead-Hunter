@@ -120,9 +120,9 @@ class Settings(BaseSettings):
     business_hidden_cap_channels: int = 60
     business_hidden_cap_keywords: int = 60
     business_hidden_cap_segments: int = 60
-    trial_days: int = 5
-    referral_trial_bonus: int = 3
-    referral_bonus_days: int = 7
+    trial_days: int = 3
+    referral_trial_bonus: int = 4
+    referral_bonus_days: int = 10
     max_referrals_per_month: int = 10
     heartbeat_interval_minutes: int = 15
     sender_throttle_per_second: int = 25
