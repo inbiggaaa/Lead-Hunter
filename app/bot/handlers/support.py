@@ -44,6 +44,5 @@ async def on_support_message(message: Message):
             "direction": "incoming",
         }))
 
-    await message.answer(
-        "📩 Сообщение передано в поддержку. Ответим в ближайшее время."
-    )
+    lang = normalize_language(getattr(user, "language", None))
+    await message.answer(get_text(lang, "support_sent"))

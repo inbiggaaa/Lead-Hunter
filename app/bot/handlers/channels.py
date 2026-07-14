@@ -24,12 +24,6 @@ class AddChannelState(StatesGroup):
     waiting_for_username = State()
 
 
-def _user_lang(message: Message) -> str:
-    text = message.text or message.caption or ""
-    if any(w in text.lower() for w in ("русский", "канал", "добав")):
-        return "ru"
-    return "en"
-
 
 async def _get_user_lang(telegram_id: int) -> str:
     """Get user language from DB."""
@@ -69,7 +63,7 @@ async def show_channels(callback: CallbackQuery, lang: str):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
         channels = await get_watched_chats(session, user.id)
         current = await count_watched_chats(session, user.id)
@@ -77,20 +71,15 @@ async def show_channels(callback: CallbackQuery, lang: str):
 
     text = f"📢 {get_text(lang, 'btn_channels')}\n\n"
     if not channels:
-        text += (
-            f"У тебя пока нет своих каналов.\n"
-            f"Добавь канал — и я буду отслеживать сообщения\n"
-            f"только в нём по твоим ключевым словам.\n\n"
-            f"Осталось: {current} из {max_ch} ({plan_display_name(user.plan, lang)})"
-        )
+        text += get_text(lang, "list_empty_channels", current=current, limit=max_ch, plan=plan_display_name(user.plan, lang))
     else:
-        text += f"Твои каналы ({current}/{max_ch}):\n\n"
+        text += get_text(lang, "channels_title", current=current, limit=max_ch) + "\n\n"
         # 4096-лимит Telegram: названия длиннее сырых id, длинный список режем
         for ch in channels[:60]:
             status = " 🔒" if ch.is_private else ""
             text += f"{_channel_label(ch)}{status}\n"
         if len(channels) > 60:
-            text += f"… и ещё {len(channels) - 60} (все — в кнопках ниже)\n"
+            text += get_text(lang, "more_items", count=len(channels)-60) + "\n"
 
     kb_buttons = []
     for ch in channels:
@@ -102,7 +91,7 @@ async def show_channels(callback: CallbackQuery, lang: str):
         ])
     if current < max_ch:
         kb_buttons.append([
-            InlineKeyboardButton(text="➕ Добавить канал", callback_data="ch:add")
+            InlineKeyboardButton(text=get_text(lang, "btn_add_channel"), callback_data="ch:add")
         ])
     kb_buttons.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons)
@@ -119,7 +108,7 @@ async def on_add_channel_prompt(callback: CallbackQuery, state: FSMContext):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
         current = await count_watched_chats(session, user.id)
         max_ch = get_max_channels(user.plan)
@@ -130,12 +119,7 @@ async def on_add_channel_prompt(callback: CallbackQuery, state: FSMContext):
             return
 
     await state.set_state(AddChannelState.waiting_for_username)
-    text = (
-        f"Отправь мне @username канала.\n"
-        f"Например: @danang_chat\n\n"
-        f"Осталось: {max_ch - current} из {max_ch} ({plan_display_name(user.plan, lang)})\n\n"
-        f"/cancel для отмены."
-    )
+    text = get_text(lang, "channels_prompt", remaining=max_ch-current, limit=max_ch, plan=plan_display_name(user.plan, lang))
     await callback.message.edit_text(text)
     await callback.answer()
 
@@ -148,7 +132,7 @@ async def on_channel_username(message: Message, state: FSMContext):
     lang = await _get_user_lang(message.from_user.id)
 
     if len(raw) < 3:
-        await message.answer("Некорректный @username. Попробуй ещё раз или /cancel.")
+        await message.answer(get_text(lang, "channel_invalid"))
         return
 
     # Simulate private channel detection: if username starts with 'private_' or similar
@@ -157,7 +141,7 @@ async def on_channel_username(message: Message, state: FSMContext):
     async for session in get_session():
         user = await get_user(session, message.from_user.id)
         if not user:
-            await message.answer("Ошибка.")
+            await message.answer(get_text(lang, "error_generic"))
             await state.clear()
             return
 
@@ -178,13 +162,9 @@ async def on_channel_username(message: Message, state: FSMContext):
     await state.clear()
 
     if is_private:
-        await message.answer(
-            f"⏳ @{raw} — канал выглядит приватным.\n"
-            f"Заявка отправлена администратору на проверку.\n"
-            f"Мы сообщим, когда канал будет одобрен."
-        )
+        await message.answer(get_text(lang, "channel_private_pending", channel=raw))
     else:
-        await message.answer(f"✅ Канал @{raw} добавлен!")
+        await message.answer(get_text(lang, "item_added", item=f""))
 
     async for session in get_session():
         await show_channels_via_message(message, lang)
@@ -202,15 +182,15 @@ async def show_channels_via_message(message: Message, lang: str):
 
     text = f"📢 {get_text(lang, 'btn_channels')}\n\n"
     if channels:
-        text += f"Твои каналы ({current}/{max_ch}):\n\n"
+        text += get_text(lang, "channels_title", current=current, limit=max_ch) + "\n\n"
         # 4096-лимит Telegram: названия длиннее сырых id, длинный список режем
         for ch in channels[:60]:
             status = " 🔒" if ch.is_private else ""
             text += f"{_channel_label(ch)}{status}\n"
         if len(channels) > 60:
-            text += f"… и ещё {len(channels) - 60} (все — в кнопках ниже)\n"
+            text += get_text(lang, "more_items", count=len(channels)-60) + "\n"
     else:
-        text += f"Пока нет каналов. Осталось: {current} из {max_ch}\n"
+        text += get_text(lang, "list_empty_channels", current=current, limit=max_ch, plan=plan_display_name(user.plan, lang))
 
     kb_buttons = []
     for ch in channels:
@@ -219,7 +199,7 @@ async def show_channels_via_message(message: Message, lang: str):
         ])
     if current < max_ch:
         kb_buttons.append([
-            InlineKeyboardButton(text="➕ Добавить канал", callback_data="ch:add")
+            InlineKeyboardButton(text=get_text(lang, "btn_add_channel"), callback_data="ch:add")
         ])
     kb_buttons.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons)
@@ -237,7 +217,7 @@ async def on_delete_channel(callback: CallbackQuery):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
         deleted = await delete_watched_chat(session, chat_id, user.id)
         await session.commit()
@@ -247,7 +227,7 @@ async def on_delete_channel(callback: CallbackQuery):
         await invalidate_all_subscription_caches()
 
     if deleted:
-        await callback.answer("Удалено")
+        await callback.answer(get_text(lang, "item_deleted"))
         await show_channels(callback, lang)
     else:
-        await callback.answer("Не найдено", show_alert=True)
+        await callback.answer(get_text(lang, "item_not_found"), show_alert=True)

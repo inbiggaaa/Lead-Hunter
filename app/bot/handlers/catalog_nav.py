@@ -100,7 +100,7 @@ async def on_show_categories(callback: CallbackQuery, state: FSMContext):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
@@ -557,7 +557,7 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
@@ -644,7 +644,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
 
         current = await count_user_subscriptions(session, user.id)
@@ -726,37 +726,32 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
     if is_first:
         from app.config import settings as _s
         from app.bot.handlers.plan import PLANS as _PLANS
-        text = (
-            f"🎉 Готово! Тебе открыт пробный период — {_s.trial_days} дней уровня Бизнес.\n\n"
-            f"📌 Направления:\n" + "\n".join(seg_names) + "\n"
-            f"🌍 Страна: {country_name}\n"
+        text = get_text(lang, "trial_started", days=_s.trial_days) + "\n\n" + (
+            get_text(lang, "search_scope_services") + "\n" + "\n".join(seg_names) + "\n" +
+            get_text(lang, "catalog_country_line", country=country_name) + "\n"
         )
         if city_labels:
-            text += f"🏙 Города: {', '.join(city_labels)}\n"
-        text += f"\n✅ Создано подписок: {created}\n"
-        text += "Заявки с полными контактами начнут приходить в ближайшее время.\n\n"
+            text += get_text(lang, "catalog_cities_line", cities=", ".join(city_labels)) + "\n"
+        text += "\n" + get_text(lang, "search_created", count=created) + "\n"
+        text += get_text(lang, "search_delivery") + "\n\n"
         text += (
-            f"⏳ После пробного периода контакты скроются. "
-            f"Тариф Старт открывает их снова — от ${_PLANS['start']['usd_monthly']}/мес."
+            get_text(lang, "trial_after", price=_PLANS["start"]["usd_monthly"])
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=get_text(lang, "btn_main_menu"), callback_data="menu:main")],
         ])
     else:
         from app.bot.handlers.plan import PLANS as _PLANS
-        text = f"✅ Добавлено подписок: {created}\n\n"
-        text += "📌\n" + "\n".join(seg_names) + "\n"
-        text += f"🌍 {country_name}"
+        text = get_text(lang, "search_added", count=created) + "\n\n"
+        text += get_text(lang, "search_scope_services") + "\n" + "\n".join(seg_names) + "\n"
+        text += get_text(lang, "search_scope_country", country=country_name)
         if city_labels:
-            text += f" 🏙 {', '.join(city_labels)}"
+            text += " " + get_text(lang, "search_scope_cities", cities=", ".join(city_labels))
         kb_rows = [[InlineKeyboardButton(text=get_text(lang, "btn_main_menu"), callback_data="menu:main")]]
         if show_upgrade:
-            text += (
-                "\n\n🔒 На бесплатном тарифе контакты клиентов скрыты.\n"
-                "Тариф Старт открывает отправителя и кнопку «Ответить» — отвечай первым."
-            )
+            text += "\n\n" + get_text(lang, "free_after_search")
             kb_rows.insert(0, [InlineKeyboardButton(
-                text=f"🎯 Открыть контакты — от ${_PLANS['start']['usd_monthly']}/мес",
+                text=get_text(lang, "lead_btn_unlock", price=_PLANS["start"]["usd_monthly"]),
                 callback_data="menu:plan")])
         kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await callback.message.edit_text(text, reply_markup=kb)
@@ -772,7 +767,7 @@ async def on_show_subscriptions(callback: CallbackQuery):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
         subs = await get_user_subscriptions(session, user.id)
         current = len(subs)
@@ -796,9 +791,9 @@ async def on_show_subscriptions(callback: CallbackQuery):
                 )).scalars().all()
                 sub_cities_map[sub.id] = [city_names.get(cid, f"#{cid}") for cid in sc]
 
-    text = f"📋 Мои подписки ({current}/{max_seg})\n\n"
+    text = get_text(lang, "searches_title", current=current, limit=max_seg) + "\n\n"
     if not subs:
-        text += "У тебя пока нет подписок.\nНажми 🔍 Поиск клиентов чтобы найти первых!"
+        text += get_text(lang, "searches_empty")
 
     kb_rows = []
     for sub in subs:
@@ -832,7 +827,7 @@ async def on_delete_subscription(callback: CallbackQuery):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
         await delete_subscription(session, sub_id, user.id)
         await session.commit()
@@ -840,7 +835,7 @@ async def on_delete_subscription(callback: CallbackQuery):
     from app.cache.subscription_cache import invalidate_all_subscription_caches
     await invalidate_all_subscription_caches()
 
-    await callback.answer("Отписано")
+    await callback.answer(get_text(lang, "item_deleted"))
     await on_show_subscriptions(callback)
 
 

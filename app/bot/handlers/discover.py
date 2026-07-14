@@ -24,7 +24,7 @@ async def on_language(callback: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru")],
         [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:settings")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:settings")],
     ])
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
@@ -41,11 +41,11 @@ async def on_settings(callback: CallbackQuery):
         [InlineKeyboardButton(text=get_text(lang, "btn_csv"), callback_data="menu:csv")],
         [InlineKeyboardButton(text=get_text(lang, "btn_digest"), callback_data="menu:digest")],
         [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
-        [InlineKeyboardButton(text="📖 Инструкции" if lang == "ru" else "📖 Instructions", callback_data="menu:instructions")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_instructions"), callback_data="menu:instructions")],
         [InlineKeyboardButton(text=get_text(lang, "btn_about"), callback_data="menu:about")],
         [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
     ])
-    await callback.message.edit_text("⚙️ Settings" if lang == "en" else "⚙️ Настройки", reply_markup=kb)
+    await callback.message.edit_text(get_text(lang, "settings_title"), reply_markup=kb)
     await callback.answer()
 
 
@@ -235,7 +235,7 @@ async def on_instructions(callback: CallbackQuery):
             "• Telegram @wallet: /start → Top up → Card"
         )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:settings")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:settings")],
     ])
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
@@ -288,7 +288,7 @@ async def on_about(callback: CallbackQuery):
     search_label = "🔍 Поиск клиентов" if lang == "ru" else "🔍 Find clients"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=search_label, callback_data="menu:search")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:settings")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:settings")],
     ])
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
@@ -302,7 +302,7 @@ async def on_referral(callback: CallbackQuery):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
 
         from app.db.models import Referral
@@ -371,7 +371,7 @@ async def on_referral(callback: CallbackQuery):
             text="📤 Отправить другу" if lang == "ru" else "📤 Share with a friend",
             url=share_url,
         )],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:main")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
     ])
     await callback.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
     await callback.answer()

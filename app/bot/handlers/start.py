@@ -309,7 +309,7 @@ async def cmd_search(message: Message, state: FSMContext):
     async for session in get_session():
         user = await get_user(session, message.from_user.id)
         if not user:
-            await message.answer("Ошибка: пользователь не найден. Нажмите /start")
+            await message.answer(get_text(lang, "error_user_not_found"))
             return
         current = await count_user_subscriptions(session, user.id)
         max_seg = get_max_segments(user.plan)
@@ -321,8 +321,7 @@ async def cmd_search(message: Message, state: FSMContext):
     )
 
     # Build category picker keyboard
-    text = f"Выбери направления ({current}/{max_seg}):\n\n"
-    text += "Нажми на категорию чтобы выбрать услуги."
+    text = get_text(lang, "catalog_categories", current=current, limit=max_seg)
 
     kb_rows = []
     row = []
@@ -441,11 +440,11 @@ async def _show_subscriptions_via_message(message: Message, lang: str):
                 sub_cities_map[sub.id] = [city_names.get(cid, f"#{cid}") for cid in sc]
 
     countries_cap = "∞" if max_countries >= 9999 else str(max_countries)
-    text = f"📋 Мои подписки ({current}/{max_seg})\n\n"
+    text = get_text(lang, "searches_title", current=current, limit=max_seg) + "\n\n"
     if subs:
-        text += f"🌍 Стран задействовано: {distinct_countries}/{countries_cap}\n\n"
+        text += get_text(lang, "searches_countries", current=distinct_countries, limit=countries_cap) + "\n\n"
     if not subs:
-        text += "У тебя пока нет подписок.\nНажми 🔍 Поиск клиентов чтобы найти первых!"
+        text += get_text(lang, "searches_empty")
 
     kb_rows = []
     for sub in subs:

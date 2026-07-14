@@ -17,77 +17,18 @@ logger = logging.getLogger(__name__)
 
 # ── Reminders ──
 
-# Типы напоминаний с кнопкой апгрейда «🎯 Тарифы» (T4.3/T4.4/T4.6/T7.2).
 _UPGRADE_KB_TYPES = {"trial_ending", "trial_expired", "winback_missed"}
-
-GRACE_DAYS = 7  # T7.1: сколько дней после истечения платный доступ сохраняется (мягкий grace)
-
+GRACE_DAYS = 7
 
 def _upgrade_kb(lang: str) -> InlineKeyboardMarkup:
-    from app.config import settings
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-        text=get_text(lang, "reminder_btn_plans", price=settings.price_start_monthly_usd),
-        callback_data="menu:plan")]])
-
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_text(lang, "reminder_btn_plans", price=settings.price_start_monthly_usd), callback_data="menu:plan")]])
 
 def _reminder_kb(rtype: str, user_plan: str | None = None, lang: str = "ru"):
-    """Клавиатура напоминания: апгрейд / re-engage / продление текущего плана."""
-    if rtype in _UPGRADE_KB_TYPES:
-        return _upgrade_kb(lang)
-    if rtype == "inactive":
-        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-            text=get_text(lang, "reminder_btn_search"), callback_data="menu:search")]])
+    if rtype in _UPGRADE_KB_TYPES: return _upgrade_kb(lang)
+    if rtype == "inactive": return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_text(lang, "reminder_btn_search"), callback_data="menu:search")]])
     if rtype in ("subscription_ending", "subscription_expired") and user_plan in ("start", "pro", "business"):
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=get_text(lang, "reminder_btn_renew"), callback_data=f"pay_plan:{user_plan}")],
-            [InlineKeyboardButton(text=get_text(lang, "reminder_btn_other_plans"), callback_data="menu:plan")],
-        ])
+        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_text(lang, "reminder_btn_renew"), callback_data=f"pay_plan:{user_plan}")], [InlineKeyboardButton(text=get_text(lang, "reminder_btn_other_plans"), callback_data="menu:plan")]])
     return None
-
-
-REMINDER_MESSAGES = {
-    # trial_ending — ДО истечения (T4.3): предупредить, пока доступ ещё есть
-    "trial_ending": {
-        2: "⏳ Пробный период заканчивается через 2 дня.\n"
-           "Потом контакты клиентов скроются. Сохрани доступ — тариф Старт от ${start}/мес.",
-        1: "⏳ Завтра пробный период закончится.\n"
-           "Заявки останутся, но без контактов. Тариф Старт (${start}/мес) оставит их открытыми.",
-    },
-    "trial_expired": {
-        1: "⏰ Пробный период закончился. Заявки приходят, но контакты скрыты.\n"
-           "Открой их снова — тариф Старт от ${start}/мес.",
-        3: "🔒 3 дня без контактов. Каждая заявка уходит тому, кто ответил первым.\n"
-           "Верни доступ — от ${start}/мес.",
-        7: "📊 Неделя на Free. Заявки видны, а отправитель — нет.\n"
-           "Открой контакты — тариф Старт от ${start}/мес.",
-    },
-    # subscription_ending — ДО истечения (T4.6): продли без перерыва
-    "subscription_ending": {
-        5: "⏳ Подписка заканчивается через 5 дней.\n"
-           "Продли, чтобы получать заявки без перерыва.",
-    },
-    "subscription_expired": {
-        1: "⏰ Подписка закончилась. Контакты снова скрыты.\n"
-           "Продли, чтобы отвечать клиентам первым.",
-        3: "🔒 3 дня без подписки. Заявки приходят, но без контактов.\n"
-           "Верни доступ — продли подписку.",
-        7: "📊 Неделя без подписки. Клиенты по-прежнему пишут в чатах.\n"
-           "Продли, чтобы видеть их контакты.",
-    },
-    "inactive": {
-        14: "👋 Давно не виделись! За 2 недели появились новые заявки по твоим направлениям. Загляни!",
-        28: "📊 Месяц без активности. Твои подписки всё ещё работают — может, настроим новые направления?",
-    },
-    # winback_missed — реактивация бывших платящих (T7.2): цифра пропущенного в СВОЕЙ нише
-    "winback_missed": {
-        14: "📊 За 2 недели без подписки в твоей нише прошло {missed} заявок — "
-            "ты их видел, но контакты были скрыты.\n"
-            "Верни доступ и отвечай первым — тариф Старт от ${start}/мес.",
-        28: "📊 Месяц без подписки: {missed} заявок в твоей нише прошли мимо (контакты скрыты).\n"
-            "Каждая — клиент, которому ответил кто-то другой. Верни доступ от ${start}/мес.",
-    },
-}
-
 
 async def send_reminders():
     """Check and send scheduled reminders. Called daily."""
@@ -254,13 +195,6 @@ async def _maybe_send(session, user: User, rtype: str, day: int, missed: int | N
 
 
 # ── Periodic messages for Free users ──
-
-PERIODIC_MESSAGES = {
-    "weekly_digest": "📊 Итоги недели: ты получил заявки по твоим направлениям. Проверь главное меню чтобы посмотреть!",
-    "niche_growth": "🌱 Новое в нише: мы добавили свежие каналы в твоих направлениях. Загляни в каталог!",
-    "monthly_summary": "📈 Твой месяц: статистика заявок и новые возможности. Открой бота чтобы увидеть!",
-}
-
 
 async def send_periodic_messages():
     """Send periodic Free-tier messages based on day of week/month."""

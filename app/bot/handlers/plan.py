@@ -176,7 +176,7 @@ async def on_pay_execute(callback: CallbackQuery):
                 get_text(lang, "payment_invoice_created", total=f"{info['total']:.0f}"),
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text=get_text(lang, "payment_btn_pay"), url=pay_link)],
-                    [InlineKeyboardButton(text="◀️ Назад", callback_data=f"pay_plan:{plan}")]]))
+                    [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data=f"pay_plan:{plan}")]]))
             from app.worker.payment_checker import add_pending
             await add_pending(r["invoice_id"], await _get_user_id(callback), plan, period_key, callback.from_user.id)
         except Exception:

@@ -24,12 +24,6 @@ class AddKeywordState(StatesGroup):
     waiting_for_text = State()
 
 
-def _user_lang(message: Message) -> str:
-    text = message.text or message.caption or ""
-    if any(w in text.lower() for w in ("русский", "выбери", "слов", "ключевы")):
-        return "ru"
-    return "en"
-
 
 async def _get_user_lang(telegram_id: int) -> str:
     """Get user language from DB."""
@@ -53,7 +47,7 @@ async def show_keywords(callback: CallbackQuery, lang: str):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("User not found", show_alert=True)
+            await callback.answer(get_text(lang, "error_user_not_found"), show_alert=True)
             return
 
         keywords = await get_keywords(session, user.id)
@@ -62,14 +56,9 @@ async def show_keywords(callback: CallbackQuery, lang: str):
 
     text = f"⚙️ {get_text(lang, 'btn_keywords')}\n\n"
     if not keywords:
-        text += (
-            f"У тебя пока нет ключевых слов.\n"
-            f"Добавь слово — и я буду присылать уведомления,\n"
-            f"когда кто-то использует его в чатах.\n\n"
-            f"Осталось: {current} из {max_kw} ({plan_display_name(user.plan, lang)})"
-        )
+        text += get_text(lang, "list_empty_keywords", current=current, limit=max_kw, plan=plan_display_name(user.plan, lang))
     else:
-        text += f"Твои слова ({current}/{max_kw}):\n\n"
+        text += get_text(lang, "keywords_title", current=current, limit=max_kw) + "\n\n"
         for kw in keywords:
             regex_mark = " [RegEx]" if kw.is_regex else ""
             text += f"{kw.text}{regex_mark}\n"
@@ -100,7 +89,7 @@ async def on_add_keyword_prompt(callback: CallbackQuery, state: FSMContext):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
         current = await count_keywords(session, user.id)
         max_kw = get_max_keywords(user.plan)
@@ -112,12 +101,7 @@ async def on_add_keyword_prompt(callback: CallbackQuery, state: FSMContext):
             return
 
     await state.set_state(AddKeywordState.waiting_for_text)
-    text = (
-        f"Отправь мне ключевое слово или фразу.\n"
-        f"Например: «ищу повара», «сниму байк».\n\n"
-        f"Осталось: {max_kw - current} из {max_kw} ({plan_display_name(user.plan, lang)})\n\n"
-        f"Отправь /cancel для отмены."
-    )
+    text = get_text(lang, "keywords_prompt", remaining=max_kw-current, limit=max_kw, plan=plan_display_name(user.plan, lang))
     await callback.message.edit_text(text)
     await callback.answer()
 
@@ -130,13 +114,13 @@ async def on_keyword_text(message: Message, state: FSMContext):
     lang = await _get_user_lang(message.from_user.id)
 
     if len(text) < 2:
-        await message.answer("Слишком короткое. Попробуй ещё раз или /cancel.")
+        await message.answer(get_text(lang, "input_too_short"))
         return
 
     async for session in get_session():
         user = await get_user(session, message.from_user.id)
         if not user:
-            await message.answer("Ошибка.")
+            await message.answer(get_text(lang, "error_generic"))
             return
 
         current = await count_keywords(session, user.id)
@@ -154,7 +138,7 @@ async def on_keyword_text(message: Message, state: FSMContext):
     await invalidate_all_subscription_caches()
 
     await state.clear()
-    await message.answer(f"✅ Добавлено: «{text}»")
+    await message.answer(get_text(lang, "item_added", item=f"«{text}»"))
 
     # Return to keywords screen via callback-like edit on a new message
     async for session in get_session():
@@ -174,12 +158,12 @@ async def show_keywords_via_message(message: Message, lang: str):
 
     text = f"⚙️ {get_text(lang, 'btn_keywords')}\n\n"
     if keywords:
-        text += f"Твои слова ({current}/{max_kw}):\n\n"
+        text += get_text(lang, "keywords_title", current=current, limit=max_kw) + "\n\n"
         for kw in keywords:
             regex_mark = " [RegEx]" if kw.is_regex else ""
             text += f"{kw.text}{regex_mark}\n"
     else:
-        text += f"Пока нет слов. Осталось: {current} из {max_kw}\n"
+        text += get_text(lang, "list_empty_keywords", current=current, limit=max_kw, plan=plan_display_name(user.plan, lang))
 
     kb_buttons = []
     for kw in keywords:
@@ -188,7 +172,7 @@ async def show_keywords_via_message(message: Message, lang: str):
         ])
     if current < max_kw:
         kb_buttons.append([
-            InlineKeyboardButton(text="➕ Добавить слово", callback_data="kw:add")
+            InlineKeyboardButton(text=get_text(lang, "btn_add_keyword"), callback_data="kw:add")
         ])
     kb_buttons.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons)
@@ -206,7 +190,7 @@ async def on_delete_keyword(callback: CallbackQuery):
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
-            await callback.answer("Error", show_alert=True)
+            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
 
         deleted = await delete_keyword(session, kw_id, user.id)
@@ -217,7 +201,7 @@ async def on_delete_keyword(callback: CallbackQuery):
         await invalidate_all_subscription_caches()
 
     if deleted:
-        await callback.answer("Удалено")
+        await callback.answer(get_text(lang, "item_deleted"))
         await show_keywords(callback, lang)
     else:
-        await callback.answer("Не найдено", show_alert=True)
+        await callback.answer(get_text(lang, "item_not_found"), show_alert=True)
