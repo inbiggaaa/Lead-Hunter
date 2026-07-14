@@ -46,7 +46,7 @@ async def _edit_text_or_replace_media(
     if message.text is not None:
         await message.edit_text(text, reply_markup=reply_markup)
         return
-    await message.edit_reply_markup(reply_markup=None)
+    await message.delete()
     await message.answer(text, reply_markup=reply_markup)
 
 
@@ -374,7 +374,7 @@ async def _show_countries(callback: CallbackQuery, state: FSMContext, lang: str)
 
     await state.set_state(CatStates.choosing_country)
     await callback.message.edit_text(text, reply_markup=kb)
-
+    await callback.answer()
 
 # ═══════════════ STEP 2: Choose country ═══════════════
 
@@ -405,30 +405,42 @@ async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
 
     await state.update_data(country_id=country_id, plan=plan)
 
-    text = get_text(lang, "catalog_geo")
-    geo_rows = []
-    if plan_has_unlimited_cities(plan):
-        geo_rows.append([InlineKeyboardButton(
-            text=get_text(lang, "catalog_all_country"),
-            callback_data="cat:geo:all",
-        )])
-    geo_rows.append([InlineKeyboardButton(
-        text=get_text(lang, "catalog_select_cities"),
-        callback_data="cat:geo:cities",
-    )])
-    geo_rows.append([InlineKeyboardButton(
-        text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories",
-    )])
-    kb = InlineKeyboardMarkup(inline_keyboard=geo_rows)
-
-    await state.set_state(CatStates.choosing_geo)
-    await callback.message.edit_text(text, reply_markup=kb)
-    await callback.answer()
+    await _show_geo_options(callback, state)
 
 
 @router.callback_query(CatStates.choosing_country, F.data == "cat:back:to_categories")
 async def on_back_to_categories(callback: CallbackQuery, state: FSMContext):
     await on_show_categories(callback, state)
+
+
+async def _show_geo_options(callback: CallbackQuery, state: FSMContext) -> None:
+    """Show geo mode and make Back return to the country picker."""
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    plan = data.get("plan", "free")
+    rows = []
+    if plan_has_unlimited_cities(plan):
+        rows.append([InlineKeyboardButton(
+            text=get_text(lang, "catalog_all_country"), callback_data="cat:geo:all",
+        )])
+    rows.append([InlineKeyboardButton(
+        text=get_text(lang, "catalog_select_cities"), callback_data="cat:geo:cities",
+    )])
+    rows.append([InlineKeyboardButton(
+        text=get_text(lang, "btn_back"), callback_data="cat:back:to_country",
+    )])
+    await state.set_state(CatStates.choosing_geo)
+    await callback.message.edit_text(
+        get_text(lang, "catalog_geo"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+    await callback.answer()
+
+
+@router.callback_query(CatStates.choosing_geo, F.data == "cat:back:to_country")
+async def on_back_to_country_from_geo(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    await _show_countries(callback, state, data.get("lang", "ru"))
 
 
 # ═══════════════ STEP 3: Choose geo ═══════════════
@@ -506,35 +518,8 @@ async def on_toggle_city(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(CatStates.choosing_cities, F.data == "cat:back:to_country")
-async def on_back_to_country_from_cities(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    lang = data.get("lang", "ru")
-
-    async for session in get_session():
-        countries = await get_countries(session)
-
-    text = get_text(lang, "catalog_country")
-    kb_rows = []
-    row = []
-    for c in countries:
-        name = c.name_ru if lang == "ru" else (c.name_en or c.name_ru)
-        flag = _country_flag(c.slug)
-        row.append(InlineKeyboardButton(
-            text=f"{flag} {name}", callback_data=f"cat:country:{c.id}",
-        ))
-        if len(row) == 2:
-            kb_rows.append(row)
-            row = []
-    if row:
-        kb_rows.append(row)
-    kb_rows.append([InlineKeyboardButton(
-        text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories",
-    )])
-    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-
-    await state.set_state(CatStates.choosing_country)
-    await callback.message.edit_text(text, reply_markup=kb)
-    await callback.answer()
+async def on_back_to_geo_from_cities(callback: CallbackQuery, state: FSMContext):
+    await _show_geo_options(callback, state)
 
 
 @router.callback_query(CatStates.choosing_cities, F.data == "cat:cities_done")
@@ -597,6 +582,7 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
     if not new_segments:
         await state.clear()
         await on_show_subscriptions(callback)
+        return
 
     await state.update_data(selected_segments=new_segments)
 
@@ -632,7 +618,7 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=get_text(lang, "catalog_activate"), callback_data="cat:subscribe")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:previous")],
     ])
 
     from app.analytics import record_event
@@ -923,5 +909,51 @@ async def on_back_to_categories_from_country(callback: CallbackQuery, state: FSM
 
 
 @router.callback_query(CatStates.confirm_subscription, F.data == "cat:back:to_categories")
+@router.callback_query(CatStates.confirm_subscription, F.data == "cat:back:previous")
 async def on_back_from_confirm(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    if data.get("mode") == "cities":
+        await on_geo_cities(callback, state)
+        return
+    await _show_geo_options(callback, state)
+
+
+def _selected_segments_from_keyboard(callback: CallbackQuery) -> list[int]:
+    """Recover checked segment IDs from a stale pre-Redis subcategory screen."""
+    markup = callback.message.reply_markup
+    if not markup:
+        return []
+    selected = []
+    for row in markup.inline_keyboard:
+        for button in row:
+            data = button.callback_data or ""
+            if data.startswith("cat:seg:") and button.text.startswith("✅"):
+                selected.append(int(data.rsplit(":", 1)[1]))
+    return selected
+
+
+@router.callback_query(F.data == "cat:to_country")
+async def recover_stale_continue(callback: CallbackQuery, state: FSMContext):
+    """Recover Continue buttons created before persistent FSM was enabled."""
+    selected = _selected_segments_from_keyboard(callback)
+    if not selected:
+        await state.clear()
+        await on_show_categories(callback, state)
+        return
+    lang = await _get_lang_nostate(callback)
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        current = await count_user_subscriptions(session, user.id) if user else 0
+    plan = user.plan if user else "free"
+    await state.update_data(
+        lang=lang, plan=plan, current_subs=current, max_seg=get_max_segments(plan),
+        selected_by_cat={"recovered": selected},
+    )
+    await on_segments_done(callback, state)
+
+
+@router.callback_query(F.data == "cat:back:to_categories")
+async def recover_stale_back(callback: CallbackQuery, state: FSMContext):
+    """Make stale Back buttons useful after an old in-memory FSM was lost."""
+    await state.clear()
     await on_show_categories(callback, state)

@@ -46,7 +46,7 @@ def test_first_catalog_screen_replaces_media_welcome() -> None:
     asyncio.run(_edit_text_or_replace_media(message, "catalog", keyboard))
 
     message.edit_text.assert_not_awaited()
-    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    message.delete.assert_awaited_once_with()
     message.answer.assert_awaited_once_with("catalog", reply_markup=keyboard)
 
 
@@ -58,5 +58,29 @@ def test_catalog_screen_still_edits_text_messages() -> None:
     asyncio.run(_edit_text_or_replace_media(message, "catalog", keyboard))
 
     message.edit_text.assert_awaited_once_with("catalog", reply_markup=keyboard)
-    message.edit_reply_markup.assert_not_awaited()
+    message.delete.assert_not_awaited()
     message.answer.assert_not_awaited()
+
+
+def test_fsm_is_persisted_in_redis() -> None:
+    source = (ROOT / "app/main.py").read_text()
+    assert "RedisStorage.from_url" in source
+    assert "Dispatcher(storage=storage)" in source
+
+
+def test_catalog_back_navigation_matches_previous_screen() -> None:
+    source = (ROOT / "app/bot/handlers/catalog_nav.py").read_text()
+    expected = (
+        "CatStates.choosing_segments, F.data == \"cat:back:to_categories\"",
+        "CatStates.choosing_geo, F.data == \"cat:back:to_country\"",
+        "CatStates.choosing_cities, F.data == \"cat:back:to_country\"",
+        "CatStates.confirm_subscription, F.data == \"cat:back:previous\"",
+    )
+    assert all(marker in source for marker in expected)
+
+
+def test_stale_pre_redis_catalog_buttons_have_recovery_handlers() -> None:
+    source = (ROOT / "app/bot/handlers/catalog_nav.py").read_text()
+    assert "async def recover_stale_continue" in source
+    assert "async def recover_stale_back" in source
+    assert "_selected_segments_from_keyboard" in source

@@ -6,6 +6,7 @@ import sentry_sdk
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.fsm.storage.redis import RedisStorage
 
 from app.config import settings
 from app.db.session import engine
@@ -76,7 +77,10 @@ async def main():
     await bot.set_my_commands(en_cmds, scope=scope, language_code="en")
     await bot.delete_my_commands(scope=scope)  # clear default (no language)
     logger.info("Commands menu set (RU + EN)")
-    dp = Dispatcher()
+    storage = RedisStorage.from_url(
+        f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}",
+    )
+    dp = Dispatcher(storage=storage)
     dp.include_router(catalog_router)
     dp.include_router(keywords_router)
     dp.include_router(channels_router)
