@@ -35,6 +35,8 @@ def test_sender_ru_en_semantic_parity():
         assert "Need a contractor" in ru and "Need a contractor" in en
         assert sender._build_keyboard(_payload("ru")).inline_keyboard[1][0].text.startswith("🎯 Открыть")
         assert sender._build_keyboard(_payload("en")).inline_keyboard[1][0].text.startswith("🎯 Unlock")
+        ru_cb = sender._build_keyboard({**_payload("ru"), "_lead_token": "abc123"}).inline_keyboard[1][0].callback_data
+        assert ru_cb == "lead:unlock:abc123" and len(ru_cb.encode()) <= 64
     finally:
         import asyncio
         asyncio.run(sender.bot.session.close())

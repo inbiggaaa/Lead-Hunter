@@ -1,6 +1,6 @@
 """Payment handlers: plan selection, periods (1m/3m/1y), Stars + CryptoBot."""
 
-import asyncio, datetime, logging
+import asyncio, datetime, logging, html
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, PreCheckoutQuery
 from app.config import settings
@@ -124,6 +124,22 @@ def build_paywall(trigger: str, current_plan: str, lang: str) -> tuple[str, Inli
         [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")],
     ])
     return text, kb
+
+@router.callback_query(F.data.startswith("lead:unlock:"))
+async def on_lead_unlock(callback: CallbackQuery):
+    token = callback.data.split(":", 2)[2]
+    async for s in get_session():
+        user = await get_user(s, callback.from_user.id)
+    lang = user.language if user else "ru"
+    from app.analytics import get_lead_paywall_context, record_event
+    context = await get_lead_paywall_context(user.id, token) if user else None
+    preview = html.escape((context or {}).get("preview", ""))
+    text = get_text(lang, "lead_paywall_title")
+    if preview: text += "\n\n" + get_text(lang, "lead_paywall_preview", preview=preview)
+    text += "\n\n" + get_text(lang, "lead_paywall_access")
+    await record_event("paywall_viewed", user, trigger="lead", context={"trigger": "lead", "target_plan": "start", "lead_id": token})
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_text(lang, "plan_btn_start", price=PLANS["start"]["usd_monthly"]), callback_data="pay_plan:start")], [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")]])
+    await callback.message.edit_text(text, reply_markup=kb); await callback.answer()
 
 @router.callback_query(F.data == "menu:plan")
 async def on_plan_menu(callback: CallbackQuery):
@@ -266,7 +282,7 @@ async def _apply_referral_bonus(user_id: int):
                 f"🎁 Реферал оплатил!\n\n👤 Реферер: {ref_name}\n➕ +{settings.referral_bonus_days} дней"
             )
 
-async def maybe_offer_annual(db_user_id: int, telegram_id: int, plan: str, period_key: str):
+async def maybe_offer_annual(db_user_id: int, telegram_id: int, plan: str, period_key: str, lang: str = "ru"):
     """T4.5: на 2-м подряд МЕСЯЧНОМ платеже одного плана — однократно предложить годовую (−20%)."""
     if period_key != "1m":
         return
@@ -287,9 +303,6 @@ async def maybe_offer_annual(db_user_id: int, telegram_id: int, plan: str, perio
     await redis.set(flag, "1")
     year = _calc(plan, "1y")
     monthly_year = PLANS[plan]["usd_monthly"] * 12
-    async for s in get_session():
-        annual_user = await get_user(s, telegram_id)
-        lang = normalize_language(annual_user.language if annual_user else None)
     text = get_text(lang, "annual_offer", monthly_total=f"{monthly_year:.0f}", plan=plan_display_name(plan, lang), year_total=f"{year['total']:.0f}")
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
         text=get_text(lang, "annual_offer_btn", total=f"{year['total']:.0f}"), callback_data=f"pay_period:{plan}:1y")]])
@@ -327,4 +340,4 @@ async def _activate_by_msg(message, plan, period_key, method, invoice_id):
     from app.analytics import record_event, consume_conversion_trigger
     trigger = await consume_conversion_trigger(u.id)
     await record_event("payment_succeeded", u, trigger=trigger, context={"target_plan": plan, "period": period_key, "method": method, "success": True})
-    await maybe_offer_annual(user_db_id, message.from_user.id, plan, period_key)
+    await maybe_offer_annual(user_db_id, message.from_user.id, plan, period_key, lang)

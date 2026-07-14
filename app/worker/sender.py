@@ -173,6 +173,12 @@ class NotificationSender:
             await mark_sent(user_id, message_hash, False, content_hash=content_hash, meta=meta)
             return
 
+        if payload.get("plan", "free") == "free":
+            token = message_hash[:12]
+            payload["_lead_token"] = token
+            from app.analytics import store_lead_paywall_context
+            await store_lead_paywall_context(user_id, token, (payload.get("text") or "")[:160])
+
         # Build and send message
         text = self._format_notification(payload)
         kb = self._build_keyboard(payload)
@@ -184,8 +190,8 @@ class NotificationSender:
         await mark_sent(user_id, message_hash, payload.get("is_urgent", False),
                        content_hash=content_hash, meta=meta)
         await increment_daily_stats(user_id, today, "sent")
-        from app.analytics import record_event
-        await record_event("first_lead_delivered", user_id=user_id, language=payload.get("lang"), plan=payload.get("plan"), context={"lead_id": message_hash})
+        from app.analytics import record_once_event
+        await record_once_event("first_lead_delivered", user_id=user_id, language=payload.get("lang"), plan=payload.get("plan"), context={"lead_id": message_hash})
         await record_latency(payload.get("msg_ts"))
 
     async def _deliver_with_retry(self, payload: dict, text: str, kb) -> bool:
@@ -296,7 +302,7 @@ class NotificationSender:
             rows.append([
                 InlineKeyboardButton(
                     text=get_text(lang, "lead_btn_unlock", price=settings.price_start_monthly_usd),
-                    callback_data="menu:plan"),
+                    callback_data=f"lead:unlock:{payload.get('_lead_token', 'unknown')}"),
             ])
         else:
             buttons = []

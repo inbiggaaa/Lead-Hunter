@@ -1868,6 +1868,8 @@ class ChannelPoller:
                 "matched_segments": matched_names,
                 "msg_ts": msg_ts,  # B6: метрика латентности (sender)
             })
+            from app.analytics import record_once_event
+            await record_once_event("first_lead_matched", user_id=user["user_id"], language=lang, plan=user.get("plan", "free"), acquisition_source=user.get("source", "direct"), context={"lead_id": message_hash})
 
             # D2: matched-статистика — иначе EOD/недельные отчёты пусты.
             # «sent» инкрементит sender после фактической доставки.

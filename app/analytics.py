@@ -56,6 +56,31 @@ async def get_funnel_counts(day: str, events: list[str], dimension: str = "all")
     return {event: int(value or 0) for event, value in zip(events, values)}
 
 
+async def record_once_event(name: str, user=None, **kwargs) -> bool:
+    uid = kwargs.get("user_id") or getattr(user, "id", None)
+    if not uid: return False
+    try:
+        redis = await get_redis()
+        claimed = await redis.set(f"analytics:once:{uid}:{name}", "1", nx=True, ex=EVENT_TTL)
+        if not claimed: return False
+        await record_event(name, user, **kwargs)
+        return True
+    except Exception:
+        logger.warning("Analytics once-event skipped: %s", name, exc_info=True)
+        return False
+
+async def store_lead_paywall_context(user_id: int, token: str, preview: str) -> None:
+    try:
+        redis = await get_redis()
+        await redis.set(f"paywall:lead:{user_id}:{token}", json.dumps({"preview": preview[:160]}, ensure_ascii=False), ex=86400)
+    except Exception:
+        logger.warning("Lead paywall context skipped", exc_info=True)
+
+async def get_lead_paywall_context(user_id: int, token: str) -> dict | None:
+    redis = await get_redis()
+    raw = await redis.get(f"paywall:lead:{user_id}:{token}")
+    return json.loads(raw) if raw else None
+
 async def consume_conversion_trigger(user_id: int) -> str | None:
     redis = await get_redis()
     key = f"analytics:conversion_trigger:{user_id}"
