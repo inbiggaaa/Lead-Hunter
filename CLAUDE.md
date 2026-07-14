@@ -610,6 +610,7 @@ show_last_leads → done
 **U1 CHECKPOINT 2:** reminders/periodic и CryptoBot payment success локализованы; 32 tests passed. Фаза НЕ закрыта: handlers/alerts, Stars success, parity snapshots, legacy cleanup.
 **U1 CHECKPOINT 3:** Stars success и feedback callbacks локализованы; 34 tests passed. U1 НЕ закрыта; следующий блок — payment screens + catalog/keywords/channels.
 **U1 CHECKPOINT 4:** payment flow полностью RU/EN, включая динамические plan/period и annual offer; 41 tests passed. U1 НЕ закрыта; далее catalog/keywords/channels/settings.
+**U1 CHECKPOINT 5:** catalog FSM до confirmation локализован; 15 tests passed. U1 НЕ закрыта; остались catalog success/list, keywords/channels/settings/support и hardcode gate.
 
 ### Последние записи (полный журнал — docs/SESSION_LOG.md)
 

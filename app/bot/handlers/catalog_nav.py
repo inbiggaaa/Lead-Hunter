@@ -114,8 +114,7 @@ async def on_show_categories(callback: CallbackQuery, state: FSMContext):
         current_subs=current, selected_by_cat=selected_by_cat,
     )
 
-    text = f"Выбери направления ({current + total_selected}/{max_seg}):\n\n"
-    text += "Нажми на категорию чтобы выбрать услуги."
+    text = get_text(lang, "catalog_categories", current=current + total_selected, limit=max_seg)
 
     kb_rows = []
     row = []
@@ -138,12 +137,12 @@ async def on_show_categories(callback: CallbackQuery, state: FSMContext):
 
     if total_selected > 0:
         kb_rows.append([InlineKeyboardButton(
-            text=f"✅ Готово ({total_selected} выбрано)",
+            text=get_text(lang, "catalog_done", count=total_selected),
             callback_data="cat:to_country",
         )])
 
     kb_rows.append([InlineKeyboardButton(
-        text="💬 Нет вашего вида деятельности? Связаться с поддержкой" if lang == "ru" else "💬 Don't see your category? Contact support",
+        text=get_text(lang, "catalog_missing"),
         callback_data="support:missing_category",
     )])
     kb_rows.append([InlineKeyboardButton(
@@ -193,7 +192,7 @@ async def on_category_open(callback: CallbackQuery, state: FSMContext):
     max_seg = data.get("max_seg", 9)
     current = data.get("current_subs", 0)
 
-    text = f"{cat_name} — выбери услуги ({current + total_selected}/{max_seg}):"
+    text = get_text(lang, "catalog_services", category=cat_name, current=current + total_selected, limit=max_seg)
 
     kb_rows = []
     row = []
@@ -218,7 +217,7 @@ async def on_category_open(callback: CallbackQuery, state: FSMContext):
     ))
     if selected:
         footer.append(InlineKeyboardButton(
-            text=f"✅ Подписаться ({total_selected})",
+            text=get_text(lang, "catalog_continue", count=total_selected),
             callback_data="cat:to_country",
         ))
     kb_rows.append(footer)
@@ -274,7 +273,7 @@ async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
                 cat_name = ""
 
     total_after = _count_selected({"selected_by_cat": selected_by_cat})
-    text = f"{cat_name} — выбери услуги ({current + total_after}/{max_seg}):"
+    text = get_text(lang, "catalog_services", category=cat_name, current=current + total_after, limit=max_seg)
 
     kb_rows = []
     row = []
@@ -299,7 +298,7 @@ async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
     ))
     if total_after > 0:
         footer.append(InlineKeyboardButton(
-            text=f"✅ Подписаться ({total_after})",
+            text=get_text(lang, "catalog_continue", count=total_after),
             callback_data="cat:to_country",
         ))
     kb_rows.append(footer)
@@ -322,7 +321,7 @@ async def on_segments_done(callback: CallbackQuery, state: FSMContext):
         all_selected.extend(ids)
 
     if not all_selected:
-        await callback.answer("Выбери хотя бы одно направление", show_alert=True)
+        await callback.answer(get_text(lang, "catalog_select_service"), show_alert=True)
         return
 
     await state.update_data(selected_segments=all_selected)
@@ -336,7 +335,7 @@ async def _show_countries(callback: CallbackQuery, state: FSMContext, lang: str)
     async for session in get_session():
         countries = await get_countries(session)
 
-    text = "В какой стране ищешь клиентов?"
+    text = get_text(lang, "catalog_country")
     kb_rows = []
     row = []
     for c in countries:
@@ -388,15 +387,15 @@ async def on_country_chosen(callback: CallbackQuery, state: FSMContext):
 
     await state.update_data(country_id=country_id, plan=plan)
 
-    text = "Где именно ищешь?" if lang == "ru" else "Where should we look?"
+    text = get_text(lang, "catalog_geo")
     geo_rows = []
     if plan_has_unlimited_cities(plan):
         geo_rows.append([InlineKeyboardButton(
-            text="🌍 По всей стране" if lang == "ru" else "🌍 Entire country",
+            text=get_text(lang, "catalog_all_country"),
             callback_data="cat:geo:all",
         )])
     geo_rows.append([InlineKeyboardButton(
-        text="🏙 Выбрать города" if lang == "ru" else "🏙 Select cities",
+        text=get_text(lang, "catalog_select_cities"),
         callback_data="cat:geo:cities",
     )])
     geo_rows.append([InlineKeyboardButton(
@@ -429,7 +428,7 @@ async def on_geo_cities(callback: CallbackQuery, state: FSMContext):
 
     selected_cities: list[int] = data.get("selected_cities", [])
 
-    text = f"Выбери города (выбрано: {len(selected_cities)}):"
+    text = get_text(lang, "catalog_cities", count=len(selected_cities))
     kb_rows = []
     row = []
     for city in cities:
@@ -496,7 +495,7 @@ async def on_back_to_country_from_cities(callback: CallbackQuery, state: FSMCont
     async for session in get_session():
         countries = await get_countries(session)
 
-    text = "В какой стране ищешь клиентов?"
+    text = get_text(lang, "catalog_country")
     kb_rows = []
     row = []
     for c in countries:
@@ -525,7 +524,7 @@ async def on_cities_done(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     selected: list[int] = data.get("selected_cities", [])
     if not selected:
-        await callback.answer("Выбери хотя бы один город", show_alert=True)
+        await callback.answer(get_text(data.get("lang", "ru"), "catalog_select_city"), show_alert=True)
         return
     await state.update_data(mode="cities")
     await _show_confirmation(callback, state)
@@ -593,11 +592,11 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
             country_name = c_res.name_ru if lang == "ru" else (c_res.name_en or c_res.name_ru)
         break
 
-    text = f"Подтверди подписку:\n\n"
-    text += f"📌 Новых направлений: {len(new_segments)}\n"
+    text = get_text(lang, "catalog_confirm") + "\n\n"
+    text += get_text(lang, "catalog_new_services", count=len(new_segments)) + "\n"
     if skipped:
-        text += f"📎 Уже подписано: {skipped} (пропущено)\n"
-    text += f"🌍 Страна: {country_name}\n"
+        text += get_text(lang, "catalog_skipped", count=skipped) + "\n"
+    text += get_text(lang, "catalog_country_line", country=country_name) + "\n"
     if mode == "cities":
         # Load city names
         city_labels = []
@@ -609,12 +608,12 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
                 if c_res:
                     city_labels.append(c_res.name_ru if lang == "ru" else (c_res.name_en or c_res.name_ru))
             break
-        text += f"🏙 Города: {', '.join(city_labels[:5])}\n"
+        text += get_text(lang, "catalog_cities_line", cities=", ".join(city_labels[:5])) + "\n"
 
-    text += "\nНажми «Подписаться» для активации."
+    text += "\n" + get_text(lang, "catalog_activate_hint")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Подписаться", callback_data="cat:subscribe")],
+        [InlineKeyboardButton(text=get_text(lang, "catalog_activate"), callback_data="cat:subscribe")],
         [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="cat:back:to_categories")],
     ])
 
@@ -633,12 +632,12 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
     selected_cities: list[int] = data.get("selected_cities", [])
 
     if not country_id:
-        await callback.answer("Ошибка: страна не выбрана. Начни заново.", show_alert=True)
+        await callback.answer(get_text(lang, "catalog_error_country"), show_alert=True)
         await state.clear()
         return
 
     if not selected_segments:
-        await callback.answer("Ошибка: направления не выбраны.", show_alert=True)
+        await callback.answer(get_text(lang, "catalog_error_services"), show_alert=True)
         await state.clear()
         return
 
@@ -741,7 +740,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             f"Тариф Старт открывает их снова — от ${_PLANS['start']['usd_monthly']}/мес."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
+            [InlineKeyboardButton(text=get_text(lang, "btn_main_menu"), callback_data="menu:main")],
         ])
     else:
         from app.bot.handlers.plan import PLANS as _PLANS
@@ -750,7 +749,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         text += f"🌍 {country_name}"
         if city_labels:
             text += f" 🏙 {', '.join(city_labels)}"
-        kb_rows = [[InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")]]
+        kb_rows = [[InlineKeyboardButton(text=get_text(lang, "btn_main_menu"), callback_data="menu:main")]]
         if show_upgrade:
             text += (
                 "\n\n🔒 На бесплатном тарифе контакты клиентов скрыты.\n"
