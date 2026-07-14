@@ -227,16 +227,17 @@ docker compose logs worker --tail=20 | grep "circuit breaker closed\|Match in @"
 ## 7. Инцидент #4: Compose автоматически поднял worker при U10 rollout (14.07.2026)
 
 При production-переключении userflow worker был штатно остановлен до миграции.
-Однако `docker compose run --rm --no-deps bot alembic current` и позднее
-`docker compose up -d --no-deps --force-recreate bot` перевели существующий
-worker обратно в `Running`. Оба раза worker немедленно остановлен.
+Однако `docker compose run --rm --no-deps bot alembic current`, позднее
+`docker compose up -d --no-deps --force-recreate bot` и даже
+`docker compose build bot` переводили существующий worker обратно в `Running`.
+Все три раза worker немедленно остановлен.
 
 - Аккаунты успели инициализироваться: `Pool initialized: 2 healthy`.
 - Circuit breaker обоих аккаунтов был clear.
 - В логах запуска не было `FloodWait`, `ERROR` или `CRITICAL`.
 - Код poller/rate-limiter/classifier не менялся.
 
-Урок: на этом Compose-стеке `--no-deps` нельзя считать гарантией, что worker
-останется выключенным. Для миграций использовать изолированный `docker run` в
-существующей сети. После любой Compose-команды обязательно проверять
+Урок: на этом Compose-стеке никакую mutating Compose-команду нельзя считать
+гарантией, что worker останется выключенным. Для миграций использовать изолированный
+`docker run` в существующей сети. После любой mutating Compose-команды проверять
 `docker compose ps --all` и повторно останавливать worker до продолжения.
