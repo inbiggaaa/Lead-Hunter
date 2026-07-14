@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.db.models import Feedback, User
 from app.db.session import async_session_factory
+from app.locales import get_text, normalize_language
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ async def feedback_callback(callback: CallbackQuery):
     try:
         parts = callback.data.split(":")
         if len(parts) != 4:
-            await callback.answer("⚠️ Error")
+            await callback.answer(get_text(locals().get("lang", "ru"), "error_generic"))
             return
 
         _, chat_username, message_id_str, verdict = parts
@@ -37,16 +38,17 @@ async def feedback_callback(callback: CallbackQuery):
         # Resolve internal user ID from Telegram ID
         async with async_session_factory() as sess:
             result = await sess.execute(
-                select(User.id).where(User.telegram_id == callback.from_user.id)
+                select(User.id, User.language).where(User.telegram_id == callback.from_user.id)
             )
-            user_row = result.scalar_one_or_none()
+            user_row = result.one_or_none()
+            lang = normalize_language(user_row.language if user_row else None)
 
         if user_row is None:
             logger.warning("Feedback from unknown user: tg_id=%d", callback.from_user.id)
-            await callback.answer("⚠️ User not found")
+            await callback.answer(get_text(lang, "error_user_not_found"))
             return
 
-        internal_user_id = user_row
+        internal_user_id = user_row.id
 
         # Save feedback to DB
         async with async_session_factory() as sess:
@@ -75,17 +77,17 @@ async def feedback_callback(callback: CallbackQuery):
                 # Message too old or already deleted — edit instead
                 try:
                     await callback.message.edit_text(
-                        "👎 Спасибо, ваш отзыв учтён — работаем над точностью."
+                        get_text(lang, "feedback_not_relevant")
                     )
                 except Exception:
                     pass  # best effort
             finally:
                 await bot.session.close()
         else:
-            await callback.answer("👍 Спасибо!")
+            await callback.answer(get_text(lang, "feedback_thanks"))
 
     except (ValueError, IndexError):
-        await callback.answer("⚠️ Error")
+        await callback.answer(get_text(locals().get("lang", "ru"), "error_generic"))
     except Exception as e:
         logger.warning("Feedback save failed: %s", e)
-        await callback.answer("⚠️ Error, try again")
+        await callback.answer(get_text(locals().get("lang", "ru"), "error_generic"))

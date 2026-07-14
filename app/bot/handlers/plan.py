@@ -9,7 +9,7 @@ from app.db.models import Subscription
 from app.db.session import get_session
 from app.payments.stars import StarsPaymentProvider
 from app.payments.cryptobot import CryptoBotPaymentProvider
-from app.locales import get_text
+from app.locales import get_text, normalize_language
 
 logger = logging.getLogger(__name__)
 router = Router()
