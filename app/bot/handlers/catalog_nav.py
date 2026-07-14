@@ -1,5 +1,6 @@
 """FSM catalog navigation: categories → subcategories → country → geo → cities → confirm."""
 
+import asyncio
 import datetime
 
 from aiogram import F, Router
@@ -607,7 +608,6 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
         break
 
     text = get_text(lang, "catalog_confirm") + "\n\n"
-    text += get_text(lang, "catalog_new_services", count=len(new_segments)) + "\n"
     text += get_text(lang, "search_scope_services") + "\n"
     text += "\n".join(segment_labels) + "\n"
     if skipped:

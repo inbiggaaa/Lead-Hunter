@@ -92,6 +92,8 @@ def test_confirmation_lists_selected_service_names() -> None:
     assert "Segment as SegmentModel" in confirmation
     assert "segment_labels.append" in confirmation
     assert "search_scope_services" in confirmation
+    assert r'text += get_text(lang, "search_scope_services") + "\n"' in confirmation
+    assert "catalog_new_services" not in confirmation
     assert r'text += "\n".join(segment_labels)' in confirmation
 
 
