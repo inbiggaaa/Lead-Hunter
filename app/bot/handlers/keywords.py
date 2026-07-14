@@ -183,25 +183,19 @@ async def show_keywords_via_message(message: Message, lang: str):
 # ── Delete keyword ──
 
 @router.callback_query(F.data.startswith("kw:del:"))
-async def on_delete_keyword(callback: CallbackQuery):
-    kw_id = int(callback.data.split(":")[2])
-    lang = await _get_user_lang(callback.from_user.id)
+async def on_delete_keyword_prompt(callback: CallbackQuery):
+    kw_id = int(callback.data.split(":")[2]); lang = await _get_user_lang(callback.from_user.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_text(lang, "btn_delete"), callback_data=f"kw:confirm_del:{kw_id}")], [InlineKeyboardButton(text=get_text(lang, "btn_cancel"), callback_data="menu:keywords")]])
+    await callback.message.edit_text(get_text(lang, "item_delete_confirm", item=get_text(lang, "btn_keywords")), reply_markup=kb); await callback.answer()
 
+@router.callback_query(F.data.startswith("kw:confirm_del:"))
+async def on_delete_keyword(callback: CallbackQuery):
+    kw_id = int(callback.data.split(":")[2]); lang = await _get_user_lang(callback.from_user.id)
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
-        if not user:
-            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
-            return
-
-        deleted = await delete_keyword(session, kw_id, user.id)
-        await session.commit()
-
+        if not user: await callback.answer(get_text(lang, "error_generic"), show_alert=True); return
+        deleted = await delete_keyword(session, kw_id, user.id); await session.commit()
     if deleted:
         from app.cache.subscription_cache import invalidate_all_subscription_caches
-        await invalidate_all_subscription_caches()
-
-    if deleted:
-        await callback.answer(get_text(lang, "item_deleted"))
-        await show_keywords(callback, lang)
-    else:
-        await callback.answer(get_text(lang, "item_not_found"), show_alert=True)
+        await invalidate_all_subscription_caches(); await callback.answer(get_text(lang, "item_deleted")); await show_keywords(callback, lang)
+    else: await callback.answer(get_text(lang, "item_not_found"), show_alert=True)

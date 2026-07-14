@@ -36,9 +36,6 @@ async def on_settings(callback: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=get_text(lang, "btn_keywords"), callback_data="menu:keywords")],
         [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_subscriptions"), callback_data="menu:subs")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_stats"), callback_data="menu:stats")],
-        [InlineKeyboardButton(text=get_text(lang, "btn_csv"), callback_data="menu:csv")],
         [InlineKeyboardButton(text=get_text(lang, "btn_digest"), callback_data="menu:digest")],
         [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
         [InlineKeyboardButton(text=get_text(lang, "btn_instructions"), callback_data="menu:instructions")],

@@ -3,7 +3,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 
-from app.db.crud import get_or_create_user, set_language, set_onboarded
+from app.db.crud import get_or_create_user, set_language
 from app.db.session import get_session
 from app.locales import get_text
 
@@ -47,15 +47,8 @@ async def cmd_start(message: Message):
                 user.source = "referral"
                 ref.referral_id = user.id
                 ref.status = "pending"
-                # Give bonus trial days
-                from app.config import settings
-                if user.plan == "free" and not user.onboarded:
-                    now = dt.datetime.now(dt.timezone.utc)
-                    user.plan = "trial"
-                    user.plan_activated_at = now
-                    user.plan_expires_at = now + dt.timedelta(
-                        days=settings.trial_days + settings.referral_trial_bonus
-                    )
+                # Referral changes acquisition and future trial duration only.
+                # Trial starts after the first search is committed (U3).
 
         from app.analytics import record_event
         await record_event("welcome_viewed", user)
@@ -96,7 +89,7 @@ async def _show_welcome(message: Message, lang: str):
 # ── Language selection ──
 
 @router.callback_query(F.data.startswith("lang:"))
-async def on_language_select(callback: CallbackQuery):
+async def on_language_select(callback: CallbackQuery, state: FSMContext):
     lang = callback.data.split(":")[1]
 
     async for session in get_session():
@@ -107,126 +100,13 @@ async def on_language_select(callback: CallbackQuery):
         await record_event("language_selected", user, context={"success": True})
         await session.commit()
 
-    await callback.message.edit_text(get_text(lang, "language_set"))
-
     if not is_onboarded:
-        await _show_onboarding_step1(callback.message, lang)
+        from app.bot.handlers.catalog_nav import on_show_categories
+        await state.clear()
+        await on_show_categories(callback, state)
+        return
     else:
         await _show_menu_from_db(callback.message, callback.from_user.id)
-    await callback.answer()
-
-
-# ── Onboarding step 1: choose category (with language in callback) ──
-
-async def _show_onboarding_step1(message: Message, lang: str):
-    # Auto-activate trial and go to main menu — full flow via 🔍 Search
-    import datetime
-    async for session in get_session():
-        await set_onboarded(session, message.chat.id)
-        from app.db.crud import get_user as crud_user
-        from app.config import settings
-        user = await crud_user(session, message.chat.id)
-        if user and user.plan == "free":
-            now = datetime.datetime.now(datetime.timezone.utc)
-            user.plan = "trial"
-            user.plan_activated_at = now
-            user.plan_expires_at = now + datetime.timedelta(days=settings.trial_days)
-            # Notify admin
-            from app.userbot.discovery import notify_new_trial
-            import asyncio as aio_mod
-            aio_mod.create_task(notify_new_trial(
-                user.username, user.telegram_id, user.source
-            ))
-        await session.commit()
-    await _show_menu_from_db(message, message.chat.id)
-
-
-# ── Onboarding category select → step 2 ──
-
-@router.callback_query(F.data.startswith("onb:cat:"))
-async def on_onboard_category(callback: CallbackQuery):
-    parts = callback.data.split(":")
-    lang = parts[3] if len(parts) > 3 else "ru"
-
-    # Load all countries from DB
-    from app.db.session import async_session_factory
-    from app.db.models import Country
-    from sqlalchemy import select
-    from app.bot.handlers.catalog_nav import _country_flag
-
-    async with async_session_factory() as session:
-        result = await session.execute(
-            select(Country).where(Country.is_active == True).order_by(Country.name_ru)
-        )
-        countries = result.scalars().all()
-
-    text = get_text(lang, "onb_step2_title")
-    kb_rows = []
-    row = []
-    for c in countries:
-        name = c.name_ru if lang == "ru" else (c.name_en or c.name_ru)
-        flag = _country_flag(c.slug)
-        row.append(InlineKeyboardButton(
-            text=f"{flag} {name}",
-            callback_data=f"onb:country:{c.slug}:{lang}",
-        ))
-        if len(row) == 2:
-            kb_rows.append(row)
-            row = []
-    if row:
-        kb_rows.append(row)
-
-    kb_rows.append([
-        InlineKeyboardButton(text=get_text(lang, "onb_skip"), callback_data=f"onb:skip:{lang}"),
-    ])
-    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    await callback.message.edit_text(text, reply_markup=kb)
-    await callback.answer()
-
-
-# ── Onboarding skip → finish ──
-
-@router.callback_query(F.data.startswith("onb:skip"))
-async def on_onboard_skip(callback: CallbackQuery):
-    parts = callback.data.split(":")
-    lang = parts[1] if len(parts) > 1 else "ru"
-    await _finish_onboarding(callback, lang)
-
-
-# ── Onboarding country select → finish ──
-
-@router.callback_query(F.data.startswith("onb:country:"))
-async def on_onboard_country(callback: CallbackQuery):
-    parts = callback.data.split(":")
-    lang = parts[3] if len(parts) > 3 else "ru"
-    await _finish_onboarding(callback, lang)
-
-
-# ── Onboarding finish → main menu ──
-
-async def _finish_onboarding(callback: CallbackQuery, lang: str):
-    import datetime
-    async for session in get_session():
-        await set_onboarded(session, callback.from_user.id)
-        # Activate trial for first-time users
-        from app.db.crud import get_user
-        from app.config import settings
-        user = await get_user(session, callback.from_user.id)
-        if user and user.plan == "free":
-            now = datetime.datetime.now(datetime.timezone.utc)
-            user.plan = "trial"
-            user.plan_activated_at = now
-            user.plan_expires_at = now + datetime.timedelta(days=settings.trial_days)
-            # Notify admin
-            from app.userbot.discovery import notify_new_trial
-            asyncio.create_task(notify_new_trial(callback.from_user.username, callback.from_user.id, user.source))
-        await session.commit()
-
-    text = get_text(lang, "onb_step3_title") + "\n\n" + get_text(lang, "onb_step3_placeholder")
-    await callback.message.edit_text(text)
-
-    # Show main menu after a short delay (new message)
-    await _show_menu_from_db(callback.message, callback.from_user.id)
     await callback.answer()
 
 
@@ -246,12 +126,17 @@ async def _show_menu_from_db(message: Message, telegram_id: int):
         if user:
             plan = user.plan
             user_id = user.id
+            from app.db.crud import count_user_subscriptions
+            search_count = await count_user_subscriptions(session, user.id)
+            has_searches = search_count > 0
             plan_name = plan_display_name(user.plan, lang)
             if user.plan in ("trial", "start", "pro", "business") and user.plan_expires_at:
                 days_left = (user.plan_expires_at - datetime.datetime.now(datetime.timezone.utc)).days
-                plan_name = f"{plan_name} ({max(0, days_left)} дн)"
+                plan_name = f"{plan_name} ({get_text(lang, 'plan_until', date=user.plan_expires_at.strftime('%d.%m.%Y'))})"
+    has_searches = locals().get("has_searches", False)
+    search_count = locals().get("search_count", 0)
     matched = await _matched_today(user_id) if user_id else 0
-    await _show_menu(message, lang, plan_name, matched=matched, is_free=(plan == "free"))
+    await _show_menu(message, lang, plan_name, matched=matched, is_free=(plan == "free"), has_searches=has_searches, search_count=search_count)
 
 
 async def _matched_today(user_id: int) -> int:
@@ -264,17 +149,19 @@ async def _matched_today(user_id: int) -> int:
 
 
 async def _show_menu(message: Message, lang: str, plan_name: str = "Free",
-                     matched: int = 0, is_free: bool = True):
+                     matched: int = 0, is_free: bool = True, has_searches: bool = False, search_count: int = 0):
     text = (
         f"{get_text(lang, 'menu_header')}\n\n"
         f"{get_text(lang, 'menu_plan', plan=plan_name)}\n"
         f"{get_text(lang, 'menu_notifications', matched=matched)}\n"
+        f"{get_text(lang, 'menu_searches', count=search_count)}\n"
     )
     if is_free:
         text += f"{get_text(lang, 'menu_free_hidden')}\n"
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=get_text(lang, "btn_search"), callback_data="menu:search")],
+            [InlineKeyboardButton(text=get_text(lang, "btn_searches" if has_searches else "btn_search"), callback_data="menu:subs" if has_searches else "menu:search")],
+            [InlineKeyboardButton(text=get_text(lang, "btn_results"), callback_data="menu:stats")],
             [InlineKeyboardButton(text=get_text(lang, "btn_plan"), callback_data="menu:plan")],
             [InlineKeyboardButton(text=get_text(lang, "btn_referral"), callback_data="menu:referral")],
             [InlineKeyboardButton(text=get_text(lang, "btn_settings"), callback_data="menu:settings")],
@@ -464,7 +351,7 @@ async def _show_subscriptions_via_message(message: Message, lang: str):
 
     if current < max_seg:
         kb_rows.append([InlineKeyboardButton(
-            text="➕ Подписаться на направление", callback_data="menu:search",
+            text=get_text(lang, "btn_add_search"), callback_data="menu:search",
         )])
     kb_rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:main")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)

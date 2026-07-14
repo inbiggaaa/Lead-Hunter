@@ -210,24 +210,19 @@ async def show_channels_via_message(message: Message, lang: str):
 # ── Delete channel ──
 
 @router.callback_query(F.data.startswith("ch:del:"))
-async def on_delete_channel(callback: CallbackQuery):
-    chat_id = int(callback.data.split(":")[2])
-    lang = await _get_user_lang(callback.from_user.id)
+async def on_delete_channel_prompt(callback: CallbackQuery):
+    chat_id = int(callback.data.split(":")[2]); lang = await _get_user_lang(callback.from_user.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_text(lang, "btn_delete"), callback_data=f"ch:confirm_del:{chat_id}")], [InlineKeyboardButton(text=get_text(lang, "btn_cancel"), callback_data="menu:channels")]])
+    await callback.message.edit_text(get_text(lang, "item_delete_confirm", item=get_text(lang, "btn_channels")), reply_markup=kb); await callback.answer()
 
+@router.callback_query(F.data.startswith("ch:confirm_del:"))
+async def on_delete_channel(callback: CallbackQuery):
+    chat_id = int(callback.data.split(":")[2]); lang = await _get_user_lang(callback.from_user.id)
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
-        if not user:
-            await callback.answer(get_text(lang, "error_generic"), show_alert=True)
-            return
-        deleted = await delete_watched_chat(session, chat_id, user.id)
-        await session.commit()
-
+        if not user: await callback.answer(get_text(lang, "error_generic"), show_alert=True); return
+        deleted = await delete_watched_chat(session, chat_id, user.id); await session.commit()
     if deleted:
         from app.cache.subscription_cache import invalidate_all_subscription_caches
-        await invalidate_all_subscription_caches()
-
-    if deleted:
-        await callback.answer(get_text(lang, "item_deleted"))
-        await show_channels(callback, lang)
-    else:
-        await callback.answer(get_text(lang, "item_not_found"), show_alert=True)
+        await invalidate_all_subscription_caches(); await callback.answer(get_text(lang, "item_deleted")); await show_channels(callback, lang)
+    else: await callback.answer(get_text(lang, "item_not_found"), show_alert=True)

@@ -89,6 +89,10 @@ def _count_selected(data: dict) -> int:
     by_cat = data.get("selected_by_cat", {})
     return sum(len(ids) for ids in by_cat.values())
 
+def trial_days_for_source(source: str) -> int:
+    from app.config import settings
+    return settings.trial_days + (settings.referral_trial_bonus if source == "referral" else 0)
+
 
 @router.callback_query(F.data == "menu:search")
 @router.callback_query(CatStates.choosing_segments, F.data == "cat:back:to_categories")
@@ -644,6 +648,8 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         await callback.answer(get_text(lang, "catalog_error_services"), show_alert=True)
         await state.clear()
         return
+    trial_length = 0
+    trial_expiry_text = ""
 
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
@@ -688,9 +694,13 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
         is_first = current == 0 and created > 0
         if is_first and user.plan == "free":
             from app.config import settings
+            from app.db.crud import set_onboarded
+            await set_onboarded(session, callback.from_user.id)
+            trial_length = trial_days_for_source(user.source)
             user.plan = "trial"
             user.plan_activated_at = datetime.datetime.now(datetime.timezone.utc)
-            user.plan_expires_at = user.plan_activated_at + datetime.timedelta(days=settings.trial_days)
+            user.plan_expires_at = user.plan_activated_at + datetime.timedelta(days=trial_length)
+            trial_expiry_text = user.plan_expires_at.strftime("%d.%m.%Y")
             # Notify admin
             from app.userbot.discovery import notify_new_trial
             asyncio.create_task(notify_new_trial(callback.from_user.username, callback.from_user.id, user.source))
@@ -734,7 +744,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
     if is_first:
         from app.config import settings as _s
         from app.bot.handlers.plan import PLANS as _PLANS
-        text = get_text(lang, "trial_started", days=_s.trial_days) + "\n\n" + (
+        text = get_text(lang, "trial_started", date=trial_expiry_text) + "\n\n" + (
             get_text(lang, "search_scope_services") + "\n" + "\n".join(seg_names) + "\n" +
             get_text(lang, "catalog_country_line", country=country_name) + "\n"
         )
@@ -742,9 +752,7 @@ async def on_subscribe(callback: CallbackQuery, state: FSMContext):
             text += get_text(lang, "catalog_cities_line", cities=", ".join(city_labels)) + "\n"
         text += "\n" + get_text(lang, "search_created", count=created) + "\n"
         text += get_text(lang, "search_delivery") + "\n\n"
-        text += (
-            get_text(lang, "trial_after", price=_PLANS["start"]["usd_monthly"])
-        )
+
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=get_text(lang, "btn_main_menu"), callback_data="menu:main")],
         ])
@@ -817,7 +825,7 @@ async def on_show_subscriptions(callback: CallbackQuery):
 
     if current < max_seg:
         kb_rows.append([InlineKeyboardButton(
-            text="➕ Подписаться на направление", callback_data="menu:search",
+            text=get_text(lang, "btn_add_search"), callback_data="menu:search",
         )])
     kb_rows.append([InlineKeyboardButton(
         text=get_text(lang, "btn_back"), callback_data="menu:main",
@@ -828,22 +836,33 @@ async def on_show_subscriptions(callback: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("sub:del:"))
+async def on_delete_subscription_prompt(callback: CallbackQuery):
+    sub_id = int(callback.data.split(":")[2])
+    lang = await _get_lang_nostate(callback)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_text(lang, "btn_delete_search"), callback_data=f"sub:confirm_del:{sub_id}")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_cancel"), callback_data="menu:subs")],
+    ])
+    await callback.message.edit_text(get_text(lang, "search_delete_confirm"), reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("sub:confirm_del:"))
 async def on_delete_subscription(callback: CallbackQuery):
     sub_id = int(callback.data.split(":")[2])
     lang = await _get_lang_nostate(callback)
-
     async for session in get_session():
         user = await get_user(session, callback.from_user.id)
         if not user:
             await callback.answer(get_text(lang, "error_generic"), show_alert=True)
             return
-        await delete_subscription(session, sub_id, user.id)
+        deleted = await delete_subscription(session, sub_id, user.id)
         await session.commit()
-
-    from app.cache.subscription_cache import invalidate_all_subscription_caches
-    await invalidate_all_subscription_caches()
-
-    await callback.answer(get_text(lang, "item_deleted"))
+    if deleted:
+        from app.cache.subscription_cache import invalidate_all_subscription_caches
+        await invalidate_all_subscription_caches()
+        await callback.answer(get_text(lang, "item_deleted"))
+    else:
+        await callback.answer(get_text(lang, "item_not_found"), show_alert=True)
     await on_show_subscriptions(callback)
 
 

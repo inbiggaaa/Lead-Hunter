@@ -780,3 +780,10 @@ B4 (docs/eval/reality_audit.md): фильтр НЕ душит — блоки п�
 - Privacy-safe Redis analytics: event dimensions language/plan/source, whitelist context без lead text, first-event dedup key, conversion trigger отдельно от immutable acquisition source.
 - Инструментированы welcome/language, onboarding/confirmation/search/trial, paywall, plan/period/method, payment success/failure, first delivered lead.
 - Funnel report zero-fills этапы. Проверка 49 passed. Прод не трогался.
+
+
+**14.07.2026 — Userflow U3–U4 technical checkpoint; работа продолжается с U5.**
+- Новый user: language → единая catalog FSM; legacy onboarding удалён; trial/onboarded только после первого committed search; referral = 8 дней после search; exact expiry date.
+- Menu разделяет searches/results/plan/settings, показывает search count и exact expiry. «Мои поиски» в UI/commands. Settings очищены от results.
+- Delete search/keyword/channel требует confirm; private channel обещает только manual review. 45 regression tests passed.
+- Отложено до маркетингового согласования: welcome copy U3.1 и 0-lead communication U3.5. Прод не трогался.
