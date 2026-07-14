@@ -12,6 +12,7 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import settings
+from app.locales import get_text, normalize_language
 from app.cache.subscription_cache import (
     pop_notification,
     mark_sent,
@@ -234,6 +235,7 @@ class NotificationSender:
         «>», «&» would make Telegram reject the whole request (lost lead).
         """
         urgency = "🔥 " if payload.get("is_urgent") else ""
+        lang = normalize_language(payload.get("lang"))
         chat = payload.get("chat_username", "unknown") or "unknown"
         msg_id = payload.get("message_id", 0)
         sender = payload.get("sender", None)
@@ -246,17 +248,17 @@ class NotificationSender:
         link = _chat_link(chat, msg_id)
         link = html.escape(link) if link else None
 
-        msg = f"{urgency}🎯 <b>Я нашел нового клиента! | Lead Hunter AI</b>\n\n"
+        msg = f"{urgency}{get_text(lang, 'lead_title')}\n\n"
         msg += f"{text_preview}\n\n"
         if is_free:
             # D1 (DECISIONS #79): Free — no links at all. Chat name as plain
             # text, sender hidden entirely; the paywall line below is honest.
-            msg += f"💬 {label}"
-            msg += "\n\n🔒 Контакты скрыты. Этому клиенту сейчас ответит кто-то другой."
+            msg += get_text(lang, "lead_chat", chat=label)
+            msg += "\n\n" + get_text(lang, "lead_hidden")
         else:
-            msg += f"💬 <a href='{link}'>{label}</a>" if link else f"💬 {label}"
+            msg += get_text(lang, "lead_chat", chat=(f"<a href='{link}'>{label}</a>" if link else label))
             if sender:
-                msg += f" от <a href='https://t.me/{sender}'>@{sender}</a>"
+                msg += get_text(lang, "lead_sender", sender=sender)
 
         # Add category label(s)
         matched = payload.get("matched_segments", [])
@@ -265,13 +267,14 @@ class NotificationSender:
                 html.escape(f"{m['emoji']} {m['title']}" if m["emoji"] else m["title"])
                 for m in matched
             )
-            msg += f"\n\n🏷 {labels}"
+            msg += "\n\n" + get_text(lang, "lead_tags", labels=labels)
 
         return msg
 
     def _build_keyboard(self, payload: dict) -> InlineKeyboardMarkup:
         """Build notification keyboard with feedback buttons."""
         is_free = payload.get("plan", "free") == "free"
+        lang = normalize_language(payload.get("lang"))
         chat = payload.get("chat_username", "")
         msg_id = payload.get("message_id", 0)
         sender = payload.get("sender", None)
@@ -290,16 +293,16 @@ class NotificationSender:
             # straight to the lead's message, making the paywall nominal.
             rows.append([
                 InlineKeyboardButton(
-                    text=f"🎯 Открыть контакты — от ${settings.price_start_monthly_usd}/мес",
+                    text=get_text(lang, "lead_btn_unlock", price=settings.price_start_monthly_usd),
                     callback_data="menu:plan"),
             ])
         else:
             buttons = []
             chat_link = _chat_link(chat, msg_id) if chat else None
             if chat_link:
-                buttons.append(InlineKeyboardButton(text="💬 Чат", url=chat_link))
+                buttons.append(InlineKeyboardButton(text=get_text(lang, "lead_btn_chat"), url=chat_link))
             if sender:
-                buttons.append(InlineKeyboardButton(text="💬 Написать", url=f"https://t.me/{sender}"))
+                buttons.append(InlineKeyboardButton(text=get_text(lang, "lead_btn_sender"), url=f"https://t.me/{sender}"))
             if buttons:
                 rows.append(buttons)
 

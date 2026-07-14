@@ -132,4 +132,12 @@ TEXTS = {
     ),
     "pay_err_retry": "🔄 Повторить",
     "pay_err_other": "💱 Другой способ",
+    "lead_title": "🎯 <b>Я нашёл нового клиента! | Lead Hunter AI</b>",
+    "lead_chat": "💬 {chat}",
+    "lead_sender": " от <a href='https://t.me/{sender}'>@{sender}</a>",
+    "lead_hidden": "🔒 Контакты скрыты. Автор и ссылка доступны на платном тарифе.",
+    "lead_tags": "🏷 {labels}",
+    "lead_btn_unlock": "🎯 Открыть контакты — от ${price}/мес",
+    "lead_btn_chat": "💬 Чат",
+    "lead_btn_sender": "💬 Написать",
 }

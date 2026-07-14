@@ -133,4 +133,12 @@ TEXTS = {
     ),
     "pay_err_retry": "🔄 Retry",
     "pay_err_other": "💱 Another method",
+    "lead_title": "🎯 <b>I found a new client! | Lead Hunter AI</b>",
+    "lead_chat": "💬 {chat}",
+    "lead_sender": " from <a href='https://t.me/{sender}'>@{sender}</a>",
+    "lead_hidden": "🔒 Contacts are hidden. The author and link are available on a paid plan.",
+    "lead_tags": "🏷 {labels}",
+    "lead_btn_unlock": "🎯 Unlock contacts — from ${price}/mo",
+    "lead_btn_chat": "💬 Chat",
+    "lead_btn_sender": "💬 Message",
 }
