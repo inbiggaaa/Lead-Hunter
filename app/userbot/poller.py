@@ -1856,6 +1856,7 @@ class ChannelPoller:
                 "telegram_id": user["telegram_id"],
                 "lang": lang,
                 "plan": user.get("plan", "free"),
+                "plan_expires_at": user.get("plan_expires_at"),
                 "digest_mode": user.get("digest_mode", "instant"),
                 "chat_username": chat_username,
                 "chat_title": chat_title,
@@ -1875,6 +1876,9 @@ class ChannelPoller:
             # «sent» инкрементит sender после фактической доставки.
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             await increment_daily_stats(user["user_id"], today, "matched")
+            if user.get("plan", "free") == "free":
+                from app.lifecycle import increment_lifecycle_matches
+                await increment_lifecycle_matches(user["user_id"])
 
             # T5.1: по-сегментная статистика (экран Бизнес «по направлениям», TTL 35д).
             # Только для сегментных матчей — пересечение ниш пользователя и матча.

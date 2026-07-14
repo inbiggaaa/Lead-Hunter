@@ -24,7 +24,8 @@ class StarsPaymentProvider:
         """Send an invoice to the user via Bot API."""
         bot = Bot(token=settings.bot_token)
 
-        plan_name, period = plan.split(":") if ":" in plan else (plan, "1m")
+        parts = plan.split(":")
+        plan_name, period = parts[0], parts[1] if len(parts) > 1 else "1m"
         title = f"LeadHunter {plan_name.title()}"
         description = f"Подписка {plan_name.title()} на {period}"
         payload = f"sub:{plan}:{user_id}"  # "sub:pro:1m:user_id"

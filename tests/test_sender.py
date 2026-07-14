@@ -271,9 +271,9 @@ def test_private_group_keyboard_uses_c_link():
 # ═══ T1.2: дневной лимит уведомлений отменён (#81) ═══
 
 
-async def test_free_plan_not_rate_limited():
-    """Free-пользователь получает уведомление независимо от объёма за день.
-    До #81 sender гасил доставку на 50/день; теперь блока лимита нет."""
+async def test_free_plan_gets_claimed_teaser(monkeypatch):
+    """A Free notification is delivered only after claiming a lifecycle slot."""
+    monkeypatch.setattr("app.lifecycle.claim_free_teaser", AsyncMock(return_value=(True, 0)))
     sender = _make_sender()
     await _run_send(sender, _payload(plan="free"))
     assert sender.bot.send_message.await_count == 1

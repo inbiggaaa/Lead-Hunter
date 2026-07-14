@@ -78,7 +78,9 @@ async def rebuild_subscription_cache(chat_username: str) -> None:
             "telegram_id": user.telegram_id,
             "lang": user.language,
             "plan": user.plan,
+            "plan_expires_at": user.plan_expires_at.isoformat() if user.plan_expires_at else None,
             "digest_mode": getattr(user, "digest_mode", "instant"),
+            "free_lifecycle_at": user.free_lifecycle_at.isoformat() if user.free_lifecycle_at else None,
             "subscriptions": sub_geo,
             "keyword_texts": keyword_texts,
         })

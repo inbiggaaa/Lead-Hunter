@@ -10,6 +10,7 @@ from app.db.session import get_session
 from app.payments.stars import StarsPaymentProvider
 from app.payments.cryptobot import CryptoBotPaymentProvider
 from app.locales import get_text, normalize_language
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -25,8 +26,15 @@ STARS_PER_USD = settings.stars_per_usd
 def _calc(plan_key, period_key):
     base = PLANS[plan_key]["usd_monthly"]; p = PERIODS[period_key]
     total = base * p["months"] * (1 - p["discount"])
-    return {"total": total, "per_month": total / p["months"], "stars": int(total * STARS_PER_USD),
+    return {"total": total, "full_total": base * p["months"], "savings": base * p["months"] - total, "per_month": total / p["months"], "stars": int(total * STARS_PER_USD),
             "months": p["months"], "plan_name": PLANS[plan_key]["name"], "period_label": p["label"]}
+
+def _calc_winback(plan_key: str):
+    """Three months with the one-time 25% winback discount."""
+    base = PLANS[plan_key]["usd_monthly"]
+    total = base * 3 * 0.75
+    return {"total": total, "per_month": total / 3, "stars": int(total * STARS_PER_USD),
+            "months": 3, "plan_name": PLANS[plan_key]["name"], "period_label": "3m_winback"}
 
 async def _get_user_id(callback: CallbackQuery) -> int:
     """DB users.id по telegram-пользователю (payment_checker активирует по User.id)."""
@@ -162,7 +170,11 @@ async def on_period_select(callback: CallbackQuery):
     for key, p in PERIODS.items():
         info = _calc(plan, key)
         period = period_display_name(key, lang)
-        text += get_text(lang, "payment_period_line", period=period, total=f"{info['total']:.0f}", monthly=f"{info['per_month']:.0f}") + "\n"
+        if key == "1m":
+            text += get_text(lang, "payment_period_line_regular", period=period, total=f"{info['total']:.0f}") + "\n"
+        else:
+            text += get_text(lang, "payment_period_line", period=period, total=f"{info['total']:.0f}", monthly=f"{info['per_month']:.0f}", savings=f"{info['savings']:.0f}") + "\n"
+            if key == "3m": text += get_text(lang, "payment_period_recommended") + "\n"
         kb_rows.append([InlineKeyboardButton(text=get_text(lang, "payment_period_button", period=period, total=f"{info['total']:.0f}"), callback_data=f"pay_period:{plan}:{key}")])
     kb_rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:plan")])
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows)); await callback.answer()
@@ -181,6 +193,63 @@ async def on_pay_method(callback: CallbackQuery):
         [InlineKeyboardButton(text="₮ CryptoBot", callback_data=f"pay_exec:crypto:{plan}:{period_key}")],
         [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data=f"pay_plan:{plan}")]])
     await callback.message.edit_text(text, reply_markup=kb); await callback.answer()
+
+async def _active_winback_offer(user_id: int):
+    from app.db.models import WinbackOffer
+    from app.db.session import async_session_factory
+    async with async_session_factory() as session:
+        offer = (await session.execute(select(WinbackOffer).where(WinbackOffer.user_id == user_id))).scalar_one_or_none()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        return offer if offer and offer.redeemed_at is None and offer.expires_at > now else None
+
+
+@router.callback_query(F.data.startswith("winback:buy:"))
+async def on_winback_plan(callback: CallbackQuery):
+    plan = callback.data.rsplit(":", 1)[1]
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+    lang = normalize_language(getattr(user, "language", None))
+    offer = await _active_winback_offer(user.id) if user else None
+    if not offer:
+        await callback.answer(get_text(lang, "winback_expired"), show_alert=True)
+        return
+    info = _calc_winback(plan)
+    expires = offer.expires_at.astimezone(datetime.timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+    text = get_text(lang, "winback_payment_title", plan=plan_display_name(plan, lang), total=f"{info["total"]:.2f}", expires=expires)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data=f"winback:pay:stars:{plan}")],
+        [InlineKeyboardButton(text="₮ CryptoBot", callback_data=f"winback:pay:crypto:{plan}")],
+    ])
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("winback:pay:"))
+async def on_winback_pay(callback: CallbackQuery):
+    _, _, method, plan = callback.data.split(":")
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+    lang = normalize_language(getattr(user, "language", None))
+    offer = await _active_winback_offer(user.id) if user else None
+    if not offer:
+        await callback.answer(get_text(lang, "winback_expired"), show_alert=True)
+        return
+    info = _calc_winback(plan)
+    if method == "stars":
+        await StarsPaymentProvider().create_invoice(callback.from_user.id, f"{plan}:3m:wb25", info["stars"], info["total"])
+    elif method == "crypto":
+        if not settings.cryptobot_api_token:
+            await callback.answer(get_text(lang, "payment_crypto_unavailable"), show_alert=True)
+            return
+        result = await CryptoBotPaymentProvider().create_invoice(callback.from_user.id, f"{plan}:3m:wb25", info["stars"], info["total"])
+        pay_link = result.get("bot_invoice_url") or result.get("pay_url", "")
+        await callback.message.edit_text(get_text(lang, "payment_invoice_created", total=f"{info["total"]:.2f}"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_text(lang, "payment_btn_pay"), url=pay_link)]]))
+        from app.worker.payment_checker import add_pending
+        await add_pending(result["invoice_id"], user.id, plan, "3m", callback.from_user.id, promo="wb25", amount=info["total"])
+    from app.analytics import record_event
+    await record_event("winback_offer_clicked", user, context={"target_plan": plan, "period": "3m", "discount": 25})
+    await callback.answer()
+
 
 @router.callback_query(F.data.startswith("pay_exec:"))
 async def on_pay_execute(callback: CallbackQuery):
@@ -225,7 +294,9 @@ async def on_pre_checkout(query: PreCheckoutQuery): await query.answer(ok=True)
 async def on_successful_payment(message: Message):
     payload = message.successful_payment.invoice_payload
     parts = payload.split(":")
-    if len(parts) >= 4 and parts[0] == "sub": await _activate_by_msg(message, parts[1], parts[2], "stars", payload)
+    if len(parts) >= 4 and parts[0] == "sub":
+        promo = parts[3] if len(parts) >= 5 and parts[3] == "wb25" else None
+        await _activate_by_msg(message, parts[1], parts[2], "stars", payload, promo=promo)
 
 async def _apply_referral_bonus(user_id: int):
     """Give bonus days to referrer when referral pays."""
@@ -315,17 +386,22 @@ async def maybe_offer_annual(db_user_id: int, telegram_id: int, plan: str, perio
     finally:
         await bot.session.close()
 
-async def _activate_by_msg(message, plan, period_key, method, invoice_id):
+async def _activate_by_msg(message, plan, period_key, method, invoice_id, promo: str | None = None):
     # Политика (#81): оплата всегда устанавливает оплаченный план и срок 30×months
     # ОТ ТЕКУЩЕГО МОМЕНТА. Оплата более дешёвого плана при активном дорогом = даунгрейд
     # с новой датой (осознанный выбор пользователя; апселл верхних тарифов — на экране).
-    info = _calc(plan, period_key)
+    info = _calc_winback(plan) if promo == "wb25" else _calc(plan, period_key)
     async for s in get_session():
         u = await get_user(s, message.from_user.id)
         if not u: return
         now = datetime.datetime.now(datetime.timezone.utc); exp = now + datetime.timedelta(days=30 * info["months"])
         s.add(Subscription(user_id=u.id, plan=plan, period=period_key, expires_at=exp, payment_method=method, payment_status="paid", invoice_id=invoice_id, amount=info["total"]))
-        u.plan = plan; u.plan_activated_at = now; u.plan_expires_at = exp; await s.commit()
+        u.plan = plan; u.plan_activated_at = now; u.plan_expires_at = exp; u.free_lifecycle_at = None;
+        if promo == "wb25":
+            from app.db.models import WinbackOffer
+            offer = (await s.execute(select(WinbackOffer).where(WinbackOffer.user_id == u.id))).scalar_one_or_none()
+            if offer and offer.redeemed_at is None: offer.redeemed_at = now
+        await s.commit()
         user_db_id = u.id
     # Смена плана меняет формат уведомлений (Free скрывает контакты) — сбросить
     # кэш подписок сразу, иначе оплаченный пользователь до TTL (1ч) видел бы Free.
@@ -333,7 +409,7 @@ async def _activate_by_msg(message, plan, period_key, method, invoice_id):
     await invalidate_all_subscription_caches()
     await _apply_referral_bonus(message.from_user.id)
     from app.userbot.discovery import notify_new_subscription
-    info2 = _calc(plan, period_key)
+    info2 = info
     asyncio.create_task(notify_new_subscription(message.from_user.username, message.from_user.id, plan, period_key, "direct", info2["total"]))
     lang = normalize_language(getattr(u, "language", None))
     await message.answer(get_text(lang, "payment_success", plan=plan_display_name(plan, lang), period=period_display_name(period_key, lang), date=exp.strftime("%d.%m.%Y")))

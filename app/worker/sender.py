@@ -4,6 +4,7 @@ import asyncio
 import html
 import json
 import logging
+from datetime import datetime, timezone
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
@@ -152,10 +153,23 @@ class NotificationSender:
             )
             return
 
+        # A cached paid plan must not expose contacts after its exact expiry.
+        expired_in_cache = False
+        expires_raw = payload.get("plan_expires_at")
+        if payload.get("plan") in ("trial", "start", "pro", "business") and expires_raw:
+            try:
+                expires_at = datetime.fromisoformat(expires_raw)
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if expires_at <= datetime.now(timezone.utc):
+                    payload["plan"] = "free"
+                    expired_in_cache = True
+            except (TypeError, ValueError):
+                logger.warning("Invalid plan_expires_at for user %d", user_id)
+
         # Дневной лимит уведомлений отменён (#81): метрика ценности — широта
         # покрытия (направления × гео), а не объём доставок. Счётчик sent
         # сохраняется для статистики (T5.1) и end-of-day отчётов.
-        from datetime import datetime, timezone
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         matched = payload.get("matched_segments", [])
@@ -165,9 +179,21 @@ class NotificationSender:
             "segment": seg_label, "message_id": payload.get("message_id"),
         }
 
+        # Free lifecycle: only two hidden lead teasers on days 0/3/7/14.
+        # All matches are still counted by the poller for the end-of-day report.
+        if payload.get("plan", "free") == "free":
+            if expired_in_cache:
+                from app.lifecycle import increment_lifecycle_matches
+                await increment_lifecycle_matches(user_id)
+            from app.lifecycle import claim_free_teaser
+            allowed, lifecycle_day = await claim_free_teaser(user_id, message_hash)
+            if not allowed:
+                logger.info("Free lead suppressed for user %d on lifecycle day %d", user_id, lifecycle_day)
+                return
+
         # T5.3: digest-режим — не-срочные откладываем в буфер (flush по расписанию),
         # срочные (🔥) всегда доставляем мгновенно. mark_sent сразу — для дедупа.
-        if payload.get("digest_mode", "instant") != "instant" and not payload.get("is_urgent"):
+        if payload.get("plan", "free") != "free" and payload.get("digest_mode", "instant") != "instant" and not payload.get("is_urgent"):
             from app.cache.subscription_cache import buffer_digest
             await buffer_digest(user_id, payload)
             await mark_sent(user_id, message_hash, False, content_hash=content_hash, meta=meta)

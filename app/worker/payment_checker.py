@@ -14,11 +14,12 @@ logger = logging.getLogger(__name__)
 PENDING_KEY = "pay:pending"  # Redis hash: invoice_id -> JSON {user_id, plan, period_key, chat_id}
 
 
-async def add_pending(invoice_id: str, user_id: int, plan: str, period_key: str, chat_id: int):
+async def add_pending(invoice_id: str, user_id: int, plan: str, period_key: str, chat_id: int, promo: str | None = None, amount: float | None = None):
     """Store a pending payment for background checking."""
     redis = await get_redis()
     await redis.hset(PENDING_KEY, invoice_id, json.dumps({
         "user_id": user_id, "plan": plan, "period_key": period_key, "chat_id": chat_id,
+        "promo": promo, "amount": amount,
     }))
     logger.info("Pending payment added: %s for user %d", invoice_id, user_id)
 
@@ -73,8 +74,8 @@ async def _activate(data: dict, invoice_id: str):
     chat_id = data["chat_id"]
 
     # Calculate info
-    from app.bot.handlers.plan import _calc, plan_display_name, period_display_name
-    info = _calc(plan, period_key)
+    from app.bot.handlers.plan import _calc, _calc_winback, plan_display_name, period_display_name
+    info = _calc_winback(plan) if data.get("promo") == "wb25" else _calc(plan, period_key)
 
     async with async_session_factory() as session:
         user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
@@ -87,11 +88,17 @@ async def _activate(data: dict, invoice_id: str):
         session.add(Subscription(
             user_id=user.id, plan=plan, period=period_key, expires_at=expires,
             payment_method="cryptobot", payment_status="paid",
-            invoice_id=invoice_id, amount=info["total"],
+            invoice_id=invoice_id, amount=data.get("amount") or info["total"],
         ))
         user.plan = plan
         user.plan_activated_at = now
         user.plan_expires_at = expires
+        user.free_lifecycle_at = None
+        if data.get("promo") == "wb25":
+            from app.db.models import WinbackOffer
+            offer = (await session.execute(select(WinbackOffer).where(WinbackOffer.user_id == user.id))).scalar_one_or_none()
+            if offer and offer.redeemed_at is None:
+                offer.redeemed_at = now
         await session.commit()
 
     # Смена плана меняет формат уведомлений (Free скрывает контакты) — сбросить

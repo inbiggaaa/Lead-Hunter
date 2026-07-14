@@ -45,6 +45,9 @@ class User(Base):
     onboarded: Mapped[bool] = mapped_column(Boolean, default=False)
     # T5.3: режим доставки уведомлений — instant / hourly / daily2 (2 раза в день)
     digest_mode: Mapped[str] = mapped_column(String(10), default="instant")
+    # Start of the no-subscription lifecycle. Set on expiry or on the first
+    # matched lead for users who have never had a subscription.
+    free_lifecycle_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -425,6 +428,21 @@ class Reminder(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     is_disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+# ── winback_offers ──
+
+class WinbackOffer(Base):
+    """One-time 25% three-month offer issued on lifecycle day 30."""
+    __tablename__ = "winback_offers"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    offered_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    redeemed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # ── periodic_prefs ──
