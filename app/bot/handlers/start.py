@@ -77,13 +77,8 @@ async def _show_welcome(message: Message, lang: str):
         ]
     )
 
-    # Send photo with caption + keyboard in one message
-    from aiogram.types import FSInputFile
-    try:
-        photo = FSInputFile("/app/static/welcome.jpg")
-        await message.answer_photo(photo, caption=text, reply_markup=kb)
-    except Exception:
-        await message.answer(text, reply_markup=kb)
+    # Text welcome keeps the whole onboarding flow editable in place.
+    await message.answer(text, reply_markup=kb)
 
 
 # ── Language selection ──

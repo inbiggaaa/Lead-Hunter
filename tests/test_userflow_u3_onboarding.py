@@ -93,3 +93,10 @@ def test_confirmation_lists_selected_service_names() -> None:
     assert "segment_labels.append" in confirmation
     assert "search_scope_services" in confirmation
     assert r'text += "\n".join(segment_labels)' in confirmation
+
+
+def test_welcome_is_text_so_flow_stays_in_place() -> None:
+    source = (ROOT / "app/bot/handlers/start.py").read_text()
+    welcome = source[source.index("async def _show_welcome"):source.index("# ── Language selection")]
+    assert "answer_photo" not in welcome
+    assert "await message.answer(text, reply_markup=kb)" in welcome
