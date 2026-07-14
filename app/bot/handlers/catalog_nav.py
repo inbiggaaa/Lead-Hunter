@@ -586,18 +586,30 @@ async def _show_confirmation(callback: CallbackQuery, state: FSMContext):
 
     await state.update_data(selected_segments=new_segments)
 
-    # Load country name for display
+    # Load selected service names and country name for display
+    segment_labels = []
     country_name = f"#{country_id}"
     async for session2 in get_session():
-        from app.db.models import Country as CountryModel
+        from app.db.models import Country as CountryModel, Segment as SegmentModel
         from sqlalchemy import select as sa_sel
         c_res = (await session2.execute(sa_sel(CountryModel).where(CountryModel.id == country_id))).scalar_one_or_none()
         if c_res:
             country_name = c_res.name_ru if lang == "ru" else (c_res.name_en or c_res.name_ru)
+        segments = (await session2.execute(
+            sa_sel(SegmentModel).where(SegmentModel.id.in_(new_segments))
+        )).scalars().all()
+        segment_by_id = {segment.id: segment for segment in segments}
+        for segment_id in new_segments:
+            segment = segment_by_id.get(segment_id)
+            if segment:
+                name = segment.title_ru if lang == "ru" else (segment.title_en or segment.title_ru)
+                segment_labels.append("• {} {}".format(segment.emoji or "", name).strip())
         break
 
     text = get_text(lang, "catalog_confirm") + "\n\n"
     text += get_text(lang, "catalog_new_services", count=len(new_segments)) + "\n"
+    text += get_text(lang, "search_scope_services") + "\n"
+    text += "\n".join(segment_labels) + "\n"
     if skipped:
         text += get_text(lang, "catalog_skipped", count=skipped) + "\n"
     text += get_text(lang, "catalog_country_line", country=country_name) + "\n"

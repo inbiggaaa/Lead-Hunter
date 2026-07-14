@@ -7,7 +7,7 @@ TEXTS = {
         "Выбери направление деятельности и географию — <b>Lead Hunter AI</b> будет "
         "отслеживать новые сообщения и находить подходящие запросы клиентов.\n\n"
         "В базе сервиса — более 5.000+ Telegram-чатов и каналов.\n\n"
-        "Узнавай о новых запросах раньше и первым предлагай свои услуги!"
+        "Узнавай о новых запросах раньше и первым предлагай свои услуги! "
         "Запусти первый поиск и бесплатно попробуй возможности тарифа Про "
         "в течение 3 дней.\n\n"
         "--//--//--\n\n"
@@ -16,7 +16,7 @@ TEXTS = {
         "Choose your industry and target location — <b>Lead Hunter AI</b> will "
         "monitor new messages and find relevant customer requests.\n\n"
         "The Lead Hunter AI database includes more than 5.000+ Telegram chats and channels.\n\n"
-        "Discover new opportunities sooner and be the first to offer your services!"
+        "Discover new opportunities sooner and be the first to offer your services! "
         "Launch your first search and try Pro features free for 3 days."
     ),
     "welcome_lang_prompt": "Выбери язык / Choose language:",

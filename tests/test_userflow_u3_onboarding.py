@@ -84,3 +84,12 @@ def test_stale_pre_redis_catalog_buttons_have_recovery_handlers() -> None:
     assert "async def recover_stale_continue" in source
     assert "async def recover_stale_back" in source
     assert "_selected_segments_from_keyboard" in source
+
+
+def test_confirmation_lists_selected_service_names() -> None:
+    source = (ROOT / "app/bot/handlers/catalog_nav.py").read_text()
+    confirmation = source[source.index("async def _show_confirmation"):source.index("async def on_subscribe")]
+    assert "Segment as SegmentModel" in confirmation
+    assert "segment_labels.append" in confirmation
+    assert "search_scope_services" in confirmation
+    assert r'text += "\n".join(segment_labels)' in confirmation
