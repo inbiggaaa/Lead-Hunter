@@ -57,6 +57,9 @@ PLAN_DISPLAY = {
 def plan_display_name(plan: str, lang: str) -> str:
     return PLAN_DISPLAY.get(lang, PLAN_DISPLAY["ru"]).get(plan, plan.capitalize())
 
+def period_display_name(period_key: str, lang: str) -> str:
+    return get_text(lang, f"period_{period_key}")
+
 def build_plan_screen(user, lang: str) -> tuple[str, InlineKeyboardMarkup]:
     """Единый рендер экрана «Тариф и оплата» (T3.1) — для menu:plan и /plan.
     Цены — из settings (PLANS); текущий план отмечается галочкой."""
@@ -132,27 +135,31 @@ async def on_plan_menu(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("pay_plan:"))
 async def on_period_select(callback: CallbackQuery):
     plan = callback.data.split(":")[1]
-    text = f"💳 {PLANS[plan]['name']} — выбери срок:\n\n"; kb_rows = []
+    lang = await _get_lang(callback)
+    text = get_text(lang, "payment_period_title", plan=plan_display_name(plan, lang)) + "\n\n"; kb_rows = []
     for key, p in PERIODS.items():
         info = _calc(plan, key)
-        text += f"• {p['label']}: ${info['total']:.0f} (${info['per_month']:.0f}/мес)\n"
-        kb_rows.append([InlineKeyboardButton(text=f"{p['label']} — ${info['total']:.0f}", callback_data=f"pay_period:{plan}:{key}")])
-    kb_rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="menu:plan")])
+        period = period_display_name(key, lang)
+        text += get_text(lang, "payment_period_line", period=period, total=f"{info['total']:.0f}", monthly=f"{info['per_month']:.0f}") + "\n"
+        kb_rows.append([InlineKeyboardButton(text=get_text(lang, "payment_period_button", period=period, total=f"{info['total']:.0f}"), callback_data=f"pay_period:{plan}:{key}")])
+    kb_rows.append([InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:plan")])
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows)); await callback.answer()
 
 @router.callback_query(F.data.startswith("pay_period:"))
 async def on_pay_method(callback: CallbackQuery):
     parts = callback.data.split(":"); plan, period_key = parts[1], parts[2]; info = _calc(plan, period_key)
-    text = f"💳 Оплата {info['plan_name']}\n\nСрок: {info['period_label']}\nСумма: ${info['total']:.0f}\n\nВыбери способ оплаты:"
+    lang = await _get_lang(callback)
+    text = get_text(lang, "payment_method_title", plan=plan_display_name(plan, lang), period=period_display_name(period_key, lang), total=f"{info['total']:.0f}")
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data=f"pay_exec:stars:{plan}:{period_key}")],
         [InlineKeyboardButton(text="₮ CryptoBot", callback_data=f"pay_exec:crypto:{plan}:{period_key}")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data=f"pay_plan:{plan}")]])
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data=f"pay_plan:{plan}")]])
     await callback.message.edit_text(text, reply_markup=kb); await callback.answer()
 
 @router.callback_query(F.data.startswith("pay_exec:"))
 async def on_pay_execute(callback: CallbackQuery):
     _, method, plan, period_key = callback.data.split(":"); info = _calc(plan, period_key)
+    lang = await _get_lang(callback)
     if method == "stars":
         try: await StarsPaymentProvider().create_invoice(callback.from_user.id, f"{plan}:{period_key}", info["stars"], info["total"])
         except Exception:
@@ -161,14 +168,14 @@ async def on_pay_execute(callback: CallbackQuery):
             await callback.message.edit_text(get_text(lang, "pay_error_body"),
                                              reply_markup=payment_error_kb(plan, period_key, "stars", lang))
     elif method == "crypto":
-        if not settings.cryptobot_api_token: await callback.answer("CryptoBot не настроен", show_alert=True); return
+        if not settings.cryptobot_api_token: await callback.answer(get_text(lang, "payment_crypto_unavailable"), show_alert=True); return
         try:
             r = await CryptoBotPaymentProvider().create_invoice(callback.from_user.id, f"{plan}:{period_key}", info["stars"], info["total"])
             pay_link = r.get("bot_invoice_url") or r.get("pay_url", "")
             await callback.message.edit_text(
-                f"💳 Счёт создан!\n\nСумма: ${info['total']:.0f}\n\nОплати по кнопке ниже — тариф активируется автоматически.",
+                get_text(lang, "payment_invoice_created", total=f"{info['total']:.0f}"),
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💳 Оплатить", url=pay_link)],
+                    [InlineKeyboardButton(text=get_text(lang, "payment_btn_pay"), url=pay_link)],
                     [InlineKeyboardButton(text="◀️ Назад", callback_data=f"pay_plan:{plan}")]]))
             from app.worker.payment_checker import add_pending
             await add_pending(r["invoice_id"], await _get_user_id(callback), plan, period_key, callback.from_user.id)
@@ -264,10 +271,12 @@ async def maybe_offer_annual(db_user_id: int, telegram_id: int, plan: str, perio
     await redis.set(flag, "1")
     year = _calc(plan, "1y")
     monthly_year = PLANS[plan]["usd_monthly"] * 12
-    text = (f"💡 Помесячно ты платишь ${monthly_year:.0f} за год.\n"
-            f"Годовая {PLANS[plan]['name']} — ${year['total']:.0f} (−20%, ≈2 месяца в подарок).")
+    async for s in get_session():
+        annual_user = await get_user(s, telegram_id)
+        lang = normalize_language(annual_user.language if annual_user else None)
+    text = get_text(lang, "annual_offer", monthly_total=f"{monthly_year:.0f}", plan=plan_display_name(plan, lang), year_total=f"{year['total']:.0f}")
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-        text=f"💳 Годовая — ${year['total']:.0f}", callback_data=f"pay_period:{plan}:1y")]])
+        text=get_text(lang, "annual_offer_btn", total=f"{year['total']:.0f}"), callback_data=f"pay_period:{plan}:1y")]])
     from aiogram import Bot
     bot = Bot(token=settings.bot_token)
     try:
@@ -297,5 +306,6 @@ async def _activate_by_msg(message, plan, period_key, method, invoice_id):
     from app.userbot.discovery import notify_new_subscription
     info2 = _calc(plan, period_key)
     asyncio.create_task(notify_new_subscription(message.from_user.username, message.from_user.id, plan, period_key, "direct", info2["total"]))
-    await message.answer(f"✅ Оплата прошла! Тариф: {info['plan_name']}\nСрок: {info['period_label']}\nДействует до: {exp.strftime('%d.%m.%Y')}")
+    lang = normalize_language(getattr(u, "language", None))
+    await message.answer(get_text(lang, "payment_success", plan=plan_display_name(plan, lang), period=period_display_name(period_key, lang), date=exp.strftime("%d.%m.%Y")))
     await maybe_offer_annual(user_db_id, message.from_user.id, plan, period_key)

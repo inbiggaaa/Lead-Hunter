@@ -73,7 +73,7 @@ async def _activate(data: dict, invoice_id: str):
     chat_id = data["chat_id"]
 
     # Calculate info
-    from app.bot.handlers.plan import _calc
+    from app.bot.handlers.plan import _calc, plan_display_name, period_display_name
     info = _calc(plan, period_key)
 
     async with async_session_factory() as session:
@@ -115,7 +115,7 @@ async def _activate(data: dict, invoice_id: str):
     try:
         await bot.send_message(
             chat_id,
-            get_text(lang, "payment_success", plan=info["plan_name"], period=info["period_label"], date=expires.strftime("%d.%m.%Y")),
+            get_text(lang, "payment_success", plan=plan_display_name(plan, lang), period=period_display_name(period_key, lang), date=expires.strftime("%d.%m.%Y")),
         )
     except Exception:
         logger.exception("Failed to notify user %d", user_id)
