@@ -215,7 +215,7 @@ async def on_winback_plan(callback: CallbackQuery):
         return
     info = _calc_winback(plan)
     expires = offer.expires_at.astimezone(datetime.timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
-    text = get_text(lang, "winback_payment_title", plan=plan_display_name(plan, lang), total=f"{info["total"]:.2f}", expires=expires)
+    text = get_text(lang, "winback_payment_title", plan=plan_display_name(plan, lang), total=f"{info['total']:.2f}", expires=expires)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data=f"winback:pay:stars:{plan}")],
         [InlineKeyboardButton(text="₮ CryptoBot", callback_data=f"winback:pay:crypto:{plan}")],
@@ -243,7 +243,7 @@ async def on_winback_pay(callback: CallbackQuery):
             return
         result = await CryptoBotPaymentProvider().create_invoice(callback.from_user.id, f"{plan}:3m:wb25", info["stars"], info["total"])
         pay_link = result.get("bot_invoice_url") or result.get("pay_url", "")
-        await callback.message.edit_text(get_text(lang, "payment_invoice_created", total=f"{info["total"]:.2f}"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_text(lang, "payment_btn_pay"), url=pay_link)]]))
+        await callback.message.edit_text(get_text(lang, "payment_invoice_created", total=f"{info['total']:.2f}"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_text(lang, "payment_btn_pay"), url=pay_link)]]))
         from app.worker.payment_checker import add_pending
         await add_pending(result["invoice_id"], user.id, plan, "3m", callback.from_user.id, promo="wb25", amount=info["total"])
     from app.analytics import record_event
