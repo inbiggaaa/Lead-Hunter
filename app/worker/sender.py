@@ -27,6 +27,37 @@ logger = logging.getLogger(__name__)
 RETRY_SCHEDULE = (None, 1, 4, 9)
 
 
+def _is_numeric_chat(chat: str) -> bool:
+    """True for private-group peer ids stored as «-100…» (no public @username)."""
+    return chat.lstrip("-").isdigit()
+
+
+def _chat_label(chat: str, title: str | None) -> str:
+    """Human-readable chat name: title preferred over the raw «-100…» id.
+
+    Mirrors the «My channels» screen convention (channels.py:_channel_label):
+    private groups added by internal id are shown by title; a bare «@-100…» is
+    a last resort only when no title is known.
+    """
+    title = (title or "").strip()
+    if title:
+        return title
+    return f"группа {chat}" if _is_numeric_chat(chat) else f"@{chat}"
+
+
+def _chat_link(chat: str, msg_id: int) -> str | None:
+    """t.me link to the message, or None when it cannot be linked.
+
+    Private groups (numeric peer id) use the t.me/c/ form; a link like
+    «t.me/-100…» is invalid and would render as broken text.
+    """
+    if _is_numeric_chat(chat):
+        if chat.startswith("-100"):
+            return f"https://t.me/c/{chat[4:]}/{msg_id}"
+        return None
+    return f"https://t.me/{chat}/{msg_id}"
+
+
 LATENCY_BUCKETS = (
     (300, "lt5m"), (1800, "lt30m"), (7200, "lt2h"), (float("inf"), "ge2h"),
 )
@@ -203,22 +234,27 @@ class NotificationSender:
         «>», «&» would make Telegram reject the whole request (lost lead).
         """
         urgency = "🔥 " if payload.get("is_urgent") else ""
-        chat = html.escape(payload.get("chat_username", "unknown") or "unknown")
+        chat = payload.get("chat_username", "unknown") or "unknown"
         msg_id = payload.get("message_id", 0)
         sender = payload.get("sender", None)
         sender = html.escape(sender) if sender else None
         text_preview = html.escape((payload.get("text", "") or "")[:500])
         is_free = payload.get("plan", "free") == "free"
 
+        # Chat title preferred over the raw «-100…» peer id (private groups).
+        label = html.escape(_chat_label(chat, payload.get("chat_title")))
+        link = _chat_link(chat, msg_id)
+        link = html.escape(link) if link else None
+
         msg = f"{urgency}🎯 <b>Я нашел нового клиента! | Lead Hunter AI</b>\n\n"
         msg += f"{text_preview}\n\n"
         if is_free:
             # D1 (DECISIONS #79): Free — no links at all. Chat name as plain
             # text, sender hidden entirely; the paywall line below is honest.
-            msg += f"💬 @{chat}"
+            msg += f"💬 {label}"
             msg += "\n\n🔒 Контакты скрыты. Этому клиенту сейчас ответит кто-то другой."
         else:
-            msg += f"💬 <a href='https://t.me/{chat}/{msg_id}'>@{chat}</a>"
+            msg += f"💬 <a href='{link}'>{label}</a>" if link else f"💬 {label}"
             if sender:
                 msg += f" от <a href='https://t.me/{sender}'>@{sender}</a>"
 
@@ -259,8 +295,9 @@ class NotificationSender:
             ])
         else:
             buttons = []
-            if chat:
-                buttons.append(InlineKeyboardButton(text="💬 Чат", url=f"https://t.me/{chat}/{msg_id}"))
+            chat_link = _chat_link(chat, msg_id) if chat else None
+            if chat_link:
+                buttons.append(InlineKeyboardButton(text="💬 Чат", url=chat_link))
             if sender:
                 buttons.append(InlineKeyboardButton(text="💬 Написать", url=f"https://t.me/{sender}"))
             if buttons:

@@ -209,6 +209,65 @@ def test_paid_keyboard_keeps_buttons(plan):
     assert "https://t.me/lead_author" in urls
 
 
+# ═══ Название чата вместо «-100…»-ID ═══
+
+def test_title_preferred_over_username():
+    """Есть chat_title → в тексте название, а не «@username» и не голый id."""
+    sender = _make_sender()
+    text = sender._format_notification(
+        _payload(plan="business", chat_username="test_chat", chat_title="Аренда Бали")
+    )
+    assert "Аренда Бали" in text
+    assert "@test_chat" not in text
+    # ссылка на сообщение всё равно ведёт по username
+    assert "https://t.me/test_chat/77" in text
+
+
+def test_private_group_shows_title_not_numeric_id():
+    """Приватная группа (-100…) без @username: название вместо голого id."""
+    sender = _make_sender()
+    text = sender._format_notification(_payload(
+        plan="business", chat_username="-1002046178126",
+        chat_title="TravelAsk — Пхукет", message_id=124035,
+    ))
+    assert "TravelAsk — Пхукет" in text
+    assert "-1002046178126" not in text
+    # «-100…» линк невалиден как t.me/<id> → используется t.me/c/<internal>
+    assert "https://t.me/c/2046178126/124035" in text
+    assert "https://t.me/-100" not in text
+
+
+def test_private_group_free_plain_title():
+    """Free + приватная группа: название plain-текстом, ни одной ссылки."""
+    sender = _make_sender()
+    text = sender._format_notification(_payload(
+        plan="free", chat_username="-1002046178126", chat_title="TravelAsk — Пхукет",
+    ))
+    assert "TravelAsk — Пхукет" in text
+    assert "t.me" not in text
+    assert "-1002046178126" not in text
+
+
+def test_private_group_no_title_falls_back():
+    """Нет ни title, ни @username: показываем «группа -100…», а не голый id-как-username."""
+    sender = _make_sender()
+    text = sender._format_notification(_payload(
+        plan="business", chat_username="-1002046178126", chat_title=None,
+    ))
+    assert "группа -1002046178126" in text
+
+
+def test_private_group_keyboard_uses_c_link():
+    """Кнопка «💬 Чат» приватной группы ведёт по t.me/c/, не по битому t.me/-100."""
+    sender = _make_sender()
+    kb = sender._build_keyboard(_payload(
+        plan="business", chat_username="-1002046178126", message_id=124035,
+    ))
+    urls = _keyboard_urls(kb)
+    assert "https://t.me/c/2046178126/124035" in urls
+    assert not any(u.startswith("https://t.me/-100") for u in urls)
+
+
 # ═══ T1.2: дневной лимит уведомлений отменён (#81) ═══
 
 

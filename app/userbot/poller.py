@@ -546,6 +546,7 @@ class ChannelPoller:
                     message_id=msg_id,
                     text=msg.message,
                     candidate_segments=verified,
+                    chat_title=new_title,
                     account_id=account.account_id,
                     is_urgent=result.is_urgent,
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
@@ -562,6 +563,7 @@ class ChannelPoller:
                     message_id=msg_id,
                     text=msg.message,
                     candidate_segments=[],
+                    chat_title=new_title,
                     account_id=account.account_id,
                     is_urgent=result.is_urgent,
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
@@ -820,6 +822,7 @@ class ChannelPoller:
                 is_urgent=match.is_urgent,
                 sender=match.sender,
                 msg_ts=match.msg_ts,
+                chat_title=match.chat_title,
             )
 
         if matches:
@@ -1766,6 +1769,7 @@ class ChannelPoller:
     async def _dispatch(
         self, chat_username, message_text, message_id,
         matched_segments, is_urgent, sender, msg_ts: float | None = None,
+        chat_title: str | None = None,
     ):
         """Find interested users matching BOTH segment AND geo, push to queue."""
         from app.cache.subscription_cache import (
@@ -1854,6 +1858,7 @@ class ChannelPoller:
                 "plan": user.get("plan", "free"),
                 "digest_mode": user.get("digest_mode", "instant"),
                 "chat_username": chat_username,
+                "chat_title": chat_title,
                 "text": message_text,
                 "sender": sender,
                 "message_id": message_id,

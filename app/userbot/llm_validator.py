@@ -271,6 +271,7 @@ class PendingMatch:
     message_id: int
     text: str
     candidate_segments: list[str]
+    chat_title: str | None = None  # human-readable name for the notification
     account_id: int = 0  # which userbot account found this match
     is_urgent: bool = False
     sender: str | None = None
