@@ -1,0 +1,49 @@
+name: Deploy
+
+# Runs only after CI succeeds on main (or manual dispatch).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy via SSH
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT != '' && secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            DEPLOY_PATH="${{ vars.DEPLOY_PATH }}"
+            if [ -z "$DEPLOY_PATH" ]; then
+              DEPLOY_PATH="/opt/LeadHunter"
+            fi
+            cd "$DEPLOY_PATH"
+            echo "[deploy] host=$(hostname) path=$DEPLOY_PATH"
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+            chmod +x scripts/deploy.sh
+            bash scripts/deploy.sh

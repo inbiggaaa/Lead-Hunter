@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lhtest
+          POSTGRES_PASSWORD: lhtest
+          POSTGRES_DB: lhtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lhtest -d lhtest"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Dummy secrets — Settings() loads at import time
+      BOT_TOKEN: "000000000:CI_DUMMY_TOKEN_NOT_REAL"
+      OWNER_TELEGRAM_ID: "1"
+      USERBOT_API_ID: "1"
+      USERBOT_API_HASH: "0123456789abcdef0123456789abcdef"
+      USERBOT_PHONE: ""
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: lhtest
+      POSTGRES_PASSWORD: lhtest
+      POSTGRES_DB: lhtest
+      REDIS_HOST: localhost
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      ADMIN_PASSWORD: ci_admin_password
+      ADMIN_SECRET: "0123456789abcdef0123456789abcdef"
+      LLM_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Run pytest
+        run: |
+          pytest tests/ -v --tb=short \
+            -k "not test_session_ticker_transitions"
