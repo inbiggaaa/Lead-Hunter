@@ -255,36 +255,44 @@ async def test_get_session_state_default(mock_get_redis):
 
 @patch("app.userbot.poller.get_redis")
 async def test_session_sleeping_skips_tiers(mock_get_redis):
-    """SLEEPING + 1 healthy → Warm/Cold/Dormant пропускаются."""
+    """1 healthy → Warm/Cold/Dormant пропускаются (_should_poll_tier is async)."""
     mock_redis = AsyncMock()
     mock_redis.get = AsyncMock(side_effect=lambda k: (
-        b"SLEEPING" if k.startswith("session:state:") else None
+        "SLEEPING" if k.startswith("session:state:") else None
     ))
     mock_redis.aclose = AsyncMock()
     mock_get_redis.return_value = mock_redis
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
-    # Hot always runs regardless
-    # Warm/Cold/Dormant: need 2+ healthy AND not SLEEPING
-    # With 1 account the count check fails first
-    assert poller._should_poll_tier("Warm") is False
+    # Warm/Cold/Dormant: need 2+ CB-free accounts
+    assert await poller._should_poll_tier("Warm") is False
 
 
 @patch("app.userbot.poller.get_redis")
 async def test_session_paused_skips_polling(mock_get_redis):
-    """PAUSED пропускает не-Hot тиры."""
+    """Hot tier always allowed by _should_poll_tier; PAUSED skips in _run_tier_once."""
     mock_redis = AsyncMock()
     mock_redis.get = AsyncMock(side_effect=lambda k: (
-        b"PAUSED" if k.startswith("session:state:") else None
+        "PAUSED" if k.startswith("session:state:") else None
     ))
     mock_redis.aclose = AsyncMock()
     mock_get_redis.return_value = mock_redis
 
     poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
-    # Hot still runs even when PAUSED
-    assert poller._should_poll_tier("Hot") is True
+    account = _make_account(1)
+    poller.pool.accounts = [account]
+    assert await poller._should_poll_tier("Hot") is True
+
+    mock_batch = AsyncMock(return_value=(1, 0))
+    poller._poll_batch = mock_batch
+    channels = [{"chat_username": "ch1", "title": "C1"}]
+    with patch.object(
+        poller, "_distribute", new=AsyncMock(return_value=[(account, channels)]),
+    ):
+        await poller._run_tier_once("Hot", channels)
+    # PAUSED → per-account session guard skips _poll_batch
+    mock_batch.assert_not_called()
 
 
 @patch("app.userbot.poller.get_redis")
@@ -292,17 +300,22 @@ async def test_run_tier_once_active_calls_poll_batch(mock_get_redis):
     """ACTIVE → вызывает _poll_batch."""
     mock_redis = AsyncMock()
     mock_redis.get = AsyncMock(
-        side_effect=lambda k: b"ACTIVE" if k.startswith("session:state:") else None
+        side_effect=lambda k: "ACTIVE" if k.startswith("session:state:") else None
     )
     mock_redis.aclose = AsyncMock()
     mock_get_redis.return_value = mock_redis
 
     poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
+    account = _make_account(1)
+    poller.pool.accounts = [account]
     mock_batch = AsyncMock(return_value=(1, 0))
     poller._poll_batch = mock_batch
+    channels = [{"chat_username": "ch1", "title": "C1"}]
 
-    await poller._run_tier_once("Hot", mock_batch)
+    with patch.object(
+        poller, "_distribute", new=AsyncMock(return_value=[(account, channels)]),
+    ):
+        await poller._run_tier_once("Hot", channels)
     mock_batch.assert_called_once()
 
 
@@ -310,18 +323,25 @@ async def test_run_tier_once_active_calls_poll_batch(mock_get_redis):
 async def test_run_tier_once_try_lock_skips_polling(mock_get_redis):
     """try-lock: если lock уже занят — пропускаем."""
     mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.get = AsyncMock(
+        side_effect=lambda k: "ACTIVE" if k.startswith("session:state:") else None
+    )
     mock_redis.aclose = AsyncMock()
     mock_get_redis.return_value = mock_redis
 
     poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
+    account = _make_account(1)
+    poller.pool.accounts = [account]
     mock_batch = AsyncMock()
-    # Simulate locked — lock the account
+    poller._poll_batch = mock_batch
+    channels = [{"chat_username": "ch1", "title": "C1"}]
     lock = poller._account_locks.setdefault(1, asyncio.Lock())
     await lock.acquire()
 
-    await poller._run_tier_once("Hot", mock_batch)
+    with patch.object(
+        poller, "_distribute", new=AsyncMock(return_value=[(account, channels)]),
+    ):
+        await poller._run_tier_once("Hot", channels)
     mock_batch.assert_not_called()
     lock.release()
 
@@ -330,16 +350,23 @@ async def test_run_tier_once_try_lock_skips_polling(mock_get_redis):
 async def test_run_tier_once_unlocked_calls_poll_batch(mock_get_redis):
     """Unlocked → вызывает _poll_batch."""
     mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.get = AsyncMock(
+        side_effect=lambda k: "ACTIVE" if k.startswith("session:state:") else None
+    )
     mock_redis.aclose = AsyncMock()
     mock_get_redis.return_value = mock_redis
 
     poller = ChannelPoller()
-    poller.pool.accounts = [_make_account(1)]
+    account = _make_account(1)
+    poller.pool.accounts = [account]
     mock_batch = AsyncMock(return_value=(1, 0))
     poller._poll_batch = mock_batch
+    channels = [{"chat_username": "ch1", "title": "C1"}]
 
-    await poller._run_tier_once("Hot", mock_batch)
+    with patch.object(
+        poller, "_distribute", new=AsyncMock(return_value=[(account, channels)]),
+    ):
+        await poller._run_tier_once("Hot", channels)
     mock_batch.assert_called_once()
 
 

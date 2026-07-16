@@ -204,7 +204,7 @@ async def test_budget_exceeded_stops_poll_batch():
     account = _make_account(1)
     polled = []
 
-    async def _poll_channel(acc, username, tier_name=None):
+    async def _poll_channel(acc, username, tier_name=None, db_title=None):
         polled.append(username)
         raise BudgetExceeded(account_id=1, used=10001, limit=10000)
 
