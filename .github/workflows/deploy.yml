@@ -16,6 +16,8 @@ jobs:
     name: Deploy via SSH
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # Manual approval: Settings → Environments → production → Required reviewers
+    environment: production
     if: >
       github.event_name == 'workflow_dispatch' ||
       (

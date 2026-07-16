@@ -11,9 +11,29 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Dummy secrets — Settings() loads at import time
+  BOT_TOKEN: "000000000:CI_DUMMY_TOKEN_NOT_REAL"
+  OWNER_TELEGRAM_ID: "1"
+  USERBOT_API_ID: "1"
+  USERBOT_API_HASH: "0123456789abcdef0123456789abcdef"
+  USERBOT_PHONE: ""
+  POSTGRES_HOST: localhost
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: lhtest
+  POSTGRES_PASSWORD: lhtest
+  POSTGRES_DB: lhtest
+  REDIS_HOST: localhost
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  ADMIN_PASSWORD: ci_admin_password
+  ADMIN_SECRET: "0123456789abcdef0123456789abcdef"
+  LLM_ENABLED: "false"
+  PYTHONPATH: ${{ github.workspace }}
+
 jobs:
-  test:
-    name: Tests
+  pytest:
+    name: Pytest
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -42,26 +62,6 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
-    env:
-      # Dummy secrets — Settings() loads at import time
-      BOT_TOKEN: "000000000:CI_DUMMY_TOKEN_NOT_REAL"
-      OWNER_TELEGRAM_ID: "1"
-      USERBOT_API_ID: "1"
-      USERBOT_API_HASH: "0123456789abcdef0123456789abcdef"
-      USERBOT_PHONE: ""
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: lhtest
-      POSTGRES_PASSWORD: lhtest
-      POSTGRES_DB: lhtest
-      REDIS_HOST: localhost
-      REDIS_PORT: "6379"
-      REDIS_DB: "0"
-      ADMIN_PASSWORD: ci_admin_password
-      ADMIN_SECRET: "0123456789abcdef0123456789abcdef"
-      LLM_ENABLED: "false"
-      PYTHONPATH: ${{ github.workspace }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -76,6 +76,138 @@ jobs:
         run: pip install --upgrade pip && pip install -r requirements.txt
 
       - name: Run pytest
+        run: pytest tests/ -v --tb=short
+
+  alembic:
+    name: Alembic
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lhtest
+          POSTGRES_PASSWORD: lhtest
+          POSTGRES_DB: lhtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lhtest -d lhtest"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Single Alembic head
         run: |
-          pytest tests/ -v --tb=short \
-            -k "not test_session_ticker_transitions"
+          heads=$(alembic heads | wc -l | tr -d ' ')
+          if [ "$heads" != "1" ]; then
+            echo "Expected exactly 1 Alembic head, got $heads:"
+            alembic heads
+            exit 1
+          fi
+
+      - name: Upgrade to head
+        run: alembic upgrade head
+
+      - name: Downgrade one revision then upgrade (reversibility smoke)
+        run: |
+          alembic downgrade -1
+          alembic upgrade head
+
+  admin:
+    name: Admin panel
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: admin-panel/package-lock.json
+
+      - name: Install, lint, build
+        working-directory: admin-panel
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t lh-ci:test .
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if tracked secrets / session files
+        run: |
+          set -euo pipefail
+          bad=$(git ls-files | grep -E '(^|/)\.env$|\.session$|\.pem$|id_rsa$|id_ed25519$' || true)
+          if [ -n "$bad" ]; then
+            echo "Tracked secret or session files:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - name: Scan PR/push diff for real-looking credential assignments
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+            range="${base}...${head}"
+          else
+            # push / workflow_dispatch: scan last commit vs its parent when available
+            if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+              range="HEAD^...HEAD"
+            else
+              range="HEAD"
+            fi
+          fi
+
+          # Ignore CI dummy placeholders; flag other BOT_TOKEN= / POSTGRES_PASSWORD= values
+          hits=$(git diff -U0 --unified=0 "$range" -- . \
+            | grep -E '^\+.*(BOT_TOKEN|POSTGRES_PASSWORD|ADMIN_SECRET|USERBOT_API_HASH)=' \
+            | grep -vE 'CI_DUMMY|lhtest|0123456789abcdef0123456789abcdef|ci_admin_password' \
+            || true)
+
+          if [ -n "$hits" ]; then
+            echo "Possible secrets introduced in diff:"
+            echo "$hits"
+            exit 1
+          fi

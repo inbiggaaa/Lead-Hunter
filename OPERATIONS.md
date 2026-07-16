@@ -241,3 +241,19 @@ docker compose logs worker --tail=20 | grep "circuit breaker closed\|Match in @"
 гарантией, что worker останется выключенным. Для миграций использовать изолированный
 `docker run` в существующей сети. После любой mutating Compose-команды проверять
 `docker compose ps --all` и повторно останавливать worker до продолжения.
+
+---
+
+## 8. CI / Deploy (GitHub Actions)
+
+**CI** (`.github/workflows/ci.yml`) — release gate на push/PR в `main`:
+параллельные jobs `pytest` (полный suite, без deselect), `alembic` (один head +
+upgrade/downgrade-1/upgrade), `admin` (`npm ci` + lint + build), `docker build`,
+`secrets` (tracked `.env`/`.session` + scan диффа на credential-looking assignments).
+
+**Deploy** (`.github/workflows/deploy.yml`) — после успешного CI на push в `main`
+(или `workflow_dispatch`). Job использует GitHub Environment **`production`**:
+деплой **ждёт ручного approve** (Settings → Environments → production → Required
+reviewers). Затем SSH → `git pull` → `scripts/deploy.sh`.
+
+Пока секреты `DEPLOY_*` не заведены — SSH-шаг упадёт после approve; это ожидаемо.

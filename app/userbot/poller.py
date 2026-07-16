@@ -1122,6 +1122,77 @@ class ChannelPoller:
 
     # ═══════════════ SESSION MANAGEMENT ═══════════════
 
+    async def _session_ticker_step(self, account_id: int) -> float:
+        """One session-state cycle. Returns seconds to sleep before the next step.
+
+        Extracted from `_session_ticker` so tests can run a single tick without
+        awaiting the infinite loop (hang risk with live Redis).
+        """
+        # Proactive guard: if this is the only CB-free account, force ACTIVE
+        # regardless of what Redis says. Fixes stale PAUSED states that
+        # were written before the guard existed.
+        cb_free = 0
+        for acc in self.pool.accounts:
+            if not acc.is_healthy:
+                continue
+            if await limiter.is_circuit_open(acc.account_id):
+                continue
+            cb_free += 1
+
+        is_only_healthy = (cb_free <= 1)
+
+        redis = await get_redis()
+        state = await redis.get(f"session:state:{account_id}")
+        until_raw = await redis.get(f"session:until:{account_id}")
+
+        now = time.time()
+
+        # Override stale PAUSED/SLEEPING immediately
+        if is_only_healthy and state in ("PAUSED", "SLEEPING"):
+            logger.info(
+                "ONLY HEALTHY: account %d is %s but only %d CB-free — "
+                "forcing ACTIVE immediately",
+                account_id, state, cb_free,
+            )
+            state = "ACTIVE"
+            until_raw = None  # force immediate transition
+
+        if state and until_raw:
+            until = float(until_raw)
+            if now < until:
+                remaining = until - now
+                logger.info(
+                    "Account %d: %s — sleeping %.0fs until transition",
+                    account_id, state, remaining,
+                )
+                return remaining
+
+        # State expired or missing — transition
+        new_state, new_until = self._next_session_state(
+            account_id, prev_state=state, now=now,
+        )
+
+        # Guard: never pause/sleep the last healthy (non-CB) account
+        if is_only_healthy and new_state in ("PAUSED", "SLEEPING"):
+            logger.info(
+                "ONLY HEALTHY: overriding %s → ACTIVE for account %d "
+                "(only %d CB-free account(s))",
+                new_state, account_id, cb_free,
+            )
+            new_state = "ACTIVE"
+            new_until = now + random.uniform(20 * 60, 60 * 60)
+
+        redis = await get_redis()
+        await redis.set(f"session:state:{account_id}", new_state)
+        await redis.set(f"session:until:{account_id}", str(new_until))
+
+        logger.info(
+            "Account %d: transitioned to %s (until %s UTC)",
+            account_id, new_state,
+            time.strftime("%H:%M:%S", time.gmtime(new_until)),
+        )
+        return max(0.0, new_until - time.time())
+
     async def _session_ticker(self, account_id: int):
         """Sole owner of session state transitions for one account.
 
@@ -1133,70 +1204,8 @@ class ChannelPoller:
         would have zero polling capacity.
         """
         while True:
-            # Proactive guard: if this is the only CB-free account, force ACTIVE
-            # regardless of what Redis says. Fixes stale PAUSED states that
-            # were written before the guard existed.
-            cb_free = 0
-            for acc in self.pool.accounts:
-                if not acc.is_healthy:
-                    continue
-                if await limiter.is_circuit_open(acc.account_id):
-                    continue
-                cb_free += 1
-
-            is_only_healthy = (cb_free <= 1)
-
-            redis = await get_redis()
-            state = await redis.get(f"session:state:{account_id}")
-            until_raw = await redis.get(f"session:until:{account_id}")
-
-            now = time.time()
-
-            # Override stale PAUSED/SLEEPING immediately
-            if is_only_healthy and state in ("PAUSED", "SLEEPING"):
-                logger.info(
-                    "ONLY HEALTHY: account %d is %s but only %d CB-free — "
-                    "forcing ACTIVE immediately",
-                    account_id, state, cb_free,
-                )
-                state = "ACTIVE"
-                until_raw = None  # force immediate transition
-
-            if state and until_raw:
-                until = float(until_raw)
-                if now < until:
-                    remaining = until - now
-                    logger.info(
-                        "Account %d: %s — sleeping %.0fs until transition",
-                        account_id, state, remaining,
-                    )
-                    await asyncio.sleep(remaining)
-                    continue
-
-            # State expired or missing — transition
-            new_state, new_until = self._next_session_state(
-                account_id, prev_state=state, now=now,
-            )
-
-            # Guard: never pause/sleep the last healthy (non-CB) account
-            if is_only_healthy and new_state in ("PAUSED", "SLEEPING"):
-                logger.info(
-                    "ONLY HEALTHY: overriding %s → ACTIVE for account %d "
-                    "(only %d CB-free account(s))",
-                    new_state, account_id, cb_free,
-                )
-                new_state = "ACTIVE"
-                new_until = now + random.uniform(20 * 60, 60 * 60)
-
-            redis = await get_redis()
-            await redis.set(f"session:state:{account_id}", new_state)
-            await redis.set(f"session:until:{account_id}", str(new_until))
-
-            logger.info(
-                "Account %d: transitioned to %s (until %s UTC)",
-                account_id, new_state,
-                time.strftime("%H:%M:%S", time.gmtime(new_until)),
-            )
+            sleep_for = await self._session_ticker_step(account_id)
+            await asyncio.sleep(sleep_for)
 
     async def _get_session_state(self, account_id: int) -> str:
         """Read current session state. Tiers call this — no side effects."""

@@ -197,9 +197,10 @@ async def test_handle_account_failure_no_exception_when_last_account():
 # ═══════════════════════════════════════════════════════════════════
 
 
+@patch("app.userbot.poller.limiter")
 @patch("app.userbot.poller.get_redis")
-async def test_session_ticker_transitions(mock_get_redis):
-    """_session_ticker устанавливает состояние в Redis."""
+async def test_session_ticker_transitions(mock_get_redis, mock_limiter):
+    """One ticker step sets ACTIVE in Redis (no infinite loop)."""
     redis_state = {}
     redis_ttl = {}
 
@@ -217,14 +218,16 @@ async def test_session_ticker_transitions(mock_get_redis):
             redis_state.pop(k, None)
 
     mock_get_redis.return_value = FakeRedis()
+    mock_limiter.is_circuit_open = AsyncMock(return_value=False)
 
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
 
-    # Initial: no state → becomes ACTIVE
-    await poller._session_ticker(1)
+    # Initial: no state → becomes ACTIVE (single step, not the infinite loop)
+    sleep_for = await poller._session_ticker_step(1)
     assert redis_state["session:state:1"] == "ACTIVE"
     assert "session:until:1" in redis_state
+    assert sleep_for > 0
 
 
 @patch("app.userbot.poller.get_redis")
