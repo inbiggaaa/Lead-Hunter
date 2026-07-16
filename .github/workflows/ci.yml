@@ -215,8 +215,9 @@ jobs:
             fi
           fi
 
-          # Flag added credential assignments (skip comments and CI dummy values).
+          # Flag added credential assignments in code/config only (not docs prose).
           hits=$(git diff -U0 --unified=0 "$range" -- . \
+            ':(exclude)*.md' ':(exclude)docs/**' \
             | grep -E '^\+' \
             | grep -vE '^\+\s*#' \
             | grep -E '(BOT_TOKEN|POSTGRES_PASSWORD|ADMIN_SECRET|USERBOT_API_HASH)=' \
