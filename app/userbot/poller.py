@@ -587,7 +587,6 @@ class ChannelPoller:
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
                     sender_name=_sender_display_name(msg.sender),
                     skip_llm=is_high_confidence_demand(msg.message),
-                    msg_ts=msg.date.timestamp() if msg.date else None,
                 ))
             elif self._matches_personal_keyword(msg.message):
                 # Вариант Б: no segment match, but a personal user keyword hit.
@@ -606,7 +605,6 @@ class ChannelPoller:
                     sender_name=_sender_display_name(msg.sender),
                     skip_llm=True,
                     keyword_only=True,
-                    msg_ts=msg.date.timestamp() if msg.date else None,
                 ))
             else:
                 await self._log_unmatched(channel_username, msg.message, msg_id)
@@ -859,7 +857,6 @@ class ChannelPoller:
                 matched_segments=active_segments,
                 is_urgent=match.is_urgent,
                 sender=match.sender,
-                msg_ts=match.msg_ts,
                 chat_title=match.chat_title,
                 sender_name=match.sender_name,
             )
@@ -1807,7 +1804,7 @@ class ChannelPoller:
 
     async def _dispatch(
         self, chat_username, message_text, message_id,
-        matched_segments, is_urgent, sender, msg_ts: float | None = None,
+        matched_segments, is_urgent, sender,
         chat_title: str | None = None, sender_name: str | None = None,
     ):
         """Find interested users matching BOTH segment AND geo, push to queue."""
@@ -1907,7 +1904,6 @@ class ChannelPoller:
                 "content_hash": compute_content_hash(chat_username, message_text),
                 "is_urgent": is_urgent,
                 "matched_segments": matched_names,
-                "msg_ts": msg_ts,  # B6: метрика латентности (sender)
             })
             from app.analytics import record_once_event
             await record_once_event("first_lead_matched", user_id=user["user_id"], language=lang, plan=user.get("plan", "free"), acquisition_source=user.get("source", "direct"), context={"lead_id": message_hash})

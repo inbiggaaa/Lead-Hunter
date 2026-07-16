@@ -14,7 +14,7 @@ from app.cache import get_redis
 
 logger = logging.getLogger(__name__)
 EVENT_TTL = 180 * 86400
-ALLOWED_CONTEXT = {"category_id", "service_count", "country_id", "city_count", "mode", "trigger", "target_plan", "period", "method", "success", "lead_id", "latency_bucket", "lifecycle_day", "matched", "delivered", "missed", "discount"}
+ALLOWED_CONTEXT = {"category_id", "service_count", "country_id", "city_count", "mode", "trigger", "target_plan", "period", "method", "success", "lead_id", "lifecycle_day", "matched", "delivered", "missed", "discount"}
 
 
 async def record_event(name: str, user=None, *, user_id: int | None = None,

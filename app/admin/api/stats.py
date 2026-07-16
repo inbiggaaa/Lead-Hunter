@@ -1,13 +1,20 @@
 """Dashboard stats API."""
 
+import json
+import logging
+
+import aiohttp
 from fastapi import APIRouter
 from sqlalchemy import select, func, desc
 
+from app.config import settings
 from app.db.models import (
     User, Subscription, SentLog, LLMDecision,
     UserSubscription, SubscriptionCity, Country, City, Segment,
 )
 from app.db.session import async_session_factory
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -15,6 +22,52 @@ router = APIRouter(prefix="/api/stats", tags=["stats"])
 DEEPSEEK_INPUT_PRICE = 0.27   # $0.27 per 1M input
 DEEPSEEK_OUTPUT_PRICE = 1.10  # $1.10 per 1M output
 AVG_COST_PER_1M = 0.40        # blended estimate for display
+
+# DeepSeek exposes only the account balance per API key (no spend-history API):
+# https://api-docs.deepseek.com/api/get-user-balance
+DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
+_BALANCE_CACHE_KEY = "stats:deepseek:balance"
+_BALANCE_TTL = 300  # seconds — avoid hitting DeepSeek on every dashboard refresh
+
+
+async def _deepseek_balance() -> dict | None:
+    """Real balance of the LLM-validation API key, straight from DeepSeek.
+
+    Cached 5 min in Redis. Returns None when the key is unset or the call
+    fails — the dashboard then shows «—» rather than a stale/fake number.
+    """
+    if not settings.deepseek_api_key:
+        return None
+    from app.cache import get_redis
+    redis = await get_redis()
+    cached = await redis.get(_BALANCE_CACHE_KEY)
+    if cached:
+        return json.loads(cached)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                DEEPSEEK_BALANCE_URL,
+                headers={"Authorization": f"Bearer {settings.deepseek_api_key}",
+                         "Accept": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning("DeepSeek balance HTTP %s", resp.status)
+                    return None
+                data = await resp.json()
+    except Exception:
+        logger.warning("DeepSeek balance fetch failed", exc_info=True)
+        return None
+    result = {
+        "is_available": data.get("is_available"),
+        "infos": [
+            {"currency": b.get("currency"), "total": b.get("total_balance"),
+             "granted": b.get("granted_balance"), "topped_up": b.get("topped_up_balance")}
+            for b in data.get("balance_infos", [])
+        ],
+    }
+    await redis.set(_BALANCE_CACHE_KEY, json.dumps(result), ex=_BALANCE_TTL)
+    return result
 
 
 @router.get("/dashboard")
@@ -72,24 +125,12 @@ async def dashboard_stats():
             )
         ).all()
 
-    # B6: латентность доставки за сегодня (UTC) — счётчики пишет sender
-    import time as _time
-
-    from app.cache import get_redis
-    redis = await get_redis()
-    date = _time.strftime("%Y-%m-%d", _time.gmtime())
-    latency = {
-        bucket: int(await redis.get(f"stats:latency:{date}:{bucket}") or 0)
-        for bucket in ("lt5m", "lt30m", "lt2h", "ge2h")
-    }
-
     return {
         "total_users": total,
         "new_today": new_today,
         "active_subscriptions": active_subs,
         "plans": plans,
         "sent_today": sent_today,
-        "latency_today": latency,
         "new_users_30d": [
             {"date": str(row.date), "count": row.count} for row in new_by_day
         ],
@@ -179,8 +220,11 @@ async def llm_stats():
         cost_today = _cost(prompt_today or 0, completion_today or 0)
         cost_month = _cost(prompt_month or 0, completion_month or 0)
 
+    balance = await _deepseek_balance()
+
     return {
         "total_decisions": total_decisions,
+        "balance": balance,
         "decisions_today": decisions_today,
         "tokens": {
             "all_time": tokens_all or 0,

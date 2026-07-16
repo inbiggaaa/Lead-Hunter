@@ -284,8 +284,6 @@ class PendingMatch:
     # Matched only by a personal user keyword (no segments) — always skips
     # LLM and the reality filter: personal keywords work unconditionally.
     keyword_only: bool = False
-    # B6: unix-время сообщения в Telegram — для метрики латентности доставки
-    msg_ts: float | None = None
 
 
 # ═══════════════════════════════════════════════════════════════

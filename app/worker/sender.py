@@ -60,34 +60,6 @@ def _chat_link(chat: str, msg_id: int) -> str | None:
     return f"https://t.me/{chat}/{msg_id}"
 
 
-LATENCY_BUCKETS = (
-    (300, "lt5m"), (1800, "lt30m"), (7200, "lt2h"), (float("inf"), "ge2h"),
-)
-
-
-async def record_latency(msg_ts: float | None) -> None:
-    """B6: дистрибуция «время сообщения → доставка» — данные для решения по
-    event-push (fable_core_plan C1). Ключи stats:latency:{date}:{bucket},
-    TTL 14д. Ошибки Redis не мешают доставке."""
-    if not msg_ts:
-        return
-    import time
-
-    lag = time.time() - msg_ts
-    bucket = next(name for limit, name in LATENCY_BUCKETS if lag < limit)
-    date = time.strftime("%Y-%m-%d", time.gmtime())
-    try:
-        from app.cache import get_redis
-        redis = await get_redis()
-        key = f"stats:latency:{date}:{bucket}"
-        pipe = redis.pipeline()
-        pipe.incrby(key, 1)
-        pipe.expire(key, 14 * 86400)
-        await pipe.execute()
-    except Exception:
-        logger.warning("Latency stat write failed", exc_info=True)
-
-
 async def push_dead_letter(payload: dict) -> None:
     """Store an undeliverable notification in the dead-letter queue."""
     from app.cache import get_redis
@@ -218,7 +190,6 @@ class NotificationSender:
         await increment_daily_stats(user_id, today, "sent")
         from app.analytics import record_once_event
         await record_once_event("first_lead_delivered", user_id=user_id, language=payload.get("lang"), plan=payload.get("plan"), context={"lead_id": message_hash})
-        await record_latency(payload.get("msg_ts"))
 
     async def _deliver_with_retry(self, payload: dict, text: str, kb) -> bool:
         """Deliver with the DECISIONS #26 policy.

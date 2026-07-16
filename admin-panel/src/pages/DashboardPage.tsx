@@ -24,20 +24,20 @@ interface DashboardData {
   active_subscriptions: number;
   plans: Record<string, string>;
   sent_today: number;
-  latency_today?: Record<string, number>;
   new_users_30d: { date: string; count: number }[];
 }
 
-const LATENCY_LABELS: [string, string][] = [
-  ["lt5m", "< 5 мин"],
-  ["lt30m", "5–30 мин"],
-  ["lt2h", "30 мин – 2 ч"],
-  ["ge2h", "> 2 ч"],
-];
+interface DeepSeekBalanceInfo {
+  currency: string;
+  total: string;
+  granted: string;
+  topped_up: string;
+}
 
 interface LLMStats {
   total_decisions: number;
   decisions_today: number;
+  balance: { is_available: boolean; infos: DeepSeekBalanceInfo[] } | null;
   tokens: {
     all_time: number;
     today: number;
@@ -88,6 +88,24 @@ function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+const CURRENCY_SYMBOL: Record<string, string> = { USD: "$", CNY: "¥" };
+
+function money(currency: string, amount: string): string {
+  const sym = CURRENCY_SYMBOL[currency];
+  return sym ? `${sym}${amount}` : `${amount} ${currency}`;
+}
+
+function fmtBalance(balance: LLMStats["balance"]): string {
+  if (!balance || balance.infos.length === 0) return "—";
+  return balance.infos.map((b) => money(b.currency, b.total)).join(" / ");
+}
+
+function balanceSubtitle(balance: LLMStats["balance"]): string {
+  if (!balance || balance.infos.length === 0) return "баланс недоступен";
+  const b = balance.infos[0];
+  return `пополнено ${money(b.currency, b.topped_up)} · грант ${money(b.currency, b.granted)}`;
 }
 
 export default function DashboardPage() {
@@ -142,27 +160,6 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
-
-      {/* === B6: Латентность доставки (сообщение → уведомление) === */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            Латентность доставки сегодня (сообщение → уведомление)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-6 text-sm">
-            {LATENCY_LABELS.map(([key, label]) => (
-              <div key={key} className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold">
-                  {data?.latency_today?.[key] ?? 0}
-                </span>
-                <span className="text-muted-foreground">{label}</span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* === LLM Token Usage === */}
       <div>
@@ -225,17 +222,17 @@ export default function DashboardPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Стоимость (мес)</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Баланс ключа DeepSeek</CardTitle>
               <Coins className="size-4 text-yellow-500" />
             </CardHeader>
             <CardContent>
               {llmLoading ? (
                 <Skeleton className="h-8 w-16" />
               ) : (
-                <div className="text-2xl font-bold">{fmtCost(llm?.cost.this_month ?? 0)}</div>
+                <div className="text-2xl font-bold">{fmtBalance(llm?.balance ?? null)}</div>
               )}
               <p className="text-xs text-muted-foreground mt-1">
-                Сегодня: {fmtCost(llm?.cost.today ?? 0)} · ~$0.40/1M токенов
+                {balanceSubtitle(llm?.balance ?? null)} · оценка расхода (мес): ~{fmtCost(llm?.cost.this_month ?? 0)}
               </p>
             </CardContent>
           </Card>
