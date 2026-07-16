@@ -120,11 +120,26 @@ jobs:
             exit 1
           fi
 
-      - name: Upgrade to head
-        run: alembic upgrade head
-
-      - name: Downgrade one revision then upgrade (reversibility smoke)
+      # Initial revision ca16bab1a0cc is empty (schema predated Alembic), so
+      # upgrade-from-zero is not supported. Smoke-test head reversibility on a
+      # model-created schema instead.
+      - name: Head revision reversibility smoke
         run: |
+          python - <<'PY'
+          import asyncio
+          from sqlalchemy.ext.asyncio import create_async_engine
+          from app.config import settings
+          from app.db.models import Base
+
+          async def main() -> None:
+              engine = create_async_engine(settings.database_url)
+              async with engine.begin() as conn:
+                  await conn.run_sync(Base.metadata.create_all)
+              await engine.dispose()
+
+          asyncio.run(main())
+          PY
+          alembic stamp head
           alembic downgrade -1
           alembic upgrade head
 
@@ -200,9 +215,11 @@ jobs:
             fi
           fi
 
-          # Ignore CI dummy placeholders; flag other BOT_TOKEN= / POSTGRES_PASSWORD= values
+          # Flag added credential assignments (skip comments and CI dummy values).
           hits=$(git diff -U0 --unified=0 "$range" -- . \
-            | grep -E '^\+.*(BOT_TOKEN|POSTGRES_PASSWORD|ADMIN_SECRET|USERBOT_API_HASH)=' \
+            | grep -E '^\+' \
+            | grep -vE '^\+\s*#' \
+            | grep -E '(BOT_TOKEN|POSTGRES_PASSWORD|ADMIN_SECRET|USERBOT_API_HASH)=' \
             | grep -vE 'CI_DUMMY|lhtest|0123456789abcdef0123456789abcdef|ci_admin_password' \
             || true)
 

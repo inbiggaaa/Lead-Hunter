@@ -57,6 +57,12 @@ class User(Base):
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
+    __table_args__ = (
+        # Name must match migrations/versions/pay_idempotency01.py
+        UniqueConstraint(
+            "provider_charge_id", name="uq_subscriptions_provider_charge_id"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
@@ -70,7 +76,7 @@ class Subscription(Base):
     invoice_id: Mapped[str | None] = mapped_column(Text)
     # Stars telegram_payment_charge_id / cryptobot:{invoice_id} — UNIQUE when set
     # (Postgres UNIQUE allows multiple NULLs for legacy rows)
-    provider_charge_id: Mapped[str | None] = mapped_column(String(128), unique=True)
+    provider_charge_id: Mapped[str | None] = mapped_column(String(128))
     amount: Mapped[float | None] = mapped_column()
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
