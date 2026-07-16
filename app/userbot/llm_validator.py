@@ -275,6 +275,8 @@ class PendingMatch:
     account_id: int = 0  # which userbot account found this match
     is_urgent: bool = False
     sender: str | None = None
+    # Author display name — shown when there is no public @username
+    sender_name: str | None = None
     # Set after validation
     llm_result: LLMResult | None = None
     # High-confidence demand — skip LLM

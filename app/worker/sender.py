@@ -293,6 +293,14 @@ class NotificationSender:
             msg += get_text(lang, "lead_chat", chat=(f"<a href='{link}'>{label}</a>" if link else label))
             if sender:
                 msg += get_text(lang, "lead_sender", sender=sender)
+            else:
+                # No public @username → no direct DM path (Telegram privacy).
+                # Show the author's name (if any) so the lead isn't anonymous,
+                # then state honestly that contacts are hidden.
+                sender_name = payload.get("sender_name")
+                if sender_name:
+                    msg += get_text(lang, "lead_sender_name", name=html.escape(sender_name))
+                msg += get_text(lang, "lead_contact_hidden")
 
         # Add category label(s)
         matched = payload.get("matched_segments", [])

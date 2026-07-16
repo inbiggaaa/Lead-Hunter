@@ -48,7 +48,7 @@ async def test_report_shows_total_delivered_and_missed_with_direct_plan_buttons(
     monkeypatch.setattr("app.analytics.record_event", AsyncMock())
     await eod.send_end_of_day_reports(now)
     text = fake_bot.send_message.await_args.args[1]
-    assert "7" in text and "2" in text and "5" in text
+    assert "7" in text and "5" in text  # total found + missed (delivered line removed)
     kb = fake_bot.send_message.await_args.kwargs["reply_markup"]
     assert [row[0].callback_data for row in kb.inline_keyboard] == ["pay_plan:start", "pay_plan:pro", "pay_plan:business"]
 

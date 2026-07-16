@@ -70,6 +70,32 @@ def _offer_keyboard(lang: str) -> InlineKeyboardMarkup:
     ])
 
 
+def _expired_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Plan choice → straight to payment, shown when a paid plan expires."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_text(lang, "eod_btn_start", price=settings.price_start_monthly_usd), callback_data="pay_plan:start")],
+        [InlineKeyboardButton(text=get_text(lang, "eod_btn_pro", price=settings.price_pro_monthly_usd), callback_data="pay_plan:pro")],
+        [InlineKeyboardButton(text=get_text(lang, "eod_btn_business", price=settings.price_business_monthly_usd), callback_data="pay_plan:business")],
+    ])
+
+
+async def _send_expiry_notice(user: User):
+    """One-shot «subscription expired» notice with plan choice → payment.
+    Fires once: the caller has already flipped the plan to free, so the daily
+    sweep won't re-select the user."""
+    lang = normalize_language(user.language)
+    bot = Bot(token=settings.bot_token)
+    try:
+        await bot.send_message(
+            user.telegram_id, get_text(lang, "reminder_subscription_expired"),
+            reply_markup=_expired_keyboard(lang), parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("Failed to send expiry notice to %d", user.telegram_id)
+    finally:
+        await bot.session.close()
+
+
 async def _maybe_send_winback_offer(session, user: User, now: datetime):
     offer = (await session.execute(select(WinbackOffer).where(WinbackOffer.user_id == user.id))).scalar_one_or_none()
     if offer:
@@ -106,13 +132,21 @@ async def send_reminders(now: datetime | None = None):
             User.plan.in_(["trial", "start", "pro", "business"]),
             User.plan_expires_at.isnot(None), User.plan_expires_at <= now,
         ))).scalars().all()
+        newly_expired_paid = []
         for user in expiring:
+            was_paid = user.plan in ("start", "pro", "business")
             user.plan = "free"
             user.free_lifecycle_at = user.plan_expires_at or now
+            if was_paid:
+                newly_expired_paid.append(user)
         if expiring:
             await session.commit()
             from app.cache.subscription_cache import invalidate_all_subscription_caches
             await invalidate_all_subscription_caches()
+            # Explicit «subscription expired» notice (paid plans only); trial
+            # expiry is covered by the Free lifecycle EOD flow.
+            for user in newly_expired_paid:
+                await _send_expiry_notice(user)
 
         active = (await session.execute(select(User).where(
             User.plan.in_(["trial", "start", "pro", "business"]), User.plan_expires_at > now
@@ -121,8 +155,8 @@ async def send_reminders(now: datetime | None = None):
             days_until = (user.plan_expires_at.date() - today).days
             if user.plan == "trial" and days_until in (2, 1):
                 await _maybe_send(session, user, "trial_ending", days_until)
-            elif user.plan in ("start", "pro", "business") and days_until == 5:
-                await _maybe_send(session, user, "subscription_ending", 5)
+            elif user.plan in ("start", "pro", "business") and days_until in (5, 2, 1):
+                await _maybe_send(session, user, "subscription_ending", days_until)
 
         free_users = (await session.execute(select(User).where(
             User.plan == "free", User.free_lifecycle_at.isnot(None), User.is_blocked_bot == False

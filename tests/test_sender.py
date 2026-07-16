@@ -176,7 +176,7 @@ def test_free_format_no_links():
     assert "t.me" not in text
     assert "@test_chat" in text          # название чата — просто текстом
     assert "lead_author" not in text     # отправитель скрыт полностью
-    assert "Контакты скрыты" in text
+    assert "платный тариф" in text
 
 
 def test_free_keyboard_no_chat_button():

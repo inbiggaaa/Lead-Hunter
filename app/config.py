@@ -168,7 +168,10 @@ class Settings(BaseSettings):
     price_pro_monthly_usd: int = 19
     price_business_monthly_usd: int = 39
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    # extra="ignore": tolerate stale/unknown env keys (e.g. obsolete
+    # NOTIFICATIONS_PER_DAY_* left in an old baked .env after tariffs v2) so a
+    # dropped setting never crashes a service on restart.
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

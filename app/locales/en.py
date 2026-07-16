@@ -8,7 +8,7 @@ TEXTS = {
         "отслеживать новые сообщения и находить подходящие запросы клиентов.\n\n"
         "В базе сервиса — более 5.000+ Telegram-чатов и каналов. "
         "Узнавай о новых запросах раньше и первым предлагай свои услуги! "
-        "Запусти первый поиск и <b>бесплатно попробуй возможности тарифа Про</b> "
+        "Запусти первый поиск и <b>бесплатно попробуй возможности тарифа Pro</b> "
         "в течение 3 дней.\n"
         "\n\n"
         "🎯 <b>Lead Hunter AI — potential clients are already looking for your "
@@ -35,21 +35,21 @@ TEXTS = {
     "onb_next": "▶️ Next",
 
     # ── Main menu ──
-    "menu_header": "🎯 LeadHunter",
+    "menu_header": "🎯 Lead Hunter AI",
     "menu_plan": "Your plan: {plan}",
-    "menu_searches": "🎯 Active searches: {count}",
+    "menu_searches": "🎯 Active subscriptions: {count}",
     "plan_until": "until {date}",
     "search_delete_confirm": "Delete this search? New leads for it will no longer be delivered.",
     "btn_delete_search": "🗑 Delete search",
     "btn_add_search": "➕ Add search",
     "menu_notifications": "📬 Leads today: {matched}",
-    "menu_free_hidden": "🔒 Contacts hidden — unlock them on a paid plan",
+    "menu_free_hidden": "🔒 Upgrade to a paid plan to view contact details",
     "btn_search": "🚀 Set up first search",
     "btn_searches": "🎯 My searches",
     "btn_results": "📥 Leads & results",
     "btn_keywords": "⚙️ My keywords",
     "btn_channels": "📢 My channels",
-    "btn_subscriptions": "🎯 My searches",
+    "btn_subscriptions": "🎯 My subscriptions",
     "btn_referral": "🎁 Invite a friend",
     "btn_plan": "💰 Plan & payment",
     "btn_language": "🌐 Language",
@@ -75,19 +75,19 @@ TEXTS = {
         "🎯 Start — ${price}/mo\n"
         "For a specialist working in one city\n"
         "• 1 service · 1 country · unlimited cities\n"
-        "• 3 keywords · 1 custom channel · full contacts"
+        "• 3 keywords · 1 custom channel"
     ),
     "plan_card_pro": (
         "🚀 Pro — ${price}/mo · recommended\n"
         "For active client acquisition across several locations\n"
         "• up to 3 services · 3 countries · unlimited cities\n"
-        "• 20 keywords · 10 custom channels · regex · statistics"
+        "• 20 keywords · 10 custom channels · statistics"
     ),
     "plan_card_business": (
         "🏆 Business — ${price}/mo\n"
         "For a team or agency with broad coverage\n"
         "• up to 12 services · 9 countries · unlimited cities\n"
-        "• 50 keywords · 50 custom channels · CSV · full statistics"
+        "• 50 keywords · 50 custom channels · CSV export · full statistics"
     ),
     "plan_discounts": "Save more: 3 months −10% · year −20%",
     "plan_btn_start": "🎯 Start — ${price}",
@@ -99,9 +99,8 @@ TEXTS = {
     "eod_body": (
         "📊 <b>Demand in your niche today</b>\n\n"
         "Total leads found: {total}.\n"
-        "Shown with hidden contacts: {delivered}.\n"
         "Leads missed: {missed}.\n\n"
-        "Subscribe to receive new leads immediately with contacts and a chat link."
+        "Don't miss new clients! Subscribe and get notified about every new lead!"
     ),
     "eod_btn_start": "🎯 Start — ${price}/mo",
     "eod_btn_pro": "🚀 Pro — ${price}/mo",
@@ -149,9 +148,12 @@ TEXTS = {
     ),
     "pay_err_retry": "🔄 Retry",
     "pay_err_other": "💱 Another method",
-    "reminder_trial_ending_2": "⏳ Your trial ends in 2 days.\nClient contacts will then be hidden. Keep access with Start from ${start}/mo.",
-    "reminder_trial_ending_1": "⏳ Your trial ends tomorrow.\nLeads will remain visible without contacts. Start (${start}/mo) keeps them open.",
+    "reminder_trial_ending_2": "⏳ Your trial ends in 2 days.\nKeep access from ${start}/mo.",
+    "reminder_trial_ending_1": "⏳ Your trial ends tomorrow.\nSubscription from ${start}/mo.",
     "reminder_subscription_ending_5": "⏳ Your subscription ends in 5 days.\nRenew to keep receiving leads without interruption.",
+    "reminder_subscription_ending_2": "⏳ Your subscription ends in 2 days.\nRenew to keep receiving leads without interruption.",
+    "reminder_subscription_ending_1": "⏳ Your subscription ends tomorrow.\nRenew so you don't lose access to leads.",
+    "reminder_subscription_expired": "❌ <b>Your subscription has expired</b>\n\nRenew a plan to start receiving notifications and leads from hot clients again.",
     "reminder_btn_plans": "🎯 Plans — from ${price}/mo",
     "reminder_btn_search": "🔍 Find clients",
     "reminder_btn_renew": "🔄 Renew",
@@ -166,15 +168,15 @@ TEXTS = {
     "winback_expired": "⌛️ Your personal offer has expired. Choose a plan at the regular price.",
     "winback_payment_title": "🎁 25% discount applied\n\nPlan: {plan}\nTerm: 3 months\nTotal: ${total}\nOffer valid until {expires}.\n\nChoose a payment method:",
     "list_count": "Added: {current}/{limit}",
-    "list_empty_keywords": "No custom keywords yet. Add a phrase to receive matches from Telegram chats.\n\nAvailable: {current}/{limit} ({plan})",
-    "list_empty_channels": "No custom channels yet. Add a channel to track it using your keywords.\n\nAvailable: {current}/{limit} ({plan})",
+    "list_empty_keywords": "No custom keywords yet. Add a phrase or word to receive matches from Telegram chats.\n\nAvailable: {current}/{limit} (<b>{plan} plan</b>)",
+    "list_empty_channels": "Add a Telegram channel to monitor messages containing your keywords.\n\nAvailable: {current}/{limit} (<b>{plan} plan</b>)",
     "keywords_title": "Your custom keywords ({current}/{limit}):",
     "channels_title": "Your channels ({current}/{limit}):",
-    "keywords_prompt": "Send a keyword or phrase, for example: “looking for a chef”.\n\nAvailable: {remaining}/{limit} ({plan})",
+    "keywords_prompt": "Send a keyword or phrase, for example: “looking for a chef”.\n\nAvailable: {remaining}/{limit} (<b>{plan} plan</b>)",
     "keyword_command_blocked": "Commands are not added as keywords. Send plain text.",
-    "channels_prompt": "Send a channel , for example: .\n\nAvailable: {remaining}/{limit} ({plan})\n\n/cancel — cancel.",
+    "channels_prompt": "Send the channel @username, for example: @durov.\n\nAvailable: {remaining}/{limit} (<b>{plan} plan</b>)\n\n/cancel — cancel.",
     "input_too_short": "That value is too short. Try again or send /cancel.",
-    "channel_invalid": "Invalid . Try again or send /cancel.",
+    "channel_invalid": "Invalid channel @username. Try again or send /cancel.",
     "item_added": "✅ Added: {item}",
     "item_delete_confirm": "Delete {item}?",
     "btn_delete": "🗑 Delete",
@@ -194,35 +196,31 @@ TEXTS = {
     "catalog_geo": "Should we look for clients in specific cities or across the entire country?",
     "catalog_all_country": "Across the entire country",
     "catalog_select_cities": "Select cities",
-    "catalog_cities": "Select cities (selected: {count}):",
+    "catalog_cities": "Choose a city (selected: {count}):",
     "catalog_select_city": "Select at least one city",
     "catalog_confirm": "Confirm your search:",
     "catalog_new_services": "📌 New services: {count}",
     "catalog_skipped": "📎 Already added: {count} (skipped)",
     "catalog_country_line": "🌍 Country: {country}",
     "catalog_cities_line": "🏙 Cities: {cities}",
-    "catalog_activate_hint": "Tap “Start search” to activate it.",
+    "catalog_activate_hint": "Start customer search",
     "catalog_activate": "✅ Start search",
     "catalog_error_country": "No country selected. Start the setup again.",
     "instructions_body": ("📖 <b>How to use LeadHunter</b>\n\n"
         "1. Set up a search: choose services, a country, and cities.\n"
-        "2. Add custom keywords and channels in Settings.\n"
-        "3. Relevant new messages will arrive automatically.\n"
-        "4. Paid plans include available contacts and chat links.\n\n"
+        "2. If needed, you can add your own keywords and channels in Settings.\n"
+        "3. Relevant new messages will arrive automatically.\n\n"
         "Payment: Plan & payment → plan → period → Telegram Stars or CryptoBot. Your plan activates automatically after confirmation."),
     "about_body": ("ℹ️ <b>LeadHunter</b>\n\n"
         "Automatically monitors new messages in Telegram sources and selects requests matching your services and locations.\n\n"
         "📊 Sources in the catalog: {channels}\n"
         "🌍 Countries: {countries}\n"
         "🤖 Irrelevant-message filtering\n"
-        "📬 Unlimited notifications on every plan\n"
-        "🔒 Available contacts and chat links are included with paid plans\n"
         "🆓 Your first search starts a free 3-day Pro trial"),
-    "referral_share": "LeadHunter automatically finds client requests in Telegram chats by service and location. My link gives you {trial_days} free days of Pro.\n\n{link}",
+    "referral_share": "Lead Hunter AI automatically finds client requests in Telegram chats by service and location. My link gives you {trial_days} free days of Pro.\n\n{link}",
     "referral_body": ("🎁 <b>Invite a friend</b>\n\n"
         "Your friend gets +{referral_bonus} trial days — {trial_days} days of Pro in total.\n"
-        "After their first payment, you get +{bonus} days on your current or previous plan.\n"
-        "If you have never had a plan, we activate Start.\n\n"
+        "After their first payment, you get +{bonus} days on your current or previous plan.\n\n"
         "🔗 {link}\n\n📊 Invited: {invited} · paid: {activated} · credited: {bonus_days} days."),
     "referral_reward": "🎁 Your friend subscribed!\n\n{days} days were added to your {plan} plan.\n📅 Valid until: {date}",
     "referral_share_btn": "📤 Share with a friend",
@@ -233,16 +231,16 @@ TEXTS = {
     "search_scope_services": "📌 Services:",
     "search_scope_country": "🌍 {country}",
     "search_scope_cities": "🏙 {cities}",
-    "searches_title": "🎯 My searches ({current}/{limit})",
-    "searches_empty": "You do not have any searches yet. Set up your first client search.",
+    "searches_title": "🎯 My subscriptions ({current}/{limit})",
+    "searches_empty": "Create your first search to start receiving leads.",
     "searches_countries": "🌍 Countries used: {current}/{limit}",
     "search_created": "✅ Searches created: {count}",
     "search_added": "✅ Searches added: {count}",
-    "search_delivery": "Relevant leads will arrive after new messages are processed.",
-    "trial_started": "🎉 Search started! Your Pro trial is active until {date}.",
-    "search_upsell_after": "💡 Want to unlock contacts and expand your limits right now? Pick a plan.",
-    "trial_after": "After the trial, contacts will be hidden. Start unlocks them from ${price}/mo.",
-    "free_after_search": "🔒 Free hides contacts. A paid plan unlocks available contacts and links.",
+    "search_delivery": "New leads will arrive after new messages are processed.",
+    "trial_started": "Chat monitoring started! Your <b>Pro trial is active until {date}.</b>",
+    "search_upsell_after": "💡 Choose a plan to access available contact details and expand your search capabilities.",
+    "trial_after": "Evaluate the quality of your leads during the trial period. To continue using the service, choose a plan starting at ${price}/month.",
+    "free_after_search": "🔒 Upgrade to a paid plan to view contact details.",
     "catalog_error_services": "No services selected. Start the setup again.",
     "btn_main_menu": "🏠 Main menu",
     "period_1m": "1 month",
@@ -266,8 +264,10 @@ TEXTS = {
     "payment_success": "✅ Payment successful!\n\nPlan: {plan}\nPeriod: {period}\nValid until: {date}",
     "lead_title": "🎯 <b>I found a new client! | Lead Hunter AI</b>",
     "lead_chat": "💬 {chat}",
-    "lead_sender": " from <a href='https://t.me/{sender}'>@{sender}</a>",
-    "lead_hidden": "🔒 Contacts are hidden. The author and link are available on a paid plan.",
+    "lead_sender": "\n👤 <a href='https://t.me/{sender}'>@{sender}</a>",
+    "lead_sender_name": "\n👤 {name}",
+    "lead_contact_hidden": "\n🔒 The client hid their contacts via Telegram privacy settings — you can't message them directly. You can open the request and reply if you're a member of the group.",
+    "lead_hidden": "🔒 Upgrade to a paid plan to view contact details.",
     "lead_tags": "🏷 {labels}",
     "lead_paywall_title": "🔒 Unlock contacts for this lead",
     "lead_paywall_preview": "Lead: “{preview}”",

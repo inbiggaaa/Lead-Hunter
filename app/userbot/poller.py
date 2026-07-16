@@ -89,6 +89,23 @@ def next_delay() -> float:
     return min(max(d, 0.8), 6.0)
 
 
+def _sender_display_name(sender) -> str | None:
+    """Human-readable name of the message author — shown when they have no
+    public @username (contacts hidden by privacy), so the lead isn't anonymous.
+
+    first_name/last_name for users; title for messages posted as a channel
+    (anonymous admins). Returns None when nothing is available.
+    """
+    if sender is None:
+        return None
+    first = (getattr(sender, "first_name", None) or "").strip()
+    last = (getattr(sender, "last_name", None) or "").strip()
+    name = f"{first} {last}".strip()
+    if not name:
+        name = (getattr(sender, "title", None) or "").strip()
+    return name or None
+
+
 # ── Batch flush tuning: balance token savings vs notification speed ──
 FLUSH_EVERY_N_CHANNELS = 20  # flush pending LLM matches every ~40s (20 channels × 2s)
 
@@ -310,6 +327,7 @@ class ChannelPoller:
                         CatalogChannel.id,
                         CatalogChannel.auto_matched_city_id,
                         CatalogChannel.userbot_account_id,
+                        CatalogChannel.title,
                     ).where(CatalogChannel.is_ignored == False)
                 )
                 cc_result = await session.execute(
@@ -320,6 +338,7 @@ class ChannelPoller:
                         WatchedChat.chat_username,
                         WatchedChat.country_id,
                         WatchedChat.userbot_account_id,
+                        WatchedChat.title,
                     ).where(
                         WatchedChat.status == "approved"
                     ).distinct()
@@ -343,6 +362,7 @@ class ChannelPoller:
                         "participants": row[2],
                         "city_ids": city_ids,
                         "account_id": row[5],
+                        "title": row[6],
                         "is_watched": False,
                     })
                     seen.add(row[0])
@@ -355,6 +375,7 @@ class ChannelPoller:
                             "participants": None,
                             "city_ids": set(),
                             "account_id": row[2],
+                            "title": row[3],
                             "is_watched": True,
                         })
                         seen.add(username)
@@ -432,6 +453,7 @@ class ChannelPoller:
 
     async def _poll_channel(
         self, account, channel_username: str, tier_name: str,
+        db_title: str | None = None,
     ) -> None:
         """Poll a single channel: get all new messages since cursor, classify, dispatch.
 
@@ -481,8 +503,21 @@ class ChannelPoller:
         # cutoff: messages older than this are intentionally skipped.
         cutoff = datetime.now(timezone.utc) - timedelta(days=settings.message_max_age_days)
 
-        # Update channel title and participants (async, best-effort)
+        # Update channel title and participants (async, best-effort).
+        # _resolve_entity returns an InputPeer (no .title/.participants_count),
+        # so derive the human-readable name from the messages Telethon already
+        # fetched — it attaches .chat to each message (like .sender) at zero
+        # extra API cost — and fall back to the DB title (private groups added
+        # by id have no live title until the catalog learns one).
         new_title = getattr(entity, "title", None)
+        if not new_title:
+            for m in all_messages:
+                m_title = getattr(getattr(m, "chat", None), "title", None)
+                if m_title:
+                    new_title = m_title
+                    break
+        if not new_title:
+            new_title = db_title
         new_participants = getattr(entity, "participants_count", None)
         if new_title or new_participants:
             asyncio.create_task(
@@ -550,6 +585,7 @@ class ChannelPoller:
                     account_id=account.account_id,
                     is_urgent=result.is_urgent,
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
+                    sender_name=_sender_display_name(msg.sender),
                     skip_llm=is_high_confidence_demand(msg.message),
                     msg_ts=msg.date.timestamp() if msg.date else None,
                 ))
@@ -567,6 +603,7 @@ class ChannelPoller:
                     account_id=account.account_id,
                     is_urgent=result.is_urgent,
                     sender=getattr(msg.sender, "username", None) if msg.sender else None,
+                    sender_name=_sender_display_name(msg.sender),
                     skip_llm=True,
                     keyword_only=True,
                     msg_ts=msg.date.timestamp() if msg.date else None,
@@ -657,6 +694,7 @@ class ChannelPoller:
                 await self._poll_channel(
                     account, ch["chat_username"].strip().lstrip("@"),
                     tier_name=tier_name,
+                    db_title=ch.get("title"),
                 )
                 return True
             except FloodWaitError as e:
@@ -823,6 +861,7 @@ class ChannelPoller:
                 sender=match.sender,
                 msg_ts=match.msg_ts,
                 chat_title=match.chat_title,
+                sender_name=match.sender_name,
             )
 
         if matches:
@@ -1769,7 +1808,7 @@ class ChannelPoller:
     async def _dispatch(
         self, chat_username, message_text, message_id,
         matched_segments, is_urgent, sender, msg_ts: float | None = None,
-        chat_title: str | None = None,
+        chat_title: str | None = None, sender_name: str | None = None,
     ):
         """Find interested users matching BOTH segment AND geo, push to queue."""
         from app.cache.subscription_cache import (
@@ -1862,6 +1901,7 @@ class ChannelPoller:
                 "chat_title": chat_title,
                 "text": message_text,
                 "sender": sender,
+                "sender_name": sender_name,
                 "message_id": message_id,
                 "message_hash": message_hash,
                 "content_hash": compute_content_hash(chat_username, message_text),

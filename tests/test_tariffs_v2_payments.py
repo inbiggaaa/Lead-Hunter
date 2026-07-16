@@ -38,9 +38,9 @@ def test_all_three_plans_present():
 
 
 def test_plan_names_russian():
-    assert PLANS["start"]["name"] == "Старт"
-    assert PLANS["pro"]["name"] == "Профи"
-    assert PLANS["business"]["name"] == "Бизнес"
+    assert PLANS["start"]["name"] == "Start"
+    assert PLANS["pro"]["name"] == "Pro"
+    assert PLANS["business"]["name"] == "Business"
 
 
 def test_calc_per_month_reflects_discount(canonical_prices):

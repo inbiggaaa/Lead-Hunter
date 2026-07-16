@@ -30,8 +30,8 @@ def test_sender_ru_en_semantic_parity():
     try:
         ru = sender._format_notification(_payload("ru"))
         en = sender._format_notification(_payload("en"))
-        assert "Контакты скрыты" in ru
-        assert "Contacts are hidden" in en
+        assert "платный тариф" in ru
+        assert "paid plan" in en
         assert "Need a contractor" in ru and "Need a contractor" in en
         assert sender._build_keyboard(_payload("ru")).inline_keyboard[1][0].text.startswith("🎯 Открыть")
         assert sender._build_keyboard(_payload("en")).inline_keyboard[1][0].text.startswith("🎯 Unlock")

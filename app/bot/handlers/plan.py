@@ -15,9 +15,9 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 router = Router()
 
-PLANS = {"start": {"name": "Старт", "usd_monthly": settings.price_start_monthly_usd},
-         "pro": {"name": "Профи", "usd_monthly": settings.price_pro_monthly_usd},
-         "business": {"name": "Бизнес", "usd_monthly": settings.price_business_monthly_usd}}
+PLANS = {"start": {"name": "Start", "usd_monthly": settings.price_start_monthly_usd},
+         "pro": {"name": "Pro", "usd_monthly": settings.price_pro_monthly_usd},
+         "business": {"name": "Business", "usd_monthly": settings.price_business_monthly_usd}}
 PERIODS = {"1m": {"label": "1 месяц", "months": 1, "discount": 0},
            "3m": {"label": "3 месяца (-10%)", "months": 3, "discount": 0.10},
            "1y": {"label": "1 год (-20%)", "months": 12, "discount": 0.20}}
@@ -58,8 +58,8 @@ def payment_error_kb(plan: str, period_key: str, method: str, lang: str) -> Inli
     ])
 
 PLAN_DISPLAY = {
-    "ru": {"free": "Free", "start": "Старт", "pro": "Профи", "business": "Бизнес", "trial": "Про (триал)"},
-    "en": {"free": "Free", "start": "Start", "pro": "Pro", "business": "Business", "trial": "Pro (trial)"},
+    "ru": {"free": "Free", "start": "Start", "pro": "Pro", "business": "Business", "trial": "Trial"},
+    "en": {"free": "Free", "start": "Start", "pro": "Pro", "business": "Business", "trial": "Trial"},
 }
 
 def plan_display_name(plan: str, lang: str) -> str:

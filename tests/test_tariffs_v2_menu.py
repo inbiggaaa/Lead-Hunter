@@ -10,7 +10,7 @@ from app.locales import get_text
 
 async def _render(lang, matched, is_free):
     message = AsyncMock()
-    await _show_menu(message, lang, "Старт", matched=matched, is_free=is_free)
+    await _show_menu(message, lang, "Start", matched=matched, is_free=is_free)
     return message.answer.call_args.args[0]
 
 
