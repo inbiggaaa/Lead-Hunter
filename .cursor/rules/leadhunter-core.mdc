@@ -1,0 +1,38 @@
+---
+description: Core LeadHunter workflow — minimalism, prod safety, session log, docs map
+alwaysApply: true
+---
+
+# LeadHunter Core
+
+## Before coding
+- Read relevant docs; do not guess. Ask if unclear.
+- Minimal, targeted changes only — no future-proofing without a request.
+- Secrets only in `.env` (never commit).
+
+## Docs map (source of truth)
+- `CLAUDE.md` — architecture, tariffs, status
+- `CODING_STYLE.md` — code conventions
+- `OPERATIONS.md` — Telegram anti-ban (Hard Rules)
+- `TESTING.md` — test strategy
+- `RECOVERY.md` — incident recovery
+- `USERFLOW.md` — screens / RU+EN texts
+- `DECISIONS.md` — locked decisions
+- `docs/SESSION_LOG.md` — session history
+
+## Prod safety (never violate)
+- Do **not** run `docker compose run/exec/restart/up -d` against prod while `worker` is running unless the owner explicitly asks.
+- Prefer flat `docker restart <container>` for bot/admin when worker must stay up.
+- After any mutating Compose command: check `docker compose ps --all` — Compose may auto-start worker.
+- Before changing `poller.py` / `rate_limiter.py` / `classifier.py` / `pool.py` → read OPERATIONS §2 and §5.
+
+## After every task
+1. Append to `docs/SESSION_LOG.md`: `**DD.MM.YYYY HH:MM — What.** Result. Errors/lessons.`
+2. Update brief status in `CLAUDE.md` §8.
+3. Without SESSION_LOG entry the task is incomplete.
+
+## Migrations
+- Reversible (`downgrade()`). `pg_dump` before apply. Worker stopped (or isolated env).
+---
+
+Use skills: `safe-deploy`, `session-close`, `classifier-change`, `recovery`, `migration-checklist`, `userflow-change`, `phase-review` when those workflows apply.

@@ -1,0 +1,24 @@
+---
+description: RU/EN locale parity for bot UI, notifications, and worker messages
+globs: app/locales/**/*.py,app/bot/**/*.py,app/worker/**/*.py
+alwaysApply: false
+---
+
+# i18n / Locales
+
+## Rules
+- User-facing strings live in `app/locales/ru.py` and `app/locales/en.py` — not hardcoded in handlers.
+- Every new/changed key must exist in **both** RU and EN with matching placeholders (`{plan}`, `{count}`, …).
+- Language follows `user.language` / `language_code`. Prefer existing `t()` / locale helpers.
+- Screens and button map: `USERFLOW.md`. Do not invent CTAs that contradict locked decisions.
+
+## When editing texts
+1. Change both locale files.
+2. Run locale schema validation if present (`validate_locale_schema` / related tests).
+3. Update affected userflow/i18n tests and snapshots.
+4. Use skill `userflow-change` for screen/FSM/button work.
+
+## Free vs paid copy
+- Free notifications: no contact links (DECISIONS #79).
+- Paid/Trial: full format with reply buttons.
+- Plan display names: Latin `Free` / `Start` / `Pro` / `Business` / `Trial`.

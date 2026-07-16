@@ -2,8 +2,8 @@
 
 import json
 import logging
+from datetime import datetime, timezone
 
-from redis.asyncio import Redis
 from sqlalchemy import select
 
 from app.cache import get_redis
@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 
 CACHE_CHAT_KEY = "sub:by_chat:{chat_username}"
 QUEUE_NOTIFICATIONS = "queue:notifications"
+QUEUE_PROCESSING = "queue:notifications:processing"
 QUEUE_DEAD_LETTER = "dlq:notifications"
+CLAIM_TTL_SEC = 300
+MAX_DELIVERY_ATTEMPTS = 5
 HEARTBEAT_KEY = "heartbeat:userbot:1"
 STATS_DAILY_KEY = "stats:daily:{user_id}:{date}"
 CLASS_CACHE_KEY = "class:cache:{message_hash}"
@@ -126,23 +129,130 @@ async def get_interested_users(chat_username: str) -> list[dict]:
     return []
 
 
-# ── Queue operations ──
+# ── Queue operations (BLMOVE claim / ack / reclaim) ──
+
+def _wrap_envelope(payload: dict, *, attempts: int = 0) -> dict:
+    return {"claimed_at": None, "attempts": attempts, "body": payload}
+
+
+def _normalize_envelope(raw: dict | list) -> dict:
+    """Accept wrapped envelopes and legacy bare payloads from the main queue."""
+    if isinstance(raw, dict) and "body" in raw and "attempts" in raw:
+        return {
+            "claimed_at": raw.get("claimed_at"),
+            "attempts": int(raw.get("attempts") or 0),
+            "body": raw["body"],
+        }
+    return _wrap_envelope(raw if isinstance(raw, dict) else {"_raw": raw})
+
+
+def _serialize_envelope(envelope: dict) -> str:
+    return json.dumps(envelope, default=str)
+
+
+def _envelope_is_stale(envelope: dict, *, now: datetime | None = None) -> bool:
+    claimed_at = envelope.get("claimed_at")
+    if not claimed_at:
+        return True
+    now = now or datetime.now(timezone.utc)
+    try:
+        claimed = datetime.fromisoformat(claimed_at)
+        if claimed.tzinfo is None:
+            claimed = claimed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return True
+    return (now - claimed).total_seconds() >= CLAIM_TTL_SEC
+
 
 async def push_notification(payload: dict) -> None:
-    """Push a notification to the Redis queue."""
+    """Push a notification envelope to the Redis queue (LPUSH / FIFO via RIGHT claim)."""
     redis = await get_redis()
-    await redis.lpush(QUEUE_NOTIFICATIONS, json.dumps(payload, default=str))
+    await redis.lpush(QUEUE_NOTIFICATIONS, _serialize_envelope(_wrap_envelope(payload)))
+
+
+async def claim_notification(timeout: int = 5) -> dict | None:
+    """Atomically move one item main → processing and stamp claimed_at."""
+    redis = await get_redis()
+    raw = await redis.blmove(
+        QUEUE_NOTIFICATIONS, QUEUE_PROCESSING, timeout, "RIGHT", "LEFT",
+    )
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode()
+    envelope = _normalize_envelope(json.loads(raw))
+    envelope["claimed_at"] = datetime.now(timezone.utc).isoformat()
+    new_raw = _serialize_envelope(envelope)
+    # Replace the moved blob with the stamped envelope (exact LREM later).
+    await redis.lrem(QUEUE_PROCESSING, 1, raw)
+    await redis.lpush(QUEUE_PROCESSING, new_raw)
+    return envelope
+
+
+async def ack_notification(envelope: dict) -> None:
+    """Remove a successfully handled envelope from the processing list."""
+    redis = await get_redis()
+    await redis.lrem(QUEUE_PROCESSING, 1, _serialize_envelope(envelope))
+
+
+async def fail_notification(envelope: dict, *, to_dlq: bool = False) -> None:
+    """Drop from processing; requeue or dead-letter the body."""
+    redis = await get_redis()
+    serialized = _serialize_envelope(envelope)
+    await redis.lrem(QUEUE_PROCESSING, 1, serialized)
+    attempts = int(envelope.get("attempts") or 0) + 1
+    body = envelope.get("body") or {}
+    if to_dlq or attempts >= MAX_DELIVERY_ATTEMPTS:
+        await redis.lpush(QUEUE_DEAD_LETTER, json.dumps(body, default=str))
+        logger.error(
+            "Notification dead-lettered after %d attempts (user=%s)",
+            attempts, body.get("user_id"),
+        )
+        return
+    retry = _wrap_envelope(body, attempts=attempts)
+    await redis.lpush(QUEUE_NOTIFICATIONS, _serialize_envelope(retry))
+
+
+async def reclaim_stale_notifications() -> int:
+    """Move processing items older than CLAIM_TTL back to the main queue."""
+    redis = await get_redis()
+    items = await redis.lrange(QUEUE_PROCESSING, 0, -1)
+    if not items:
+        return 0
+    now = datetime.now(timezone.utc)
+    reclaimed = 0
+    for raw in items:
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        try:
+            envelope = _normalize_envelope(json.loads(raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            await redis.lrem(QUEUE_PROCESSING, 1, raw)
+            await redis.lpush(QUEUE_DEAD_LETTER, raw if isinstance(raw, str) else raw.decode())
+            continue
+        if not _envelope_is_stale(envelope, now=now):
+            continue
+        removed = await redis.lrem(QUEUE_PROCESSING, 1, raw)
+        if not removed:
+            continue
+        body = envelope.get("body") or {}
+        attempts = int(envelope.get("attempts") or 0)
+        await redis.lpush(
+            QUEUE_NOTIFICATIONS,
+            _serialize_envelope(_wrap_envelope(body, attempts=attempts)),
+        )
+        reclaimed += 1
+    if reclaimed:
+        logger.warning("Reclaimed %d stale notification(s) from processing", reclaimed)
+    return reclaimed
 
 
 async def pop_notification(timeout: int = 5) -> dict | None:
-    """Pop a notification from the queue (blocking)."""
-    redis = await get_redis()
-    result = await redis.brpop(QUEUE_NOTIFICATIONS, timeout=timeout)
-
-    if result:
-        _, data = result
-        return json.loads(data)
-    return None
+    """Backward-compatible claim that returns the bare payload body."""
+    envelope = await claim_notification(timeout=timeout)
+    if envelope is None:
+        return None
+    return envelope.get("body")
 
 
 # ── Deduplication ──
@@ -256,24 +366,120 @@ async def record_paywall(trigger: str) -> None:
 
 
 DIGEST_KEY = "digest:{user_id}"  # T5.3: буфер отложенных уведомлений
+DIGEST_PROCESSING_KEY = "digest:processing:{user_id}"
+DIGEST_INFLIGHT_KEY = "digest:inflight:{user_id}"
+DIGEST_TTL_SEC = 2 * 86400
+DIGEST_CLAIM_TTL_SEC = CLAIM_TTL_SEC
 
 
 async def buffer_digest(user_id: int, payload: dict) -> None:
-    """T5.3: отложить уведомление в буфер digest-пользователя (flush по расписанию)."""
+    """T5.3: отложить уведомление в буфер (без mark_sent — только после flush)."""
     redis = await get_redis()
     key = DIGEST_KEY.format(user_id=user_id)
+    inflight = DIGEST_INFLIGHT_KEY.format(user_id=user_id)
+    message_hash = payload.get("message_hash")
     await redis.rpush(key, json.dumps(payload, default=str))
-    await redis.expire(key, 2 * 86400)  # страховка от зависших буферов
+    await redis.expire(key, DIGEST_TTL_SEC)
+    if message_hash:
+        await redis.sadd(inflight, message_hash)
+        await redis.expire(inflight, DIGEST_TTL_SEC)
+
+
+async def is_digest_inflight(user_id: int, message_hash: str) -> bool:
+    """True if this hash is buffered for digest and not yet delivered."""
+    if not message_hash:
+        return False
+    redis = await get_redis()
+    return bool(await redis.sismember(
+        DIGEST_INFLIGHT_KEY.format(user_id=user_id), message_hash,
+    ))
+
+
+async def clear_digest_inflight(user_id: int, message_hash: str) -> None:
+    redis = await get_redis()
+    await redis.srem(DIGEST_INFLIGHT_KEY.format(user_id=user_id), message_hash)
+
+
+async def claim_digest(user_id: int) -> list[dict]:
+    """Atomically rename digest buffer → processing and return items."""
+    redis = await get_redis()
+    key = DIGEST_KEY.format(user_id=user_id)
+    proc = DIGEST_PROCESSING_KEY.format(user_id=user_id)
+    if not await redis.exists(key):
+        return []
+    try:
+        await redis.rename(key, proc)
+    except Exception:
+        # Race: key vanished between EXISTS and RENAME
+        return []
+    await redis.expire(proc, DIGEST_CLAIM_TTL_SEC)
+    items = await redis.lrange(proc, 0, -1)
+    return [json.loads(i) for i in items]
+
+
+async def ack_digest_head(user_id: int, message_hash: str | None) -> None:
+    """LPOP one delivered item from digest processing (FIFO with claim order)."""
+    redis = await get_redis()
+    proc = DIGEST_PROCESSING_KEY.format(user_id=user_id)
+    await redis.lpop(proc)
+    if message_hash:
+        await redis.srem(DIGEST_INFLIGHT_KEY.format(user_id=user_id), message_hash)
+    if await redis.llen(proc) == 0:
+        await redis.delete(proc)
+
+
+async def finish_digest_claim(user_id: int) -> None:
+    """Drop empty/finished digest processing key."""
+    redis = await get_redis()
+    await redis.delete(DIGEST_PROCESSING_KEY.format(user_id=user_id))
+
+
+async def restore_digest(user_id: int, remaining: list[dict]) -> None:
+    """Put undelivered digest items back into the live buffer."""
+    redis = await get_redis()
+    proc = DIGEST_PROCESSING_KEY.format(user_id=user_id)
+    key = DIGEST_KEY.format(user_id=user_id)
+    await redis.delete(proc)
+    if not remaining:
+        return
+    await redis.rpush(key, *[json.dumps(p, default=str) for p in remaining])
+    await redis.expire(key, DIGEST_TTL_SEC)
+
+
+async def reclaim_stale_digests(user_ids: list[int]) -> int:
+    """Rename stale digest:processing keys back to digest:{uid}."""
+    redis = await get_redis()
+    reclaimed = 0
+    for uid in user_ids:
+        proc = DIGEST_PROCESSING_KEY.format(user_id=uid)
+        key = DIGEST_KEY.format(user_id=uid)
+        ttl = await redis.ttl(proc)
+        # Missing key → -2; no expire → -1. Reclaim when TTL nearly exhausted
+        # or key exists without a live buffer (crash mid-flush).
+        if ttl == -2:
+            continue
+        if ttl > 0 and ttl > DIGEST_CLAIM_TTL_SEC // 2:
+            continue
+        if not await redis.exists(proc):
+            continue
+        if await redis.exists(key):
+            # Merge processing back into live buffer
+            items = await redis.lrange(proc, 0, -1)
+            if items:
+                await redis.rpush(key, *items)
+            await redis.delete(proc)
+        else:
+            try:
+                await redis.rename(proc, key)
+            except Exception:
+                continue
+        reclaimed += 1
+    return reclaimed
 
 
 async def pop_all_digest(user_id: int) -> list[dict]:
-    """T5.3: забрать и очистить весь буфер digest-пользователя."""
-    redis = await get_redis()
-    key = DIGEST_KEY.format(user_id=user_id)
-    items = await redis.lrange(key, 0, -1)
-    if items:
-        await redis.delete(key)
-    return [json.loads(i) for i in items]
+    """Backward-compatible: claim digest buffer (now via RENAME, not DELETE)."""
+    return await claim_digest(user_id)
 
 
 SEG_STAT_KEY = "stats:seg:{user_id}:{date}:{segment_id}"

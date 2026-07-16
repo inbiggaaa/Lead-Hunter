@@ -15,7 +15,10 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from app.config import settings
 from app.locales import get_text, normalize_language
 from app.cache.subscription_cache import (
-    pop_notification,
+    claim_notification,
+    ack_notification,
+    fail_notification,
+    reclaim_stale_notifications,
     mark_sent,
     is_duplicate,
     is_content_duplicate,
@@ -95,26 +98,51 @@ class NotificationSender:
         self.throttle_interval = 1 / settings.sender_throttle_per_second  # 0.04s per msg
 
     async def run(self):
-        """Main loop: pop from queue and send."""
+        """Main loop: claim → send → ack/fail; periodically reclaim stale claims."""
         logger.info("Sender started (throttle: %d/sec)", settings.sender_throttle_per_second)
+        iterations = 0
 
         while True:
-            payload = await pop_notification(timeout=5)
-            if payload is None:
+            iterations += 1
+            if iterations % 20 == 0:
+                try:
+                    await reclaim_stale_notifications()
+                except Exception:
+                    logger.exception("Notification reclaim failed")
+
+            envelope = await claim_notification(timeout=5)
+            if envelope is None:
                 await asyncio.sleep(0.5)
                 continue
 
-            await self._send_notification(payload)
+            try:
+                result = await self._send_notification(envelope["body"])
+                if result == "permanent_fail":
+                    await fail_notification(envelope, to_dlq=True)
+                else:
+                    await ack_notification(envelope)
+            except Exception:
+                logger.exception(
+                    "Unexpected sender error for user %s — requeue",
+                    (envelope.get("body") or {}).get("user_id"),
+                )
+                await fail_notification(envelope, to_dlq=False)
+
             await asyncio.sleep(self.throttle_interval)
 
-    async def _send_notification(self, payload: dict):
-        """Send a single notification to a user."""
+    async def _send_notification(self, payload: dict) -> str:
+        """Send a single notification. Returns ok | skipped | permanent_fail."""
         user_id = payload["user_id"]
         message_hash = payload["message_hash"]
 
         # Deduplication by message identity
         if await is_duplicate(user_id, message_hash):
-            return
+            return "skipped"
+
+        from app.cache.subscription_cache import is_digest_inflight
+        if await is_digest_inflight(user_id, message_hash):
+            logger.info("Digest-inflight skip for user %d hash %s", user_id, message_hash[:12])
+            return "skipped"
 
         # Content dedup: suppress identical text within 24h
         content_hash = payload.get("content_hash")
@@ -123,7 +151,7 @@ class NotificationSender:
                 "Duplicate content suppressed for user %d in @%s",
                 user_id, payload.get("chat_username", "?"),
             )
-            return
+            return "skipped"
 
         # A cached paid plan must not expose contacts after its exact expiry.
         expired_in_cache = False
@@ -161,15 +189,13 @@ class NotificationSender:
             allowed, lifecycle_day = await claim_free_teaser(user_id, message_hash)
             if not allowed:
                 logger.info("Free lead suppressed for user %d on lifecycle day %d", user_id, lifecycle_day)
-                return
+                return "skipped"
 
-        # T5.3: digest-режим — не-срочные откладываем в буфер (flush по расписанию),
-        # срочные (🔥) всегда доставляем мгновенно. mark_sent сразу — для дедупа.
+        # T5.3: digest — buffer without mark_sent (flush marks after real delivery).
         if payload.get("plan", "free") != "free" and payload.get("digest_mode", "instant") != "instant" and not payload.get("is_urgent"):
             from app.cache.subscription_cache import buffer_digest
             await buffer_digest(user_id, payload)
-            await mark_sent(user_id, message_hash, False, content_hash=content_hash, meta=meta)
-            return
+            return "ok"
 
         if payload.get("plan", "free") == "free":
             token = message_hash[:12]
@@ -183,13 +209,14 @@ class NotificationSender:
 
         delivered = await self._deliver_with_retry(payload, text, kb)
         if not delivered:
-            return
+            return "permanent_fail"
 
         await mark_sent(user_id, message_hash, payload.get("is_urgent", False),
                        content_hash=content_hash, meta=meta)
         await increment_daily_stats(user_id, today, "sent")
         from app.analytics import record_once_event
         await record_once_event("first_lead_delivered", user_id=user_id, language=payload.get("lang"), plan=payload.get("plan"), context={"lead_id": message_hash})
+        return "ok"
 
     async def _deliver_with_retry(self, payload: dict, text: str, kb) -> bool:
         """Deliver with the DECISIONS #26 policy.
@@ -229,7 +256,7 @@ class NotificationSender:
             "Notification for user %d undeliverable after %d attempts — dead-letter",
             user_id, len(RETRY_SCHEDULE),
         )
-        await push_dead_letter(payload)
+        # DLQ is written by fail_notification(to_dlq=True) in the run loop.
         return False
 
     def _format_notification(self, payload: dict) -> str:

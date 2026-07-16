@@ -287,16 +287,91 @@ async def on_pay_execute(callback: CallbackQuery):
                                              reply_markup=payment_error_kb(plan, period_key, "crypto", lang))
     await callback.answer()
 
+def parse_stars_payload(payload: str) -> tuple[str, str, int, str | None] | None:
+    """Parse Stars invoice payload → (plan, period, telegram_id, promo|None).
+
+    Formats:
+      sub:{plan}:{period}:{telegram_id}
+      sub:{plan}:{period}:wb25:{telegram_id}
+    """
+    parts = payload.split(":")
+    if len(parts) == 4 and parts[0] == "sub":
+        plan, period, tg_raw, promo = parts[1], parts[2], parts[3], None
+    elif len(parts) == 5 and parts[0] == "sub" and parts[3] == "wb25":
+        plan, period, promo, tg_raw = parts[1], parts[2], parts[3], parts[4]
+    else:
+        return None
+    if plan not in PLANS or period not in PERIODS:
+        return None
+    try:
+        telegram_id = int(tg_raw)
+    except ValueError:
+        return None
+    return plan, period, telegram_id, promo
+
+
+def validate_stars_pre_checkout(
+    *,
+    payload: str,
+    from_user_id: int,
+    currency: str,
+    total_amount: int,
+) -> tuple[bool, str]:
+    """Validate Stars pre-checkout / successful_payment amounts and ownership."""
+    parsed = parse_stars_payload(payload)
+    if not parsed:
+        return False, "Invalid invoice payload"
+    plan, period, telegram_id, promo = parsed
+    if from_user_id != telegram_id:
+        return False, "User mismatch"
+    if currency != "XTR":
+        return False, "Invalid currency"
+    info = _calc_winback(plan) if promo == "wb25" else _calc(plan, period)
+    if int(total_amount) != int(info["stars"]):
+        return False, "Amount mismatch"
+    return True, ""
+
+
 @router.pre_checkout_query()
-async def on_pre_checkout(query: PreCheckoutQuery): await query.answer(ok=True)
+async def on_pre_checkout(query: PreCheckoutQuery):
+    ok, err = validate_stars_pre_checkout(
+        payload=query.invoice_payload,
+        from_user_id=query.from_user.id,
+        currency=query.currency,
+        total_amount=query.total_amount,
+    )
+    if not ok:
+        logger.warning("Stars pre-checkout rejected for %d: %s", query.from_user.id, err)
+        await query.answer(ok=False, error_message=err)
+        return
+    await query.answer(ok=True)
+
 
 @router.message(F.successful_payment)
 async def on_successful_payment(message: Message):
-    payload = message.successful_payment.invoice_payload
-    parts = payload.split(":")
-    if len(parts) >= 4 and parts[0] == "sub":
-        promo = parts[3] if len(parts) >= 5 and parts[3] == "wb25" else None
-        await _activate_by_msg(message, parts[1], parts[2], "stars", payload, promo=promo)
+    sp = message.successful_payment
+    ok, err = validate_stars_pre_checkout(
+        payload=sp.invoice_payload,
+        from_user_id=message.from_user.id,
+        currency=sp.currency,
+        total_amount=sp.total_amount,
+    )
+    if not ok:
+        logger.warning(
+            "Stars successful_payment rejected for %d: %s",
+            message.from_user.id, err,
+        )
+        return
+    parsed = parse_stars_payload(sp.invoice_payload)
+    if not parsed:
+        return
+    plan, period_key, _tg_id, promo = parsed
+    await _activate_by_msg(
+        message, plan, period_key, "stars",
+        invoice_id=sp.invoice_payload,
+        provider_charge_id=sp.telegram_payment_charge_id,
+        promo=promo,
+    )
 
 def referral_reward_plan(current_plan: str, last_paid_plan: str | None) -> str:
     """Keep an active plan, restore the last paid plan, or fall back to Start."""
@@ -416,34 +491,64 @@ async def maybe_offer_annual(db_user_id: int, telegram_id: int, plan: str, perio
     finally:
         await bot.session.close()
 
-async def _activate_by_msg(message, plan, period_key, method, invoice_id, promo: str | None = None):
+async def _activate_by_msg(
+    message,
+    plan,
+    period_key,
+    method,
+    invoice_id,
+    *,
+    provider_charge_id: str,
+    promo: str | None = None,
+):
     # Политика (#81): оплата всегда устанавливает оплаченный план и срок 30×months
-    # ОТ ТЕКУЩЕГО МОМЕНТА. Оплата более дешёвого плана при активном дорогом = даунгрейд
-    # с новой датой (осознанный выбор пользователя; апселл верхних тарифов — на экране).
+    # ОТ ТЕКУЩЕГО МОМЕНТА. Повторный charge_id — already_applied без продления.
     info = _calc_winback(plan) if promo == "wb25" else _calc(plan, period_key)
     async for s in get_session():
         u = await get_user(s, message.from_user.id)
-        if not u: return
-        now = datetime.datetime.now(datetime.timezone.utc); exp = now + datetime.timedelta(days=30 * info["months"])
-        s.add(Subscription(user_id=u.id, plan=plan, period=period_key, expires_at=exp, payment_method=method, payment_status="paid", invoice_id=invoice_id, amount=info["total"]))
-        u.plan = plan; u.plan_activated_at = now; u.plan_expires_at = exp; u.free_lifecycle_at = None;
-        if promo == "wb25":
-            from app.db.models import WinbackOffer
-            offer = (await s.execute(select(WinbackOffer).where(WinbackOffer.user_id == u.id))).scalar_one_or_none()
-            if offer and offer.redeemed_at is None: offer.redeemed_at = now
-        await s.commit()
+        if not u:
+            return
         user_db_id = u.id
-    # Смена плана меняет формат уведомлений (Free скрывает контакты) — сбросить
-    # кэш подписок сразу, иначе оплаченный пользователь до TTL (1ч) видел бы Free.
-    from app.cache.subscription_cache import invalidate_all_subscription_caches
-    await invalidate_all_subscription_caches()
-    await _apply_referral_bonus(user_db_id)
-    from app.userbot.discovery import notify_new_subscription
-    info2 = info
-    asyncio.create_task(notify_new_subscription(message.from_user.username, message.from_user.id, plan, period_key, "direct", info2["total"]))
-    lang = normalize_language(getattr(u, "language", None))
-    await message.answer(get_text(lang, "payment_success", plan=plan_display_name(plan, lang), period=period_display_name(period_key, lang), date=exp.strftime("%d.%m.%Y")))
-    from app.analytics import record_event, consume_conversion_trigger
-    trigger = await consume_conversion_trigger(u.id)
-    await record_event("payment_succeeded", u, trigger=trigger, context={"target_plan": plan, "period": period_key, "method": method, "success": True})
-    await maybe_offer_annual(user_db_id, message.from_user.id, plan, period_key, lang)
+        lang = normalize_language(getattr(u, "language", None))
+
+    from app.payments.activate import activate_paid_subscription
+    result = await activate_paid_subscription(
+        user_db_id=user_db_id,
+        plan=plan,
+        period_key=period_key,
+        method=method,
+        provider_charge_id=provider_charge_id,
+        invoice_id=invoice_id,
+        amount=info["total"],
+        promo=promo,
+        months=info["months"],
+    )
+    if not result:
+        return
+
+    if result.status == "created":
+        from app.cache.subscription_cache import invalidate_all_subscription_caches
+        await invalidate_all_subscription_caches()
+        await _apply_referral_bonus(user_db_id)
+        from app.userbot.discovery import notify_new_subscription
+        asyncio.create_task(notify_new_subscription(
+            message.from_user.username, message.from_user.id,
+            plan, period_key, "direct", info["total"],
+        ))
+        from app.analytics import record_event, consume_conversion_trigger
+        async for s in get_session():
+            u = await get_user(s, message.from_user.id)
+        trigger = await consume_conversion_trigger(user_db_id)
+        await record_event(
+            "payment_succeeded", u, trigger=trigger,
+            context={"target_plan": plan, "period": period_key, "method": method, "success": True},
+        )
+        await maybe_offer_annual(user_db_id, message.from_user.id, plan, period_key, lang)
+
+    exp = result.expires_at
+    await message.answer(get_text(
+        lang, "payment_success",
+        plan=plan_display_name(result.plan, lang),
+        period=period_display_name(result.period_key, lang),
+        date=exp.strftime("%d.%m.%Y"),
+    ))

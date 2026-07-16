@@ -11,10 +11,17 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app.config import settings
 from app.db.models import User
 from app.db.session import async_session_factory
-from app.cache.subscription_cache import pop_all_digest, increment_daily_stats
+from app.cache.subscription_cache import (
+    claim_digest,
+    ack_digest_head,
+    finish_digest_claim,
+    restore_digest,
+    reclaim_stale_digests,
+    mark_sent,
+    increment_daily_stats,
+)
 from app.locales import get_text
 
 logger = logging.getLogger(__name__)
@@ -35,29 +42,57 @@ async def flush_digests():
             select(User).where(User.digest_mode != "instant")
         )).scalars().all()
 
+    try:
+        await reclaim_stale_digests([u.id for u in users])
+    except Exception:
+        logger.exception("Digest reclaim failed")
+
     sender = NotificationSender()
     delivered = 0
     try:
         for user in users:
             if user.digest_mode == "daily2" and hour not in DIGEST_DAILY_HOURS:
                 continue
-            items = await pop_all_digest(user.id)
+            items = await claim_digest(user.id)
             if not items:
                 continue
 
             lang = user.language or "ru"
+            remaining = list(items)
             try:
                 await sender.bot.send_message(
                     user.telegram_id, get_text(lang, "digest_header", count=len(items)))
-                for payload in items:
+                while remaining:
+                    payload = remaining[0]
                     text = sender._format_notification(payload)
                     kb = sender._build_keyboard(payload)
                     await sender.bot.send_message(user.telegram_id, text, reply_markup=kb)
+                    content_hash = payload.get("content_hash")
+                    matched = payload.get("matched_segments", [])
+                    seg_label = ", ".join(m.get("title", "") for m in matched) if matched else None
+                    meta = {
+                        "chat_username": payload.get("chat_username"),
+                        "sender": payload.get("sender"),
+                        "segment": seg_label,
+                        "message_id": payload.get("message_id"),
+                    }
+                    await mark_sent(
+                        user.id,
+                        payload["message_hash"],
+                        payload.get("is_urgent", False),
+                        content_hash=content_hash,
+                        meta=meta,
+                    )
+                    await ack_digest_head(user.id, payload.get("message_hash"))
                     await increment_daily_stats(user.id, today, "sent")
+                    remaining.pop(0)
                     delivered += 1
                     await asyncio.sleep(sender.throttle_interval)
+                await finish_digest_claim(user.id)
             except Exception:
                 logger.exception("Digest flush failed for user %d", user.id)
+                if remaining:
+                    await restore_digest(user.id, remaining)
     finally:
         await sender.bot.session.close()
 

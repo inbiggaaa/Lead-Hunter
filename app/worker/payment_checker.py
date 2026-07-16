@@ -46,9 +46,10 @@ async def check_pending_payments():
             data = json.loads(data_json)
             status = await provider.check_payment(invoice_id)
             if status == "paid":
-                await _activate(data, invoice_id)
+                created = await _activate(data, invoice_id)
                 await remove_pending(invoice_id)
-                paid_count += 1
+                if created:
+                    paid_count += 1
             elif status == "expired":
                 await _notify_expired(data)
                 await remove_pending(invoice_id)
@@ -60,78 +61,73 @@ async def check_pending_payments():
         logger.info("Activated %d paid invoices", paid_count)
 
 
-async def _activate(data: dict, invoice_id: str):
-    """Activate subscription and notify user."""
-    import datetime
+async def _activate(data: dict, invoice_id: str) -> bool:
+    """Activate subscription and notify user. Returns True if newly created."""
     from aiogram import Bot
-    from app.db.session import async_session_factory
-    from app.db.models import User, Subscription
-    from sqlalchemy import select
+    from app.payments.activate import activate_paid_subscription
 
     user_id = data["user_id"]
     plan = data["plan"]
     period_key = data["period_key"]
     chat_id = data["chat_id"]
 
-    # Calculate info
     from app.bot.handlers.plan import _calc, _calc_winback, plan_display_name, period_display_name
     info = _calc_winback(plan) if data.get("promo") == "wb25" else _calc(plan, period_key)
+    charge_id = f"cryptobot:{invoice_id}"
 
-    async with async_session_factory() as session:
-        user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-        if not user:
-            return
+    result = await activate_paid_subscription(
+        user_db_id=user_id,
+        plan=plan,
+        period_key=period_key,
+        method="cryptobot",
+        provider_charge_id=charge_id,
+        invoice_id=str(invoice_id),
+        amount=data.get("amount") or info["total"],
+        promo=data.get("promo"),
+        months=info["months"],
+    )
+    if not result:
+        return False
 
-        now = datetime.datetime.now(datetime.timezone.utc)
-        expires = now + datetime.timedelta(days=30 * info["months"])
+    if result.status != "created":
+        logger.info("CryptoBot invoice %s already applied — skipping side effects", invoice_id)
+        return False
 
-        session.add(Subscription(
-            user_id=user.id, plan=plan, period=period_key, expires_at=expires,
-            payment_method="cryptobot", payment_status="paid",
-            invoice_id=invoice_id, amount=data.get("amount") or info["total"],
-        ))
-        user.plan = plan
-        user.plan_activated_at = now
-        user.plan_expires_at = expires
-        user.free_lifecycle_at = None
-        if data.get("promo") == "wb25":
-            from app.db.models import WinbackOffer
-            offer = (await session.execute(select(WinbackOffer).where(WinbackOffer.user_id == user.id))).scalar_one_or_none()
-            if offer and offer.redeemed_at is None:
-                offer.redeemed_at = now
-        await session.commit()
-
-    # Смена плана меняет формат уведомлений (Free скрывает контакты) — сбросить
-    # кэш подписок сразу, иначе оплаченный пользователь до TTL (1ч) видел бы Free.
     from app.cache.subscription_cache import invalidate_all_subscription_caches
     await invalidate_all_subscription_caches()
 
-    # Apply referral bonus
     from app.bot.handlers.plan import _apply_referral_bonus
     await _apply_referral_bonus(user_id)
 
-    # Notify admin
     from app.userbot.discovery import notify_new_subscription
     import asyncio as aio
     user_obj = await _get_user_for_notify(user_id)
-    aio.create_task(notify_new_subscription(user_obj.username if user_obj else None, user_obj.telegram_id if user_obj else 0, plan, period_key, "direct", info["total"]))
+    aio.create_task(notify_new_subscription(
+        user_obj.username if user_obj else None,
+        user_obj.telegram_id if user_obj else 0,
+        plan, period_key, "direct", info["total"],
+    ))
 
-    # Notify user in the persisted language.
-    lang = normalize_language(getattr(user, "language", None))
+    lang = normalize_language(result.language)
     bot = Bot(token=settings.bot_token)
     try:
         await bot.send_message(
             chat_id,
-            get_text(lang, "payment_success", plan=plan_display_name(plan, lang), period=period_display_name(period_key, lang), date=expires.strftime("%d.%m.%Y")),
+            get_text(
+                lang, "payment_success",
+                plan=plan_display_name(result.plan, lang),
+                period=period_display_name(result.period_key, lang),
+                date=result.expires_at.strftime("%d.%m.%Y"),
+            ),
         )
     except Exception:
         logger.exception("Failed to notify user %d", user_id)
     finally:
         await bot.session.close()
 
-    # T4.5: годовой апселл на 2-м подряд месячном платеже
     from app.bot.handlers.plan import maybe_offer_annual
     await maybe_offer_annual(user_id, chat_id, plan, period_key, lang)
+    return True
 
 
 async def _get_user_for_notify(user_id: int):

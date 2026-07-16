@@ -60,6 +60,7 @@ jobs:
       ADMIN_PASSWORD: ci_admin_password
       ADMIN_SECRET: "0123456789abcdef0123456789abcdef"
       LLM_ENABLED: "false"
+      PYTHONPATH: ${{ github.workspace }}
 
     steps:
       - name: Checkout

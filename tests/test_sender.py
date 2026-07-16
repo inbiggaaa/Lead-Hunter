@@ -50,6 +50,10 @@ def _quiet_patches():
         patch("app.worker.sender.is_content_duplicate", new=AsyncMock(return_value=False)),
         patch("app.worker.sender.mark_sent", new=AsyncMock()),
         patch("app.worker.sender.increment_daily_stats", new=AsyncMock()),
+        patch(
+            "app.cache.subscription_cache.is_digest_inflight",
+            new=AsyncMock(return_value=False),
+        ),
     ]
 
 
@@ -58,7 +62,7 @@ async def _run_send(sender, payload):
     for p in patches:
         p.start()
     try:
-        await sender._send_notification(payload)
+        return await sender._send_notification(payload)
     finally:
         for p in patches:
             p.stop()
@@ -103,17 +107,16 @@ async def test_send_with_html_chars_delivers():
 
 
 async def test_forbidden_marks_user_blocked():
-    """403 → is_blocked_bot=true, без ретраев и без DLQ."""
+    """403 → is_blocked_bot=true, без ретраев; run-loop шлёт в DLQ через fail_notification."""
     sender = _make_sender()
     sender.bot.send_message = AsyncMock(
         side_effect=TelegramForbiddenError(method=MagicMock(), message="bot was blocked")
     )
-    with patch("app.worker.sender.mark_user_blocked", new=AsyncMock()) as blocked, \
-         patch("app.worker.sender.push_dead_letter", new=AsyncMock()) as dlq:
-        await _run_send(sender, _payload())
+    with patch("app.worker.sender.mark_user_blocked", new=AsyncMock()) as blocked:
+        result = await _run_send(sender, _payload())
 
     blocked.assert_awaited_once_with(42)
-    dlq.assert_not_awaited()
+    assert result == "permanent_fail"
     assert sender.bot.send_message.await_count == 1
 
 
@@ -126,32 +129,27 @@ async def test_retry_after_sleeps_and_retries():
             MagicMock(),
         ]
     )
-    with patch("app.worker.sender.asyncio.sleep", new=AsyncMock()) as sleep, \
-         patch("app.worker.sender.push_dead_letter", new=AsyncMock()) as dlq:
-        await _run_send(sender, _payload())
+    with patch("app.worker.sender.asyncio.sleep", new=AsyncMock()) as sleep:
+        result = await _run_send(sender, _payload())
 
     assert sender.bot.send_message.await_count == 2
     sleep.assert_any_await(7)
-    dlq.assert_not_awaited()
+    assert result == "ok"
 
 
-async def test_generic_error_retries_then_dlq():
-    """Прочие ошибки → 3 ретрая (1с/4с/9с) → payload в dead-letter."""
+async def test_generic_error_retries_then_permanent_fail():
+    """Прочие ошибки → 3 ретрая (1с/4с/9с) → permanent_fail (DLQ в run-loop)."""
     sender = _make_sender()
     sender.bot.send_message = AsyncMock(side_effect=RuntimeError("network down"))
 
-    with patch("app.worker.sender.asyncio.sleep", new=AsyncMock()) as sleep, \
-         patch("app.worker.sender.push_dead_letter", new=AsyncMock()) as dlq:
-        await _run_send(sender, _payload())
+    with patch("app.worker.sender.asyncio.sleep", new=AsyncMock()) as sleep:
+        result = await _run_send(sender, _payload())
 
     assert sender.bot.send_message.await_count == 4  # 1 + 3 ретрая
     sleep.assert_any_await(1)
     sleep.assert_any_await(4)
     sleep.assert_any_await(9)
-    dlq.assert_awaited_once()
-    dead_payload = dlq.call_args.args[0]
-    assert json.dumps(dead_payload)  # сериализуемый
-    assert dead_payload["user_id"] == 42
+    assert result == "permanent_fail"
 
 
 # ═══════════════════════════════════════════════════════════════════

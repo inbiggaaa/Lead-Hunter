@@ -1,0 +1,42 @@
+---
+description: Python coding conventions for LeadHunter (functions, typing, errors)
+globs: app/**/*.py,tests/**/*.py
+alwaysApply: false
+---
+
+# Coding Style
+
+Full rules: `CODING_STYLE.md`. Follow them strictly.
+
+## Functions
+- One responsibility; max **30 lines** (FSM state handlers may be longer if each state is separate).
+- Early return over nested `if`.
+- Verb names: `classify_message`, `find_interested_users`.
+
+## Naming
+- Meaningful names (`user`, `matched_segments`) — no cryptic abbreviations.
+- Booleans: `is_` / `has_` / `should_`.
+
+## Types & errors
+- Public functions: type hints. No `Any`.
+- No bare `except:` / broad `except Exception` without re-raise or explicit handling.
+- Comments explain **why**, not what. No TODO left in code.
+
+## Example
+
+```python
+# ❌ nested
+async def process(user):
+    if user:
+        if user.plan != "free":
+            if not user.is_banned:
+                await send(user)
+
+# ✅ early return
+async def process(user: User | None) -> None:
+    if not user:
+        return
+    if user.plan == "free" or user.is_banned:
+        return
+    await send(user)
+```

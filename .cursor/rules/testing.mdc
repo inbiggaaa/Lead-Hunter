@@ -1,0 +1,30 @@
+---
+description: Testing expectations — unit/integration, classifier eval gate
+globs: tests/**/*.py,app/**/*.py
+alwaysApply: false
+---
+
+# Testing
+
+Full strategy: `TESTING.md`.
+
+## Baseline
+- New public function → unit test (`test_<fn>_<scenario>`, AAA).
+- Prefer focused pytest files over giant suites.
+- Run relevant tests before claiming done.
+
+```bash
+pytest tests/test_<area>.py -v
+# broader:
+pytest tests/ -v -k "not integration and not smoke"
+```
+
+## Classifier / LLM changes
+- Any change to classifier rules or LLM prompt → run eval:
+  `venv/bin/python tools/eval_matching.py`
+- Save/compare reports under `docs/eval/` when meaningful.
+- Use skill `classifier-change`.
+
+## Known noise
+- Some poller tests may fail without Redis/async mocks — distinguish pre-existing from regressions.
+- CI deselects hanging `test_session_ticker_transitions` — do not "fix" by re-enabling without investigation.

@@ -1,0 +1,23 @@
+---
+description: Admin panel conventions — React SPA + FastAPI API
+globs: admin-panel/**/*.{ts,tsx},app/admin/**/*.py
+alwaysApply: false
+---
+
+# Admin Panel
+
+## Stack
+- Frontend: React 19 + TypeScript + Vite 8 + shadcn/ui 4 + Tailwind 4 + React Query 5
+- Backend: FastAPI under `app/admin/` (API + session auth)
+- Built SPA is committed to `app/admin/static/`
+
+## Conventions
+- API changes → `app/admin/api/*`; UI → `admin-panel/src/`.
+- Reuse existing shadcn components in `admin-panel/src/components/ui/`.
+- Auth: session cookie; brute-force protection via Redis.
+- After UI changes: `npm run build` in `admin-panel/`, copy/output into `app/admin/static/`, restart **admin only** (prefer flat `docker restart`, not compose, if worker is up).
+
+## Do not
+- Expose secrets in SPA.
+- Broaden admin bind/port without owner approval (security sensitive).
+- Restart worker when only admin changed.

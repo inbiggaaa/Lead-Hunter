@@ -1,0 +1,28 @@
+---
+description: Telegram anti-ban Hard Rules for userbot poller and rate limiter
+globs: app/userbot/**/*.py,**/rate_limiter*.py
+alwaysApply: false
+---
+
+# Telegram Safety
+
+**Violating these = incident.** Full text: `OPERATIONS.md` §2 + §5.
+
+## Hard Rules (never skip)
+1. `limiter.acquire()` **before every** Telegram API call (`get_entity` + `get_messages` = 2 acquires).
+2. `DEFAULT_MIN_INTERVAL` ≥ 0.3s per account. Peak RPS ≤ 5.
+3. `PARALLEL_BATCH` ≤ 5 per account; `BATCH_PAUSE` ≥ 0.3s.
+4. `limiter.wait_if_circuit_open()` before each batch / mass poll.
+5. On FloodWait: do **not** retry or tighten interval — circuit opens for seconds+10.
+6. Tiers must **not** start together: Hot=0s, Warm=60s, Cold=180s (`STAGGER_STARTUP`).
+7. Jitter ±15% on intervals. No predictable bot rhythm.
+8. Do **not** add API calls casually (entity resolve, joins) — cost is ban risk.
+
+## Before deploy of poller/rate-limiter
+- Walk OPERATIONS §5 checklist.
+- Test on Cold tier first, then Warm, then Hot.
+- Monitor 2 minutes: `FloodWait|circuit|ERROR|CRITICAL`. FloodWait → STOP + rollback.
+
+## FloodWait response
+- Do **not** restart worker (resets wait / may re-ban).
+- Follow OPERATIONS §4 + skill `recovery`.

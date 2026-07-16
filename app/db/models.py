@@ -68,6 +68,9 @@ class Subscription(Base):
     payment_method: Mapped[str] = mapped_column(String(20))
     payment_status: Mapped[str] = mapped_column(String(20), default="pending")
     invoice_id: Mapped[str | None] = mapped_column(Text)
+    # Stars telegram_payment_charge_id / cryptobot:{invoice_id} — UNIQUE when set
+    # (Postgres UNIQUE allows multiple NULLs for legacy rows)
+    provider_charge_id: Mapped[str | None] = mapped_column(String(128), unique=True)
     amount: Mapped[float | None] = mapped_column()
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
