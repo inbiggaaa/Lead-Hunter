@@ -616,6 +616,8 @@ show_last_leads → done
 
 ### Последние записи (полный журнал — docs/SESSION_LOG.md)
 
+**16.07.2026 — ДЕПЛОЙ на прод (feature/codex-userflow-v2, `a7b4d17`).** Рестарт bot+worker (bind-mount, без пересборки). Чисто: 0 FloodWait/CRITICAL, circuit clear, Hot 74/70 ok 0 errors. Живьём: названия чатов в уведомлениях, контакт-fallback отправителя, напоминания подписки −2/−1, «подписка истекла», обновлённые тексты, латинизация тарифов. Отдельно чинили crash-loop admin (устаревший baked `.env` → `config extra="ignore"`); admin оставлен публичным (до домена+SSL).
+
 **16.07.2026 — feat: честный fallback контакта + имя автора при отсутствии @username.** У части лидов нет `@username` → было пусто. Телефон/id-ссылки/invite Telegram надёжно не даёт (приватность), парсинг текста — по решению владельца НЕ делаем. Внедрено: захват имени автора (`_sender_display_name`→`PendingMatch.sender_name`→`_dispatch`→payload); в paid-уведомлении без username показываем имя (`lead_sender_name`) + честную строку `lead_contact_hidden`. Новых API-вызовов нет. ⚠️ poller → рестарт worker; bot → `restart bot`.
 
 **16.07.2026 — fix: реальное название чата в уведомлениях (было «группа -100…»).** Корень фикса 14.07: `_poll_channel` брал title из `entity` (`InputPeerChannel` без `.title`) → `chat_title` всегда пустой → fallback на числовой id. Правка без доп. API: title из `msg.chat.title` (Telethon прикрепляет `.chat` к сообщениям) + DB-fallback (`CatalogChannel/WatchedChat.title` через `_get_all_channels`→`_poll_channel(db_title=…)`). Отправитель вынесен на новую строку (`lead_sender`). ⚠️ poller-правки → рестарт worker; bot-часть — `restart bot`.
