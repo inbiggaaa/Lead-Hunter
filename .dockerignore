@@ -1,0 +1,37 @@
+# Secrets / runtime config — provided via compose env_file at runtime, never baked
+.env
+.env.local
+
+# Userbot sessions & DB backups — sensitive, bind-mounted at runtime
+sessions/
+backups/
+*.sql
+*.session
+*.session-journal
+
+# VCS / local tooling
+.git
+.gitignore
+.github/
+.claude/
+
+# Python caches / local venv
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node (admin frontend build tooling)
+**/node_modules/
+
+# Logs / editor cruft
+*.log
+.DS_Store
+.idea/
+.vscode/
