@@ -34,21 +34,28 @@ async def cmd_start(message: Message):
         )
         lang = user.language
 
-        # Process referral
+        # Process referral — immutable edge; code lives on users.referral_code.
         if ref_code and user.source == "direct" and user.created_at and \
-           (dt.datetime.now(dt.timezone.utc) - user.created_at).seconds < 60:
-            from app.db.models import Referral
+           (dt.datetime.now(dt.timezone.utc) - user.created_at).total_seconds() < 60:
+            from app.db.models import Referral, User
             from sqlalchemy import select
-            ref = (await session.execute(
-                select(Referral).where(Referral.ref_code == ref_code)
+            referrer = (await session.execute(
+                select(User).where(User.referral_code == ref_code)
             )).scalar_one_or_none()
-
-            if ref and ref.referrer_id != user.id:
-                user.source = "referral"
-                ref.referral_id = user.id
-                ref.status = "pending"
-                # Referral changes acquisition and future trial duration only.
-                # Trial starts after the first search is committed (U3).
+            if referrer and referrer.id != user.id:
+                already = (await session.execute(
+                    select(Referral).where(Referral.referral_id == user.id)
+                )).scalar_one_or_none()
+                if already is None:
+                    user.source = "referral"
+                    session.add(Referral(
+                        referrer_id=referrer.id,
+                        referral_id=user.id,
+                        ref_code=ref_code,
+                        status="pending",
+                    ))
+                    # Referral changes acquisition and future trial duration only.
+                    # Trial starts after the first search is committed (U3).
 
         from app.analytics import record_event
         await record_event("welcome_viewed", user)

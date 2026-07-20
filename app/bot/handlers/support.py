@@ -5,6 +5,7 @@ from aiogram.types import Message
 
 from app.db.models import SupportMessage
 from app.db.session import get_session
+from app.locales import get_text, normalize_language
 
 router = Router()
 

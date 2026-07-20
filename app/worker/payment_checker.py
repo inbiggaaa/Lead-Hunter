@@ -75,17 +75,36 @@ async def _activate(data: dict, invoice_id: str) -> bool:
     info = _calc_winback(plan) if data.get("promo") == "wb25" else _calc(plan, period_key)
     charge_id = f"cryptobot:{invoice_id}"
 
-    result = await activate_paid_subscription(
-        user_db_id=user_id,
-        plan=plan,
-        period_key=period_key,
-        method="cryptobot",
-        provider_charge_id=charge_id,
-        invoice_id=str(invoice_id),
-        amount=data.get("amount") or info["total"],
-        promo=data.get("promo"),
-        months=info["months"],
-    )
+    if data.get("promo") == "wb25":
+        from app.bot.handlers.plan import _active_winback_offer
+        offer = await _active_winback_offer(user_id)
+        if not offer:
+            logger.warning(
+                "CryptoBot invoice %s rejected: winback offer inactive for user %d",
+                invoice_id, user_id,
+            )
+            return False
+
+    try:
+        result = await activate_paid_subscription(
+            user_db_id=user_id,
+            plan=plan,
+            period_key=period_key,
+            method="cryptobot",
+            provider_charge_id=charge_id,
+            invoice_id=str(invoice_id),
+            amount=data.get("amount") or info["total"],
+            promo=data.get("promo"),
+            months=info["months"],
+        )
+    except ValueError as exc:
+        if str(exc) == "winback_offer_inactive":
+            logger.warning(
+                "CryptoBot invoice %s rejected: winback offer inactive for user %d",
+                invoice_id, user_id,
+            )
+            return False
+        raise
     if not result:
         return False
 

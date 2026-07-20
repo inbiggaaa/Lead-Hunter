@@ -89,10 +89,22 @@ async def activate_paid_subscription(
         user.free_lifecycle_at = None
         if promo == "wb25":
             offer = (await session.execute(
-                select(WinbackOffer).where(WinbackOffer.user_id == user.id)
+                select(WinbackOffer)
+                .where(WinbackOffer.user_id == user.id)
+                .with_for_update()
             )).scalar_one_or_none()
-            if offer and offer.redeemed_at is None:
-                offer.redeemed_at = now
+            if (
+                offer is None
+                or offer.redeemed_at is not None
+                or offer.expires_at <= now
+            ):
+                await session.rollback()
+                logger.warning(
+                    "Reject wb25 activation for user %d: offer inactive/expired",
+                    user.id,
+                )
+                raise ValueError("winback_offer_inactive")
+            offer.redeemed_at = now
 
         try:
             await session.commit()

@@ -42,9 +42,10 @@ def test_parse_stars_payload_rejects_garbage():
     assert parse_stars_payload("sub:pro:2m:1") is None
 
 
-def test_pre_checkout_ok(canonical_prices):
+@pytest.mark.asyncio
+async def test_pre_checkout_ok(canonical_prices):
     info = _calc("pro", "1m")
-    ok, err = validate_stars_pre_checkout(
+    ok, err = await validate_stars_pre_checkout(
         payload="sub:pro:1m:111",
         from_user_id=111,
         currency="XTR",
@@ -53,8 +54,9 @@ def test_pre_checkout_ok(canonical_prices):
     assert ok and err == ""
 
 
-def test_pre_checkout_rejects_wrong_amount(canonical_prices):
-    ok, err = validate_stars_pre_checkout(
+@pytest.mark.asyncio
+async def test_pre_checkout_rejects_wrong_amount(canonical_prices):
+    ok, err = await validate_stars_pre_checkout(
         payload="sub:pro:1m:111",
         from_user_id=111,
         currency="XTR",
@@ -64,9 +66,10 @@ def test_pre_checkout_rejects_wrong_amount(canonical_prices):
     assert "Amount" in err
 
 
-def test_pre_checkout_rejects_wrong_user(canonical_prices):
+@pytest.mark.asyncio
+async def test_pre_checkout_rejects_wrong_user(canonical_prices):
     info = _calc("pro", "1m")
-    ok, err = validate_stars_pre_checkout(
+    ok, err = await validate_stars_pre_checkout(
         payload="sub:pro:1m:111",
         from_user_id=222,
         currency="XTR",
@@ -76,9 +79,10 @@ def test_pre_checkout_rejects_wrong_user(canonical_prices):
     assert "User" in err
 
 
-def test_pre_checkout_rejects_wrong_currency(canonical_prices):
+@pytest.mark.asyncio
+async def test_pre_checkout_rejects_wrong_currency(canonical_prices):
     info = _calc("pro", "1m")
-    ok, err = validate_stars_pre_checkout(
+    ok, err = await validate_stars_pre_checkout(
         payload="sub:pro:1m:111",
         from_user_id=111,
         currency="USD",

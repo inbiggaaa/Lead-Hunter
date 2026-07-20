@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-20**
 
-Статус: **ПЛАН СТАБИЛИЗАЦИИ АКТИВЕН** на ветке `stability/audit-fixes`. Phase 0–3 закрыты (admin/deploy, worker lease, queue claim + deliverability/cache snapshot). Production не затрагивался. Далее: Phase 4 referral/winback/support.
+Статус: **ПЛАН СТАБИЛИЗАЦИИ АКТИВЕН** на ветке `stability/audit-fixes`. Phase 0–4 закрыты (admin/deploy, worker lease, queue/cache, referral/winback/support). Production не затрагивался. Далее: Phase 5 recovery/supply-chain.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 

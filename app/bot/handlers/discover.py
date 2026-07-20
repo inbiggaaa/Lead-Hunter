@@ -283,18 +283,12 @@ async def on_referral(callback: CallbackQuery):
 
         from app.db.models import Referral
         from sqlalchemy import select, func
-        ref = (await session.execute(
-            select(Referral).where(Referral.referrer_id == user.id)
-        )).scalars().first()
 
-        if not ref:
-            ref = Referral(
-                referrer_id=user.id, referral_id=user.id,
-                ref_code=uuid.uuid4().hex[:8].upper(), status="active",
-            )
-            session.add(ref)
+        if not user.referral_code:
+            user.referral_code = uuid.uuid4().hex[:8].upper()
             await session.commit()
 
+        ref_code = user.referral_code
         invited = (await session.execute(
             select(func.count(Referral.id)).where(Referral.referrer_id == user.id)
         )).scalar() or 0
@@ -307,7 +301,7 @@ async def on_referral(callback: CallbackQuery):
         bonus_days = activated * settings.referral_bonus_days
         await session.commit()
 
-    link = f"https://t.me/LeadHunterAiApp_bot?start=ref_{ref.ref_code}"
+    link = f"https://t.me/LeadHunterAiApp_bot?start=ref_{ref_code}"
 
     share_msg = get_text(lang, "referral_share", trial_days=settings.trial_days + settings.referral_trial_bonus, link=link)
     text = get_text(lang, "referral_body", bonus=settings.referral_bonus_days, referral_bonus=settings.referral_trial_bonus, trial_days=settings.trial_days + settings.referral_trial_bonus, link=link, invited=invited, activated=activated, bonus_days=bonus_days)

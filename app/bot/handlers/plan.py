@@ -310,7 +310,7 @@ def parse_stars_payload(payload: str) -> tuple[str, str, int, str | None] | None
     return plan, period, telegram_id, promo
 
 
-def validate_stars_pre_checkout(
+async def validate_stars_pre_checkout(
     *,
     payload: str,
     from_user_id: int,
@@ -329,12 +329,22 @@ def validate_stars_pre_checkout(
     info = _calc_winback(plan) if promo == "wb25" else _calc(plan, period)
     if int(total_amount) != int(info["stars"]):
         return False, "Amount mismatch"
+    if promo == "wb25":
+        from app.db.crud import get_user
+        from app.db.session import async_session_factory
+        async with async_session_factory() as session:
+            user = await get_user(session, from_user_id)
+            if not user:
+                return False, "User not found"
+            offer = await _active_winback_offer(user.id)
+            if not offer:
+                return False, "Winback offer expired"
     return True, ""
 
 
 @router.pre_checkout_query()
 async def on_pre_checkout(query: PreCheckoutQuery):
-    ok, err = validate_stars_pre_checkout(
+    ok, err = await validate_stars_pre_checkout(
         payload=query.invoice_payload,
         from_user_id=query.from_user.id,
         currency=query.currency,
@@ -350,7 +360,7 @@ async def on_pre_checkout(query: PreCheckoutQuery):
 @router.message(F.successful_payment)
 async def on_successful_payment(message: Message):
     sp = message.successful_payment
-    ok, err = validate_stars_pre_checkout(
+    ok, err = await validate_stars_pre_checkout(
         payload=sp.invoice_payload,
         from_user_id=message.from_user.id,
         currency=sp.currency,
@@ -424,13 +434,15 @@ async def _apply_referral_bonus(user_id: int) -> None:
     from sqlalchemy import func
 
     async with async_session_factory() as session:
-        referral = (await session.execute(select(Referral).where(
-            Referral.referral_id == user_id, Referral.status == "pending"
-        ))).scalar_one_or_none()
+        referral = (await session.execute(
+            select(Referral)
+            .where(Referral.referral_id == user_id, Referral.status == "pending")
+            .with_for_update()
+        )).scalar_one_or_none()
         if not referral:
             return
         referrer = (await session.execute(
-            select(User).where(User.id == referral.referrer_id)
+            select(User).where(User.id == referral.referrer_id).with_for_update()
         )).scalar_one_or_none()
         if not referrer:
             return
@@ -535,17 +547,26 @@ async def _activate_by_msg(
         lang = normalize_language(getattr(u, "language", None))
 
     from app.payments.activate import activate_paid_subscription
-    result = await activate_paid_subscription(
-        user_db_id=user_db_id,
-        plan=plan,
-        period_key=period_key,
-        method=method,
-        provider_charge_id=provider_charge_id,
-        invoice_id=invoice_id,
-        amount=info["total"],
-        promo=promo,
-        months=info["months"],
-    )
+    try:
+        result = await activate_paid_subscription(
+            user_db_id=user_db_id,
+            plan=plan,
+            period_key=period_key,
+            method=method,
+            provider_charge_id=provider_charge_id,
+            invoice_id=invoice_id,
+            amount=info["total"],
+            promo=promo,
+            months=info["months"],
+        )
+    except ValueError as exc:
+        if str(exc) == "winback_offer_inactive":
+            logger.warning(
+                "Stars activation rejected for user %d: winback offer inactive",
+                user_db_id,
+            )
+            return
+        raise
     if not result:
         return
 

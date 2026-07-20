@@ -48,6 +48,8 @@ class User(Base):
     # Start of the no-subscription lifecycle. Set on expiry or on the first
     # matched lead for users who have never had a subscription.
     free_lifecycle_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    # Stable share code for deep-link invites (ref_<code>). Edges live in referrals.
+    referral_code: Mapped[str | None] = mapped_column(String(20), unique=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -370,7 +372,11 @@ class DiscoveredChat(Base):
 # ── referrals ──
 
 class Referral(Base):
+    """Immutable invitee edge. Share code lives on users.referral_code."""
     __tablename__ = "referrals"
+    __table_args__ = (
+        Index("idx_referrals_referrer_paid_month", "referrer_id", "activated_at"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     referrer_id: Mapped[int] = mapped_column(
@@ -379,7 +385,8 @@ class Referral(Base):
     referral_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
     )
-    ref_code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    # Snapshot of the code used at bind time (not globally unique — many edges share it).
+    ref_code: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     bonus_days: Mapped[int] = mapped_column(Integer, default=10)
     referral_trial_bonus: Mapped[int] = mapped_column(Integer, default=4)
