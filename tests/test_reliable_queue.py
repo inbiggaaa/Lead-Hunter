@@ -66,6 +66,19 @@ class FakeRedis:
             return list(lst[start:])
         return list(lst[start:end + 1])
 
+    async def lset(self, key, index, value):
+        lst = self.lists.setdefault(key, [])
+        if index < 0 or index >= len(lst):
+            raise IndexError(index)
+        lst[index] = value if isinstance(value, str) else value.decode()
+
+    async def incr(self, key):
+        # Counters live outside LIST/SET maps for this stub.
+        if not hasattr(self, "counters"):
+            self.counters = {}
+        self.counters[key] = int(self.counters.get(key, 0)) + 1
+        return self.counters[key]
+
     async def llen(self, key):
         return len(self.lists.get(key) or [])
 
@@ -258,6 +271,8 @@ async def test_digest_flush_restores_on_mid_failure(fake_redis, monkeypatch):
         patch("app.worker.digest.mark_sent", new=AsyncMock(side_effect=capture_mark)),
         patch("app.worker.digest.increment_daily_stats", new=AsyncMock()),
         patch("app.worker.digest.reclaim_stale_digests", new=AsyncMock(return_value=0)),
+        patch("app.worker.digest.is_duplicate", new=AsyncMock(return_value=False)),
+        patch("app.worker.digest.is_content_duplicate", new=AsyncMock(return_value=False)),
     ):
         await digest_mod.flush_digests()
 

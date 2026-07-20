@@ -27,11 +27,22 @@ class _FakeRedis:
     def __init__(self):
         self.store: dict[str, str] = {}
 
+    async def get(self, key):
+        return self.store.get(key)
+
     async def set(self, key, value):
         self.store[key] = value
 
     async def expire(self, key, ttl):
         pass
+
+    async def delete(self, *keys):
+        n = 0
+        for k in keys:
+            if k in self.store:
+                del self.store[k]
+                n += 1
+        return n
 
 
 # ── seed: 3 пользователя (подписка+города / только keyword / пустой) ──

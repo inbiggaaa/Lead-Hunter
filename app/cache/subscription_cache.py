@@ -1,7 +1,9 @@
 """Redis-based subscription cache for fast user lookup."""
 
+import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -15,6 +17,7 @@ logger = logging.getLogger(__name__)
 # ── Cache key patterns ──
 
 CACHE_CHAT_KEY = "sub:by_chat:{chat_username}"
+CACHE_SNAPSHOT_KEY = "sub:snapshot:v1"
 QUEUE_NOTIFICATIONS = "queue:notifications"
 QUEUE_PROCESSING = "queue:notifications:processing"
 QUEUE_DEAD_LETTER = "dlq:notifications"
@@ -23,23 +26,29 @@ MAX_DELIVERY_ATTEMPTS = 5
 HEARTBEAT_KEY = "heartbeat:userbot:1"
 STATS_DAILY_KEY = "stats:daily:{user_id}:{date}"
 CLASS_CACHE_KEY = "class:cache:{message_hash}"
+STATS_REDELIVERY = "stats:queue:redelivery_after_success"
+
+_rebuild_lock = asyncio.Lock()
+
+
+def user_is_deliverable(user: User, *, now: datetime | None = None) -> bool:
+    """True when the user may receive leads / bot interactions."""
+    if user.is_banned or user.is_blocked_bot:
+        return False
+    if not user.is_suspended:
+        return True
+    now = now or datetime.now(timezone.utc)
+    # Suspended forever when suspended_until is NULL; otherwise until expiry.
+    return bool(user.suspended_until and user.suspended_until <= now)
 
 
 # ── Build / rebuild cache ──
 
-async def rebuild_subscription_cache(chat_username: str) -> None:
-    """Rebuild the subscription cache for a given chat username.
-
-    Maps chat → list of interested users with their segments, keywords, and
-    geo filters. C5: four flat SELECTs joined in memory instead of 3 queries
-    per user (N+1); users without a single subscription or keyword are not
-    cached — they can never receive a notification.
-    """
-    redis = await get_redis()
-    key = CACHE_CHAT_KEY.format(chat_username=chat_username)
-
+async def _build_cache_payload() -> list[dict]:
+    """Load deliverable users with subscriptions/keywords into one snapshot."""
     from app.db.models import Keyword, SubscriptionCity
 
+    now = datetime.now(timezone.utc)
     async with async_session_factory() as session:
         users = (await session.execute(select(User))).scalars().all()
         subs = (await session.execute(select(UserSubscription))).scalars().all()
@@ -62,6 +71,8 @@ async def rebuild_subscription_cache(chat_username: str) -> None:
 
     cache_data: list[dict] = []
     for user in users:
+        if not user_is_deliverable(user, now=now):
+            continue
         user_subs = subs_by_user.get(user.id, [])
         keyword_texts = kws_by_user.get(user.id, [])
         if not user_subs and not keyword_texts:
@@ -87,15 +98,36 @@ async def rebuild_subscription_cache(chat_username: str) -> None:
             "subscriptions": sub_geo,
             "keyword_texts": keyword_texts,
         })
+    return cache_data
 
-    await redis.set(key, json.dumps(cache_data, default=str))
-    await redis.expire(key, 3600)
-    logger.info("Rebuilt cache for @%s: %d users with subs/keywords",
-                chat_username, len(cache_data))
+
+async def rebuild_subscription_cache(chat_username: str) -> None:
+    """Rebuild shared snapshot and mirror it to the per-chat key.
+
+    Content is identical for every chat; single-flight lock prevents stampedes
+    after invalidate_all_subscription_caches().
+    """
+    async with _rebuild_lock:
+        redis = await get_redis()
+        existing = await redis.get(CACHE_SNAPSHOT_KEY)
+        if existing:
+            payload = existing
+        else:
+            cache_data = await _build_cache_payload()
+            payload = json.dumps(cache_data, default=str)
+            await redis.set(CACHE_SNAPSHOT_KEY, payload)
+            await redis.expire(CACHE_SNAPSHOT_KEY, 3600)
+            logger.info(
+                "Rebuilt subscription snapshot: %d deliverable users",
+                len(cache_data),
+            )
+        key = CACHE_CHAT_KEY.format(chat_username=chat_username)
+        await redis.set(key, payload)
+        await redis.expire(key, 3600)
 
 
 async def invalidate_all_subscription_caches() -> None:
-    """Drop every sub:by_chat:* key.
+    """Drop every sub:by_chat:* key and the shared snapshot.
 
     Call after COMMIT of any change to subscriptions, keywords, watched
     chats or user plan/blocked status. The cache content is identical for
@@ -106,7 +138,7 @@ async def invalidate_all_subscription_caches() -> None:
     redis = await get_redis()
     # Collect first, delete after: removing keys mid-SCAN skews the iteration.
     cursor = 0
-    keys: list[str] = []
+    keys: list[str] = [CACHE_SNAPSHOT_KEY]
     while True:
         cursor, page = await redis.scan(
             cursor, match=CACHE_CHAT_KEY.format(chat_username="*"), count=200,
@@ -132,13 +164,19 @@ async def get_interested_users(chat_username: str) -> list[dict]:
 # ── Queue operations (BLMOVE claim / ack / reclaim) ──
 
 def _wrap_envelope(payload: dict, *, attempts: int = 0) -> dict:
-    return {"claimed_at": None, "attempts": attempts, "body": payload}
+    return {
+        "id": str(uuid.uuid4()),
+        "claimed_at": None,
+        "attempts": attempts,
+        "body": payload,
+    }
 
 
 def _normalize_envelope(raw: dict | list) -> dict:
     """Accept wrapped envelopes and legacy bare payloads from the main queue."""
     if isinstance(raw, dict) and "body" in raw and "attempts" in raw:
         return {
+            "id": raw.get("id") or str(uuid.uuid4()),
             "claimed_at": raw.get("claimed_at"),
             "attempts": int(raw.get("attempts") or 0),
             "body": raw["body"],
@@ -171,7 +209,11 @@ async def push_notification(payload: dict) -> None:
 
 
 async def claim_notification(timeout: int = 5) -> dict | None:
-    """Atomically move one item main → processing and stamp claimed_at."""
+    """Move one item main → processing and stamp claimed_at without a delete gap.
+
+    BLMOVE places the item at processing index 0; LSET stamps it in place so a
+    crash cannot drop the envelope between LREM and LPUSH.
+    """
     redis = await get_redis()
     raw = await redis.blmove(
         QUEUE_NOTIFICATIONS, QUEUE_PROCESSING, timeout, "RIGHT", "LEFT",
@@ -182,10 +224,28 @@ async def claim_notification(timeout: int = 5) -> dict | None:
         raw = raw.decode()
     envelope = _normalize_envelope(json.loads(raw))
     envelope["claimed_at"] = datetime.now(timezone.utc).isoformat()
-    new_raw = _serialize_envelope(envelope)
-    # Replace the moved blob with the stamped envelope (exact LREM later).
-    await redis.lrem(QUEUE_PROCESSING, 1, raw)
-    await redis.lpush(QUEUE_PROCESSING, new_raw)
+    await redis.lset(QUEUE_PROCESSING, 0, _serialize_envelope(envelope))
+    return envelope
+
+
+async def touch_claim(envelope: dict) -> dict:
+    """Refresh claimed_at while a long TelegramRetryAfter sleep is in progress."""
+    redis = await get_redis()
+    envelope = dict(envelope)
+    envelope["claimed_at"] = datetime.now(timezone.utc).isoformat()
+    serialized = _serialize_envelope(envelope)
+    items = await redis.lrange(QUEUE_PROCESSING, 0, -1)
+    target_id = envelope.get("id")
+    for idx, raw in enumerate(items):
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        try:
+            current = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if current.get("id") == target_id:
+            await redis.lset(QUEUE_PROCESSING, idx, serialized)
+            break
     return envelope
 
 
@@ -241,6 +301,7 @@ async def reclaim_stale_notifications() -> int:
             QUEUE_NOTIFICATIONS,
             _serialize_envelope(_wrap_envelope(body, attempts=attempts)),
         )
+        await redis.incr(STATS_REDELIVERY)
         reclaimed += 1
     if reclaimed:
         logger.warning("Reclaimed %d stale notification(s) from processing", reclaimed)

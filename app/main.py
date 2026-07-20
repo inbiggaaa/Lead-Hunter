@@ -17,6 +17,7 @@ from app.bot.handlers.support import router as support_router
 from app.bot.handlers.plan import router as plan_router
 from app.bot.handlers.feedback import router as feedback_router
 from app.sentry_setup import init_sentry
+from app.bot.middlewares.deliverability import DeliverabilityMiddleware
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -62,6 +63,8 @@ async def main():
         f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}",
     )
     dp = Dispatcher(storage=storage)
+    dp.message.middleware(DeliverabilityMiddleware())
+    dp.callback_query.middleware(DeliverabilityMiddleware())
     dp.include_router(catalog_router)
     dp.include_router(keywords_router)
     dp.include_router(channels_router)

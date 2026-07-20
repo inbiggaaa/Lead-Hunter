@@ -32,6 +32,19 @@ logger = logging.getLogger(__name__)
 RETRY_SCHEDULE = (None, 1, 4, 9)
 
 
+async def _user_may_receive(user_id: int) -> bool:
+    """Defense-in-depth: ban/suspend/blocked users must not receive leads."""
+    from app.db.session import async_session_factory
+    from app.db.models import User
+    from app.cache.subscription_cache import user_is_deliverable
+
+    async with async_session_factory() as session:
+        user = await session.get(User, user_id)
+        if user is None:
+            return True
+        return user_is_deliverable(user)
+
+
 def _is_numeric_chat(chat: str) -> bool:
     """True for private-group peer ids stored as «-100…» (no public @username)."""
     return chat.lstrip("-").isdigit()
@@ -116,7 +129,7 @@ class NotificationSender:
                 continue
 
             try:
-                result = await self._send_notification(envelope["body"])
+                result = await self._send_notification(envelope)
                 if result == "permanent_fail":
                     await fail_notification(envelope, to_dlq=True)
                 else:
@@ -130,10 +143,25 @@ class NotificationSender:
 
             await asyncio.sleep(self.throttle_interval)
 
-    async def _send_notification(self, payload: dict) -> str:
-        """Send a single notification. Returns ok | skipped | permanent_fail."""
+    async def _send_notification(self, envelope_or_payload: dict) -> str:
+        """Send a single notification. Returns ok | skipped | permanent_fail.
+
+        Accepts either a claimed envelope `{body, ...}` or a bare payload
+        (tests / digest helpers).
+        """
+        if "body" in envelope_or_payload and "attempts" in envelope_or_payload:
+            envelope = envelope_or_payload
+            payload = envelope["body"]
+        else:
+            payload = envelope_or_payload
+            envelope = {"id": None, "body": payload, "attempts": 0, "claimed_at": None}
+
         user_id = payload["user_id"]
         message_hash = payload["message_hash"]
+
+        if not await _user_may_receive(user_id):
+            logger.info("Skip delivery for undeliverable user %d", user_id)
+            return "skipped"
 
         # Deduplication by message identity
         if await is_duplicate(user_id, message_hash):
@@ -207,7 +235,7 @@ class NotificationSender:
         text = self._format_notification(payload)
         kb = self._build_keyboard(payload)
 
-        delivered = await self._deliver_with_retry(payload, text, kb)
+        delivered = await self._deliver_with_retry(envelope, payload, text, kb)
         if not delivered:
             return "permanent_fail"
 
@@ -218,7 +246,9 @@ class NotificationSender:
         await record_once_event("first_lead_delivered", user_id=user_id, language=payload.get("lang"), plan=payload.get("plan"), context={"lead_id": message_hash})
         return "ok"
 
-    async def _deliver_with_retry(self, payload: dict, text: str, kb) -> bool:
+    async def _deliver_with_retry(
+        self, envelope: dict, payload: dict, text: str, kb,
+    ) -> bool:
         """Deliver with the DECISIONS #26 policy.
 
         403 → mark user blocked, stop. 429 → sleep(retry_after), retry.
@@ -245,6 +275,9 @@ class NotificationSender:
                     "429 for user %d — sleeping %ds before retry",
                     user_id, e.retry_after,
                 )
+                if envelope.get("id"):
+                    from app.cache.subscription_cache import touch_claim
+                    envelope.update(await touch_claim(envelope))
                 await asyncio.sleep(e.retry_after)
             except Exception as e:
                 logger.warning(

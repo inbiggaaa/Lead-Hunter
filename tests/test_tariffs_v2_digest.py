@@ -33,6 +33,7 @@ async def _run(sender, payload, **extra_patches):
         patch("app.worker.sender.is_content_duplicate", new=AsyncMock(return_value=False)),
         patch("app.worker.sender.mark_sent", new=AsyncMock()),
         patch("app.worker.sender.increment_daily_stats", new=AsyncMock()),
+        patch("app.worker.sender._user_may_receive", new=AsyncMock(return_value=True)),
         patch("app.cache.subscription_cache.buffer_digest", new=buf_mock),
         patch("app.cache.subscription_cache.is_digest_inflight", new=AsyncMock(return_value=False)),
     ]

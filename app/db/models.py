@@ -175,7 +175,7 @@ class City(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    slug: Mapped[str] = mapped_column(String(50), unique=True)
+    slug: Mapped[str] = mapped_column(String(50))
     name_ru: Mapped[str | None] = mapped_column(Text)
     name_en: Mapped[str | None] = mapped_column(Text)
     country_id: Mapped[int] = mapped_column(

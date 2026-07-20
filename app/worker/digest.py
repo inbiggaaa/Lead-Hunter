@@ -20,6 +20,8 @@ from app.cache.subscription_cache import (
     restore_digest,
     reclaim_stale_digests,
     mark_sent,
+    is_duplicate,
+    is_content_duplicate,
     increment_daily_stats,
 )
 from app.locales import get_text
@@ -64,10 +66,19 @@ async def flush_digests():
                     user.telegram_id, get_text(lang, "digest_header", count=len(items)))
                 while remaining:
                     payload = remaining[0]
+                    message_hash = payload["message_hash"]
+                    if await is_duplicate(user.id, message_hash):
+                        remaining.pop(0)
+                        await ack_digest_head(user.id, message_hash)
+                        continue
+                    content_hash = payload.get("content_hash")
+                    if content_hash and await is_content_duplicate(user.id, content_hash):
+                        remaining.pop(0)
+                        await ack_digest_head(user.id, message_hash)
+                        continue
                     text = sender._format_notification(payload)
                     kb = sender._build_keyboard(payload)
                     await sender.bot.send_message(user.telegram_id, text, reply_markup=kb)
-                    content_hash = payload.get("content_hash")
                     matched = payload.get("matched_segments", [])
                     seg_label = ", ".join(m.get("title", "") for m in matched) if matched else None
                     meta = {
@@ -78,12 +89,12 @@ async def flush_digests():
                     }
                     await mark_sent(
                         user.id,
-                        payload["message_hash"],
+                        message_hash,
                         payload.get("is_urgent", False),
                         content_hash=content_hash,
                         meta=meta,
                     )
-                    await ack_digest_head(user.id, payload.get("message_hash"))
+                    await ack_digest_head(user.id, message_hash)
                     await increment_daily_stats(user.id, today, "sent")
                     remaining.pop(0)
                     delivered += 1
