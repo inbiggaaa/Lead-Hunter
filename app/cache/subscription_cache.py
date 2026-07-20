@@ -25,7 +25,6 @@ CLAIM_TTL_SEC = 300
 MAX_DELIVERY_ATTEMPTS = 5
 HEARTBEAT_KEY = "heartbeat:userbot:1"
 STATS_DAILY_KEY = "stats:daily:{user_id}:{date}"
-CLASS_CACHE_KEY = "class:cache:{message_hash}"
 STATS_REDELIVERY = "stats:queue:redelivery_after_success"
 
 _rebuild_lock = asyncio.Lock()

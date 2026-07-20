@@ -310,7 +310,7 @@ async def get_user(db: AsyncSession, telegram_id: int) -> User | None:
 ### Ключи — с префиксом и разделителем `:`
 ```python
 CACHE_CHAT_KEY = "sub:by_chat:{chat_username}"
-CACHE_CLASS_KEY = "class:cache:{message_hash}"
+CACHE_SNAPSHOT_KEY = "sub:snapshot:v1"  # shared subscription cache
 QUEUE_NOTIFICATIONS = "queue:notifications"
 QUEUE_DEAD_LETTER = "dlq:notifications"
 STATS_DAILY = "stats:daily:{user_id}:{date}"

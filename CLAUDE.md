@@ -90,7 +90,7 @@ SaaS-сервис на базе Telegram-бота. Отслеживает соо
 
 **Принципы:** только inline-клавиатуры, все экраны с «◀️ Назад», FSM с `/cancel`. Картинки позже.
 
-**Главное меню (4 кнопки, с 30.06.2026):** 🔍 Поиск клиентов → FSM-воронка | 💰 Тариф и оплата | 🎁 Пригласить друга | ⚙️ Настройки (→ 6 подэкранов: ключевые слова, каналы, подписки, язык, о сервисе и др.). Команды `/keywords`, `/channels`, `/subscriptions`, `/plan`, `/settings`, `/search` открывают экраны напрямую.
+**Главное меню (5 кнопок, runtime):** 🔍 Поиск / Мои поиски | 📊 Результаты | 💰 Тариф | 🎁 Пригласить друга | ⚙️ Настройки (→ 6 подэкранов: ключевые слова, каналы, подписки, язык, о сервисе и др.). Команды `/keywords`, `/channels`, `/subscriptions`, `/plan`, `/settings`, `/search` открывают экраны напрямую.
 
 **FSM-воронка:** направление (счётчик N/M) → страна → география (по всей стране / в городах) → города → подтверждение → триал/оплата. Free=1 сегмент, Pro=3, Business=∞.
 
@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-20**
 
-Статус: **ПЛАН СТАБИЛИЗАЦИИ АКТИВЕН** на ветке `stability/audit-fixes`. Phase 0–5 закрыты (admin/deploy, worker lease, queue/cache, referral/winback, supply-chain/recovery). Production не затрагивался. Далее: Phase 6 integration tests + docs drift.
+Статус: **ПЛАН СТАБИЛИЗАЦИИ ЗАКРЫТ (repo-only)** на ветке `stability/audit-fixes` @ HEAD. Phase 0–6 в коде (admin/deploy, worker lease, queue/cache, referral/winback, supply-chain, critical-flow tests + docs). Suite 538 passed. Production/deploy — только по явной команде владельца (`docs/launch/` + safe-deploy).
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 

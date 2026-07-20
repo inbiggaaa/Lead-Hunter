@@ -155,41 +155,26 @@ pytest tests/ -v
 
 ---
 
-## 3. Smoke-тесты (ручной скрипт)
+## 3. Smoke-тесты
 
-### Что проверяем
-Полный цикл: сообщение в тестовом канале → классификация → подбор пользователей → уведомление в личку.
+### Offline harness (CI / pre-commit)
 
-### Запуск (ручной, перед деплоем)
 ```bash
-# Убедись что бот и воркер запущены:
-docker compose ps
-
-python tests/smoke_test.py
+pytest tests/test_smoke_harness.py tests/test_phase6_runtime_flows.py -q
 ```
 
-### smoke_test.py (скелет)
-```python
-"""
-Smoke-тест: проверяет полный путь уведомления.
+- `tests/test_smoke_harness.py` — classify + FakeRedis claim/ack (без Telegram API).
+- `tests/test_phase6_runtime_flows.py` — live Postgres+Redis: queue claim, digest reclaim,
+  payment activate idempotency, immediate expiry → Free paywall (Bot API замокан).
 
-1. Создаёт тестового пользователя в БД с подпиской на сегмент
-2. Отправляет тестовое сообщение в тестовый канал через userbot
-3. Ждёт до 30 секунд уведомления в личку через Bot API
-4. Проверяет: сообщение получено, формат корректный
+### Live channel → inbox (ручной, owner gate)
 
-Требования:
-- Бот и worker запущены (docker compose up -d)
-- Тестовый канал существует и userbot в нём есть
-- BOT_TOKEN и USERBOT_SESSION в .env
-"""
-...
-```
+Требует работающих bot/worker и тестовый канал. Не автоматизирован в CI
+(anti-ban / Telethon). Чеклист: `docs/launch/` + ручная проверка после deploy.
 
 ### Когда запускать
-- Перед каждым `git push` на продакшен
-- После фазы 5 (рассыльщик) и дальше
-- При любых изменениях в listener.py или sender.py
+- Offline harness — в каждом CI и перед merge
+- Live smoke — перед публичным релизом / по решению владельца
 
 ---
 
@@ -211,7 +196,7 @@ Smoke-тест: проверяет полный путь уведомления.
 - [ ] Новые публичные функции имеют тесты
 
 ### Фазы 5+ (рассыльщик)
-- [ ] `python tests/smoke_test.py` — полный цикл проходит
+- [ ] `pytest tests/test_smoke_harness.py tests/test_phase6_runtime_flows.py` — offline critical path
 
 ### Фазы 7+ (оплата)
 - [ ] Тестовый платёж проходит (Stars test environment)
