@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-20**
 
-Статус: **ПЛАН СТАБИЛИЗАЦИИ АКТИВЕН** на ветке `stability/audit-fixes`. Phase 0 baseline закрыт; Phase 1 (admin localhost/auth/WS/chat, CRUD/broadcast guards, immutable deploy SHA) закоммичена. Production не затрагивался. Далее: Phase 2 worker singleton lease.
+Статус: **ПЛАН СТАБИЛИЗАЦИИ АКТИВЕН** на ветке `stability/audit-fixes`. Phase 0–1 закрыты; Phase 2 (Redis leader lease + per-account heartbeat) в коде. Production не затрагивался. Далее: Phase 3 queue/cache enforcement.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 

@@ -223,6 +223,7 @@ docker compose logs worker --tail=20 | grep "circuit breaker closed\|Match in @"
 | Нет мониторинга RPS в реальном времени | Бан обнаруживается постфактум | Не реализовано |
 | Нет автоматического отката при FloodWait | Ручное вмешательство | Не реализовано |
 | Circuit breaker сбрасывается при рестарте контейнера | Повторный бан после ребута | Redis persist, не критично |
+| Двойной worker (два контейнера / scale) | Двойной MTProto + FloodWait | Mitigated: Redis `worker:leader` lease (Phase 2). Мониторить `stats:worker:leader_rejected` / `leader_lost` |
 
 ## 7. Инцидент #4: Compose автоматически поднял worker при U10 rollout (14.07.2026)
 

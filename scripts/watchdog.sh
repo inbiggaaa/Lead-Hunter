@@ -124,6 +124,15 @@ if [[ "$llm_total" =~ ^[0-9]+$ ]] && [[ "$llm_fail" =~ ^[0-9]+$ ]] && [ "$llm_to
     fi
 fi
 
+leader_rejected=$(docker compose exec -T redis redis-cli GET "stats:worker:leader_rejected" 2>/dev/null || echo "0")
+leader_lost=$(docker compose exec -T redis redis-cli GET "stats:worker:leader_lost" 2>/dev/null || echo "0")
+if [[ "$leader_rejected" =~ ^[0-9]+$ ]] && [ "$leader_rejected" -gt 0 ]; then
+    ISSUES="${ISSUES}• second worker rejected: <b>${leader_rejected}</b>%0A"
+fi
+if [[ "$leader_lost" =~ ^[0-9]+$ ]] && [ "$leader_lost" -gt 0 ]; then
+    ISSUES="${ISSUES}• worker leader lease lost: <b>${leader_lost}</b>%0A"
+fi
+
 if [ -n "$ISSUES" ]; then
     send_alert "$ISSUES"
 fi
