@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     admin_password: str
     admin_secret: str = ""
     admin_public_port: int = 17421
+    admin_trust_proxy_headers: bool = False
 
     # Payments
     cryptobot_api_token: str = ""

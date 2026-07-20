@@ -4,6 +4,7 @@ import asyncio
 import json as json_mod
 import logging
 
+from aiogram import Bot
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select, func, update, desc, case
 
@@ -103,47 +104,73 @@ async def chat_history(user_id: int):
     }
 
 
-@router.websocket("/api/chat/ws")
-async def chat_ws(ws: WebSocket):
-    await ws.accept()
-    active_connections.add(ws)
+async def _persist_outgoing(user_id: int, text: str) -> User | None:
+    async with async_session_factory() as session:
+        user = await session.get(User, user_id)
+        if not user:
+            return None
+        session.add(
+            SupportMessage(
+                user_id=user_id,
+                direction="outgoing",
+                text=text,
+                is_read=True,
+            )
+        )
+        await session.commit()
+    return user
 
+
+async def _send_outgoing(
+    websocket: WebSocket,
+    data: dict[str, object],
+    bot: Bot,
+) -> None:
+    user_id = data.get("user_id")
+    text = data.get("text")
+    if not isinstance(user_id, int) or not isinstance(text, str) or not text:
+        await websocket.send_json(
+            {"type": "error", "detail": "user_id and text are required"}
+        )
+        return
+
+    user = await _persist_outgoing(user_id, text)
+    if not user:
+        await websocket.send_json({"type": "error", "detail": "User not found"})
+        return
+
+    try:
+        await bot.send_message(user.telegram_id, f"💬 Поддержка:\n\n{text}")
+    except Exception:
+        logger.exception("Failed to send to %d", user.telegram_id)
+
+    await websocket.send_json({"type": "sent", "ok": True})
+
+
+@router.websocket("/api/chat/ws")
+async def chat_ws(ws: WebSocket) -> None:
+    if not ws.scope.get("session", {}).get("authenticated"):
+        await ws.close(code=1008)
+        return
+
+    await ws.accept()
+    bot = Bot(token=settings.bot_token)
+    active_connections.add(ws)
     listener_task = asyncio.create_task(_redis_listener(ws))
 
     try:
         while True:
             data = await ws.receive_json()
             if data.get("action") == "send":
-                user_id = data["user_id"]
-                text = data["text"]
-                telegram_id = data["telegram_id"]
-
-                async with async_session_factory() as session:
-                    session.add(
-                        SupportMessage(
-                            user_id=user_id,
-                            direction="outgoing",
-                            text=text,
-                            is_read=True,
-                        )
-                    )
-                    await session.commit()
-
-                from aiogram import Bot
-
-                bot = Bot(token=settings.bot_token)
-                try:
-                    await bot.send_message(telegram_id, f"💬 Поддержка:\n\n{text}")
-                except Exception:
-                    logger.exception("Failed to send to %d", telegram_id)
-                finally:
-                    await bot.session.close()
-
-                await ws.send_json({"type": "sent", "ok": True})
+                await _send_outgoing(ws, data, bot)
             elif data.get("action") == "ping":
                 await ws.send_json({"type": "pong"})
     except WebSocketDisconnect:
         pass
     finally:
         listener_task.cancel()
-        active_connections.discard(ws)
+        await asyncio.gather(listener_task, return_exceptions=True)
+        try:
+            await bot.session.close()
+        finally:
+            active_connections.discard(ws)

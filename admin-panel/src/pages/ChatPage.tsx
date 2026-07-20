@@ -98,7 +98,6 @@ export default function ChatPage() {
         action: "send",
         user_id: selectedUser.user_id,
         text,
-        telegram_id: selectedUser.telegram_id,
       })
     );
     setMessages((prev) => [

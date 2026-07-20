@@ -1,10 +1,13 @@
 """Session-based auth for admin SPA — with Redis-based brute-force protection."""
 
+import secrets
 import time
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from redis.exceptions import RedisError
 
+from app.cache import get_redis
 from app.config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -18,9 +21,9 @@ MAX_BLOCKS_BEFORE_LONG = 3  # blocks before longer cooldown
 
 
 def _get_ip(request: Request) -> str:
-    """Extract real client IP, respecting reverse proxies."""
+    """Return the peer IP unless proxy headers are explicitly trusted."""
     forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
+    if settings.admin_trust_proxy_headers and forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
@@ -34,8 +37,6 @@ async def login(request: Request, body: LoginRequest):
     client_ip = _get_ip(request)
 
     try:
-        from app.cache import get_redis
-
         redis = await get_redis()
         attempt_key = f"login_attempts:{client_ip}"
         block_key = f"login_blocked:{client_ip}"
@@ -50,7 +51,7 @@ async def login(request: Request, body: LoginRequest):
             )
 
         # ── Check password ──
-        if body.password != settings.admin_password:
+        if not secrets.compare_digest(body.password, settings.admin_password):
             # Record failed attempt
             pipe = redis.pipeline()
             pipe.incr(attempt_key)
@@ -81,12 +82,11 @@ async def login(request: Request, body: LoginRequest):
 
     except HTTPException:
         raise
-    except Exception:
-        # If Redis is down, fall back to password-only check
-        if body.password != settings.admin_password:
-            raise HTTPException(status_code=401, detail="Invalid password")
-        request.session["authenticated"] = True
-        return {"ok": True}
+    except (ConnectionError, OSError, RedisError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication temporarily unavailable",
+        ) from error
 
 
 @router.post("/logout")
