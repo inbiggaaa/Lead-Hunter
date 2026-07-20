@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-20**
 
-Статус: **ПЛАН СТАБИЛИЗАЦИИ АКТИВЕН** на ветке `stability/audit-fixes` при сохраняющемся engineering freeze. Phase 0: baseline коммита `5c7327e` проверен и зафиксирован в `docs/audits/stability_audit_2026-07-20.md`; runtime и тесты не менялись. Production не затрагивался.
+Статус: **ПЛАН СТАБИЛИЗАЦИИ АКТИВЕН** на ветке `stability/audit-fixes`. Phase 0 baseline закрыт; Phase 1 (admin localhost/auth/WS/chat, CRUD/broadcast guards, immutable deploy SHA) закоммичена. Production не затрагивался. Далее: Phase 2 worker singleton lease.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 
