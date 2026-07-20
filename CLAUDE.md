@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-20**
 
-Статус: **Инженерный потолок плана достигнут (без деплоя).** Код: B2 few-shot, U9.4, Sentry scrub, phase-2 tooling (quarantine CLI, recall export, synonym seed), immutable compose, smoke, referral cap. **Pytest 501 passed.** Отложено тобой: P0 security, live payments/шлюз. **Не закрыто без прод/API:** baseline v2 precision, B2 live ≥37/40, B3 labeling, restore drill, `DEPLOY_*`, paid beta 14d. Миграция `u94` не применена. Прод не трогали.
+Статус: **РАЗРАБОТКА ЗАКРЫТА (engineering freeze).** Прод `main` @ `2c6a29a`, alembic `u94_lifecycle_optout`. MVP→prod-ready код задеплоен (B2 few-shot, U9.4, Sentry, immutable compose, smoke, launch docs). Качество матчинга / baseline / quarantine / B2 live — **фон (ops)**, не блокер. Отложено: P0 admin security, live payments. Дальше только ops: beta по желанию (`docs/launch/paid_beta_checklist.md`), публичный релиз позже. Handoff: `docs/launch/development_closeout.md`.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 
