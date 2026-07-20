@@ -1,20 +1,9 @@
-# Local / VPS development overrides — bind-mount code for fast iteration.
+# Local / VPS-with-tunnel convenience: publish DB/Redis on loopback only.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 services:
-  bot:
-    volumes:
-      - ./app:/app/app
-      - ./migrations:/app/migrations
-      - ./seed:/app/seed
-      - ./tests:/app/tests
-      - ./alembic.ini:/app/alembic.ini
-      - ./pytest.ini:/app/pytest.ini
-
-  worker:
-    volumes:
-      - ./app:/app/app
-      - ./sessions:/app/sessions
-
-  admin:
-    volumes:
-      - ./app:/app/app
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"

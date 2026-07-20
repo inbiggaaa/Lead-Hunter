@@ -17,10 +17,13 @@ async def get_redis() -> Redis:
     """
     global _client
     if _client is None:
-        _client = Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            db=settings.redis_db,
-            decode_responses=True,
-        )
+        kwargs: dict = {
+            "host": settings.redis_host,
+            "port": settings.redis_port,
+            "db": settings.redis_db,
+            "decode_responses": True,
+        }
+        if settings.redis_password:
+            kwargs["password"] = settings.redis_password
+        _client = Redis(**kwargs)
     return _client

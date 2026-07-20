@@ -1,0 +1,3 @@
+# Explicit pip-audit ignore list (HIGH/CRITICAL only when justified).
+# One vulnerability ID per line (GHSA-… / CVE-…). Comments start with #.
+# Empty = no ignores; CI fails on HIGH/CRITICAL findings.

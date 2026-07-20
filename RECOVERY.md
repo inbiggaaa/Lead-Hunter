@@ -92,17 +92,52 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 # Или пересмотреть memory limits в docker-compose.yml
 ```
 
-### Redis перезапустился — уведомления потеряны
+### Redis перезапустился — очередь и AOF
 
 ```bash
-# Проверить, был ли рестарт Redis
-docker compose logs redis --tail=20 | grep -i "ready\|restart"
+# Redis в compose уже с AOF: --appendonly yes --appendfsync everysec
+docker compose logs redis --tail=20 | grep -i "ready\|restart\|aof"
 
-# Очередь пуста — это нормально после рестарта (LPUSH/BRPOP — in-memory)
+# После штатного рестарта очередь обычно восстанавливается из AOF.
 docker compose exec redis redis-cli LLEN queue:notifications
+docker compose exec redis redis-cli LLEN queue:notifications:processing
+docker compose exec redis redis-cli LLEN dlq:notifications
 
-# Уведомления за время простоя потеряны безвозвратно.
-# При росте нагрузки рассмотреть Redis Streams (XADD/XREADGROUP/XACK).
+# Stale processing reclaim делает worker (CLAIM_TTL). Если AOF был выключен
+# или volume потерян — in-flight уведомления за окно простоя потеряны.
+# Политика at-least-once: после send возможен один controlled redelivery.
+```
+
+### DLQ replay
+
+```bash
+# Посмотреть dead-letter (JSON payloads)
+docker compose exec redis redis-cli LRANGE dlq:notifications 0 20
+
+# Вернуть один элемент в основную очередь (осторожно, вручную):
+# RPOPLPUSH dlq:notifications queue:notifications
+docker compose exec redis redis-cli RPOPLPUSH dlq:notifications queue:notifications
+```
+
+### Compose воскресил worker
+
+`docker compose run/up/build` может автозапустить worker. После любой
+мутирующей Compose-команды:
+
+```bash
+docker compose ps --all
+# если worker Up, а вы его останавливали — немедленно:
+docker compose stop worker
+```
+
+См. OPERATIONS.md §7.
+
+### Fresh-DB bootstrap (изолированное окружение)
+
+```bash
+# Новый Postgres volume + миграции + seed (worker остановлен / отдельный compose project)
+docker compose run --rm --no-deps worker alembic upgrade head
+# затем seed-скрипты из SETUP.md / seed/
 ```
 
 ### Userbot забанен / FloodWait

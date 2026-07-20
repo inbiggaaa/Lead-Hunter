@@ -1,0 +1,6 @@
+# Dev / CI extras on top of the locked runtime set.
+-r requirements.lock
+
+pytest>=8.0,<9.0
+pytest-asyncio>=0.23,<1.0
+fakeredis>=2.0

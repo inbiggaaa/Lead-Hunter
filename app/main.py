@@ -59,9 +59,7 @@ async def main():
     await bot.set_my_commands(en_cmds, scope=scope, language_code="en")
     await bot.delete_my_commands(scope=scope)  # clear default (no language)
     logger.info("Commands menu set (RU + EN)")
-    storage = RedisStorage.from_url(
-        f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}",
-    )
+    storage = RedisStorage.from_url(settings.redis_url)
     dp = Dispatcher(storage=storage)
     dp.message.middleware(DeliverabilityMiddleware())
     dp.callback_query.middleware(DeliverabilityMiddleware())

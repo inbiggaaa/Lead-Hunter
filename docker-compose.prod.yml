@@ -1,0 +1,10 @@
+# Production overlay: no host publish for DB/Redis; admin stays on loopback.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+services:
+  db:
+    ports: []
+  redis:
+    ports: []
+  admin:
+    ports:
+      - "127.0.0.1:${ADMIN_PUBLIC_PORT:-17421}:8001"

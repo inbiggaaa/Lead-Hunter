@@ -1,14 +1,13 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:5432:5432"
+    # No host ports in the base file — use docker-compose.dev.yml for local binds.
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -21,15 +20,29 @@ services:
           memory: 400M
 
   redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    image: redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    # Optional REDIS_PASSWORD: set the same value in .env for redis + bot/worker/admin.
+    # Empty password keeps the previous unauthenticated mode (dev / until cutover).
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --appendonly yes --appendfsync everysec --requirepass "$$REDIS_PASSWORD"
+        else
+          exec redis-server --appendonly yes --appendfsync everysec
+        fi
     volumes:
       - redis_data:/data
-    ports:
-      - "127.0.0.1:6379:6379"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        [
+          "CMD-SHELL",
+          "if [ -n \"$$REDIS_PASSWORD\" ]; then redis-cli -a \"$$REDIS_PASSWORD\" ping; else redis-cli ping; fi",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -56,6 +69,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    user: "10001:10001"
     deploy:
       resources:
         limits:
@@ -68,6 +82,7 @@ services:
     environment:
       - PYTHONPATH=/app
     volumes:
+      # Host ./sessions must be writable by UID 10001 (non-root container).
       - ./sessions:/app/sessions
     depends_on:
       db:
@@ -81,6 +96,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 45s
+    user: "10001:10001"
     deploy:
       resources:
         limits:
@@ -92,6 +108,7 @@ services:
     env_file: .env
     environment:
       - PYTHONPATH=/app
+    # Bind only on loopback by default (SSH tunnel / local). Override via ADMIN_BIND_HOST.
     ports:
       - "${ADMIN_BIND_HOST:-127.0.0.1}:${ADMIN_PUBLIC_PORT:-17421}:8001"
     depends_on:
@@ -103,9 +120,10 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "curl -f -s http://localhost:8001/health || exit 1"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 10s
+    user: "10001:10001"
     deploy:
       resources:
         limits:

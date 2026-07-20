@@ -75,6 +75,19 @@ class Settings(BaseSettings):
     redis_host: str = "redis"
     redis_port: int = 6379
     redis_db: int = 0
+    # Optional; empty = no AUTH (legacy). When set, must match redis --requirepass.
+    redis_password: str = ""
+
+    @property
+    def redis_url(self) -> str:
+        """URL for redis-py / aiogram RedisStorage (AUTH when password set)."""
+        if self.redis_password:
+            from urllib.parse import quote
+            password = quote(self.redis_password, safe="")
+            return (
+                f"redis://:{password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
+            )
+        return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     # Admin
     admin_password: str
