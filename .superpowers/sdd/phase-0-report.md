@@ -36,3 +36,12 @@ Status: `DONE`
 - Runtime verification из реестра остаётся отдельным owner-approved этапом.
 - Baseline-команды в этой implementer-сессии не перезапускались: использованы
   точные verified evidence из `phase-0-brief.md`, как требовал brief.
+
+## Review fix
+
+- Уточнены границы в `docs/audits/stability_audit_2026-07-20.md`: вне Phase 0
+  остаются production/live runtime проверки Redis и БД; изолированные
+  PostgreSQL/Redis test containers входят в проверенный baseline.
+- Ветка повторно проверена: `stability/audit-fixes`; замечание reviewer о
+  `main` не подтвердилось, документация по ветке не менялась.
+- Проверка после исправления: `git diff --check` — exit 0.

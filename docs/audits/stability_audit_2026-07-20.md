@@ -3,8 +3,9 @@
 ## Границы
 
 Phase 0 фиксирует воспроизводимый baseline и статический реестр рисков без
-изменения runtime, тестов и production. Проверки production, живых Telegram /
-payment-интеграций, Redis и БД в этот этап не входят.
+изменения runtime, тестов и production. Вне этапа остаются только проверки
+production/live runtime Redis и БД, а также живых Telegram/payment-интеграций;
+изолированные тестовые контейнеры PostgreSQL и Redis проверены в baseline ниже.
 
 ## Проверенный baseline
 
