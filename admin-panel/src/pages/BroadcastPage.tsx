@@ -15,14 +15,30 @@ interface BroadcastStats {
   sources: Record<string, number>;
 }
 
+interface BroadcastPreview {
+  total: number;
+  confirmation_token: string;
+}
+
 export default function BroadcastPage() {
   const [planFilter, setPlanFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [text, setText] = useState("");
+  const [preview, setPreview] = useState<BroadcastPreview | null>(null);
 
   const { data: stats } = useQuery<BroadcastStats>({
     queryKey: ["broadcast-stats"],
     queryFn: () => api("/api/broadcast/stats"),
+  });
+
+  const previewMutation = useMutation({
+    mutationFn: () =>
+      api<BroadcastPreview>("/api/broadcast/preview", {
+        method: "POST",
+        body: JSON.stringify({ plan: planFilter, source: sourceFilter, text }),
+      }),
+    onSuccess: setPreview,
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const sendMutation = useMutation({
@@ -31,7 +47,12 @@ export default function BroadcastPage() {
         "/api/broadcast/send",
         {
           method: "POST",
-          body: JSON.stringify({ plan: planFilter, source: sourceFilter, text }),
+          body: JSON.stringify({
+            plan: planFilter,
+            source: sourceFilter,
+            text,
+            confirmation_token: preview?.confirmation_token,
+          }),
         }
       ),
     onSuccess: (data) => {
@@ -39,6 +60,7 @@ export default function BroadcastPage() {
         toast.error(data.error);
       } else {
         toast.success(`Отправлено: ${data.sent} / ${data.total} (ошибок: ${data.failed})`);
+        setPreview(null);
       }
     },
     onError: (e: Error) => toast.error(e.message),
@@ -85,7 +107,7 @@ export default function BroadcastPage() {
                 <select
                   className="w-full border rounded-md px-3 py-2 text-sm bg-background"
                   value={planFilter}
-                  onChange={(e) => setPlanFilter(e.target.value)}
+                  onChange={(e) => { setPlanFilter(e.target.value); setPreview(null); }}
                 >
                   <option value="all">Все</option>
                   {stats &&
@@ -99,7 +121,7 @@ export default function BroadcastPage() {
                 <select
                   className="w-full border rounded-md px-3 py-2 text-sm bg-background"
                   value={sourceFilter}
-                  onChange={(e) => setSourceFilter(e.target.value)}
+                  onChange={(e) => { setSourceFilter(e.target.value); setPreview(null); }}
                 >
                   <option value="all">Все</option>
                   {stats &&
@@ -116,25 +138,35 @@ export default function BroadcastPage() {
                 rows={5}
                 placeholder="Введите текст сообщения..."
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => { setText(e.target.value); setPreview(null); }}
               />
             </div>
 
             <Button
               className="w-full"
-              disabled={!text.trim() || sendMutation.isPending}
-              onClick={() => sendMutation.mutate()}
+              disabled={!text.trim() || previewMutation.isPending}
+              onClick={() => previewMutation.mutate()}
               variant="destructive"
             >
-              {sendMutation.isPending ? (
+              {previewMutation.isPending ? (
                 <>
                   <Loader2 className="size-4 mr-2 animate-spin" />
-                  Отправка...
+                  Подготовка...
                 </>
               ) : (
-                "📨 Отправить"
+                "📨 Предпросмотр"
               )}
             </Button>
+            {preview && (
+              <Button
+                className="w-full"
+                disabled={sendMutation.isPending}
+                onClick={() => sendMutation.mutate()}
+                variant="destructive"
+              >
+                {sendMutation.isPending ? "Отправка..." : `Подтвердить: ${preview.total}`}
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>

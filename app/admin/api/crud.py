@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import async_session_factory
-from app.db.models import Base
+from app.db.models import Base, UserSubscription
 
 # Whitelist of allowed models – prevents arbitrary table access
 ALLOWED_MODELS: dict[str, Type[Base]] = {
@@ -49,6 +49,20 @@ ALLOWED_MODELS["cities"] = City
 ALLOWED_MODELS["segments"] = Segment
 ALLOWED_MODELS["segment_keywords"] = SegmentKeyword
 
+CREATE_FIELDS = {
+    "countries": {"slug", "name_ru", "name_en", "is_active"},
+    "cities": {"slug", "name_ru", "name_en", "country_id", "is_active"},
+    "categories": {"slug", "title_ru", "title_en", "emoji", "sort_order", "is_active"},
+    "segments": {
+        "slug", "title_ru", "title_en", "emoji", "category_id", "sort_order",
+        "is_active", "is_quarantined", "lead_direction",
+    },
+    "segment_keywords": {"segment_id", "text", "keyword_type", "is_regex", "is_active"},
+}
+UPDATE_FIELDS = CREATE_FIELDS
+LEAD_DIRECTIONS = {"demand", "buy", "supply"}
+KEYWORD_TYPES = {"demand", "stop", "synonym"}
+
 
 async def _get_session() -> AsyncSession:
     return async_session_factory()
@@ -63,6 +77,19 @@ def _row_to_dict(row: Any, model: Type[Base]) -> dict[str, Any]:
             val = val.isoformat()
         result[col.key] = val
     return result
+
+
+def _validate_fields(model_name: str, data: dict, is_create: bool) -> dict:
+    """Reject fields outside the explicit contract for this model."""
+    allowed = CREATE_FIELDS[model_name] if is_create else UPDATE_FIELDS[model_name]
+    unknown = set(data) - allowed
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown fields: {', '.join(sorted(unknown))}")
+    if data.get("lead_direction") not in {None, *LEAD_DIRECTIONS}:
+        raise HTTPException(status_code=422, detail="Invalid lead_direction")
+    if data.get("keyword_type") not in {None, *KEYWORD_TYPES}:
+        raise HTTPException(status_code=422, detail="Invalid keyword_type")
+    return data
 
 
 def create_crud_router(model: Type[Base], model_name: str, prefix: str) -> APIRouter:
@@ -126,9 +153,8 @@ def create_crud_router(model: Type[Base], model_name: str, prefix: str) -> APIRo
 
     @router.post("")
     async def create_item(data: dict):
+        clean = _validate_fields(model_name, data, is_create=True)
         async with async_session_factory() as session:
-            # Remove pk so DB auto-generates it
-            clean = {k: v for k, v in data.items() if k not in pks}
             try:
                 stmt = table.insert().values(**clean)
                 result = await session.execute(stmt)
@@ -156,8 +182,8 @@ def create_crud_router(model: Type[Base], model_name: str, prefix: str) -> APIRo
 
     @router.put("/{item_id}")
     async def update_item(item_id: int, data: dict):
+        clean = _validate_fields(model_name, data, is_create=False)
         async with async_session_factory() as session:
-            clean = {k: v for k, v in data.items() if k not in pks}
             if not clean:
                 raise HTTPException(status_code=400, detail="No data to update")
             stmt = table.update().where(pk_col == item_id).values(**clean)
@@ -182,6 +208,15 @@ def create_crud_router(model: Type[Base], model_name: str, prefix: str) -> APIRo
     @router.delete("/{item_id}")
     async def delete_item(item_id: int):
         async with async_session_factory() as session:
+            if model is Segment:
+                subscription = await session.scalar(
+                    select(UserSubscription.id).where(UserSubscription.segment_id == item_id).limit(1)
+                )
+                if subscription:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Segment has active user subscriptions",
+                    )
             stmt = sa_delete(table).where(pk_col == item_id)
             result = await session.execute(stmt)
             if result.rowcount == 0:

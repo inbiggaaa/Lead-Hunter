@@ -6,6 +6,11 @@ on:
     workflows: [CI]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: "40-character commit SHA already verified by CI"
+        required: true
+        type: string
 
 concurrency:
   group: production-deploy
@@ -27,6 +32,32 @@ jobs:
       )
 
     steps:
+      - name: Select CI-verified immutable SHA
+        id: target
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.eventName === "workflow_run"
+              ? context.payload.workflow_run.head_sha
+              : context.payload.inputs.deploy_sha;
+            if (!/^[0-9a-f]{40}$/i.test(sha || "")) {
+              core.setFailed("deploy_sha must be a non-empty 40-character hexadecimal SHA");
+              return;
+            }
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "ci.yml",
+              head_sha: sha,
+              status: "completed",
+              per_page: 20,
+            });
+            if (!runs.data.workflow_runs.some(run => run.conclusion === "success")) {
+              core.setFailed(`No successful CI run found for ${sha}`);
+              return;
+            }
+            core.setOutput("sha", sha);
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -44,11 +75,16 @@ jobs:
             fi
             cd "$DEPLOY_PATH"
             echo "[deploy] host=$(hostname) path=$DEPLOY_PATH"
-            git fetch origin main
-            git checkout main
-            git pull --ff-only origin main
+            DEPLOY_SHA="${{ steps.target.outputs.sha }}"
+            case "$DEPLOY_SHA" in
+              (*[!0-9a-fA-F]*|"") echo "Invalid deploy SHA"; exit 1 ;;
+            esac
+            [ "${#DEPLOY_SHA}" -eq 40 ] || { echo "Invalid deploy SHA"; exit 1; }
+            git fetch origin "$DEPLOY_SHA"
+            git checkout --detach "$DEPLOY_SHA"
+            [ "$(git rev-parse HEAD)" = "$DEPLOY_SHA" ] || { echo "Detached SHA mismatch"; exit 1; }
             chmod +x scripts/deploy.sh
-            bash scripts/deploy.sh
+            DEPLOY_SHA="$DEPLOY_SHA" bash scripts/deploy.sh
             docker compose ps --all
             docker compose logs --tail=80 worker | tee /tmp/lh_worker_tail.txt
             if grep -Eiq 'FloodWait|CRITICAL' /tmp/lh_worker_tail.txt; then
