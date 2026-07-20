@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.db.models import User
 from app.db.session import async_session_factory
-from app.lifecycle import TEASER_DAYS, daily_counts, lifecycle_day
+from app.lifecycle import TEASER_DAYS, daily_counts, is_lifecycle_marketing_disabled, lifecycle_day
 from app.locales import get_text, normalize_language
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,8 @@ async def send_end_of_day_reports(now: datetime | None = None):
         for user in users:
             day = lifecycle_day(user.free_lifecycle_at, now)
             if day not in TEASER_DAYS:
+                continue
+            if await is_lifecycle_marketing_disabled(user.id):
                 continue
             matched, delivered = await daily_counts(user.id, today_str)
             if matched <= 0:

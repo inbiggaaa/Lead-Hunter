@@ -169,6 +169,10 @@ async def test_dispatch_warm_caches_no_db():
                new=AsyncMock()), \
          patch("app.cache.subscription_cache.increment_daily_stats",
                new=AsyncMock()), \
+         patch("app.cache.subscription_cache.increment_segment_stat",
+               new=AsyncMock()), \
+         patch("app.analytics.record_once_event", new=AsyncMock()), \
+         patch("app.lifecycle.increment_lifecycle_matches", new=AsyncMock()), \
          patch("app.userbot.poller.async_session_factory", new=_no_db):
         await poller._dispatch(
             chat_username="c5_chat", message_text="нужен тест",
@@ -212,7 +216,11 @@ async def test_dispatch_increments_matched_counter():
          patch("app.cache.subscription_cache.rebuild_subscription_cache",
                new=AsyncMock()), \
          patch("app.cache.subscription_cache.increment_daily_stats",
-               new=AsyncMock()) as inc:
+               new=AsyncMock()) as inc, \
+         patch("app.cache.subscription_cache.increment_segment_stat",
+               new=AsyncMock()), \
+         patch("app.analytics.record_once_event", new=AsyncMock()), \
+         patch("app.lifecycle.increment_lifecycle_matches", new=AsyncMock()):
         await poller._dispatch(
             chat_username="c5_chat", message_text="нужен тест",
             message_id=2, matched_segments=["c5-seg"],

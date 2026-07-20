@@ -460,7 +460,8 @@ class PeriodicPref(Base):
     __tablename__ = "periodic_prefs"
     __table_args__ = (
         CheckConstraint(
-            "msg_type IN ('weekly_digest', 'niche_growth', 'monthly_summary')",
+            "msg_type IN ('weekly_digest', 'niche_growth', 'monthly_summary', "
+            "'lifecycle_marketing')",
             name="ck_periodic_prefs_msg_type",
         ),
     )

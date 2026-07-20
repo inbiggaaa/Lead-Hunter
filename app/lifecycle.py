@@ -95,3 +95,49 @@ async def daily_counts(user_id: int, date_str: str) -> tuple[int, int]:
         return int(matched or 0), int(sent or 0)
     except Exception:
         return 0, 0
+
+
+# U9.4 — opt-out for non-critical Free lifecycle marketing (EOD + winback day 30).
+# Payment / expiry / trial-ending notices stay always on.
+LIFECYCLE_MARKETING_MSG_TYPE = "lifecycle_marketing"
+
+
+async def is_lifecycle_marketing_disabled(user_id: int) -> bool:
+    from app.db.models import PeriodicPref
+
+    try:
+        async with async_session_factory() as session:
+            pref = (await session.execute(
+                select(PeriodicPref).where(
+                    PeriodicPref.user_id == user_id,
+                    PeriodicPref.msg_type == LIFECYCLE_MARKETING_MSG_TYPE,
+                )
+            )).scalar_one_or_none()
+            return bool(pref and pref.is_disabled)
+    except Exception:
+        # Fail-open for delivery of marketing if prefs DB is unavailable.
+        return False
+
+
+async def set_lifecycle_marketing_disabled(user_id: int, disabled: bool) -> bool:
+    """Persist opt-out. Returns the new disabled state."""
+    from app.db.models import PeriodicPref
+
+    async with async_session_factory() as session:
+        pref = (await session.execute(
+            select(PeriodicPref).where(
+                PeriodicPref.user_id == user_id,
+                PeriodicPref.msg_type == LIFECYCLE_MARKETING_MSG_TYPE,
+            )
+        )).scalar_one_or_none()
+        if pref is None:
+            pref = PeriodicPref(
+                user_id=user_id,
+                msg_type=LIFECYCLE_MARKETING_MSG_TYPE,
+                is_disabled=disabled,
+            )
+            session.add(pref)
+        else:
+            pref.is_disabled = disabled
+        await session.commit()
+        return disabled

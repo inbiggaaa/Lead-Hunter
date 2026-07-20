@@ -44,14 +44,6 @@ services:
     env_file: .env
     environment:
       - PYTHONPATH=/app
-    volumes:
-      - ./app:/app/app
-      - ./migrations:/app/migrations
-      - ./seed:/app/seed
-      - ./tests:/app/tests
-      - ./alembic.ini:/app/alembic.ini
-      - ./pytest.ini:/app/pytest.ini
-      - ./app/static:/app/static
     depends_on:
       db:
         condition: service_healthy
@@ -76,7 +68,6 @@ services:
     environment:
       - PYTHONPATH=/app
     volumes:
-      - ./app:/app/app
       - ./sessions:/app/sessions
     depends_on:
       db:
@@ -84,6 +75,12 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python -m app.worker.tasks' > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
     deploy:
       resources:
         limits:
@@ -95,11 +92,10 @@ services:
     env_file: .env
     environment:
       - PYTHONPATH=/app
-    volumes:
-      - ./app:/app/app
     ports:
       # NOTE: exposed on all interfaces (public IP) by owner's decision until a
       # domain + TLS is in place. Revert to "127.0.0.1:..." to close it off.
+      # (P0 admin lockdown postponed — see docs/launch/)
       - "${ADMIN_PUBLIC_PORT:-17421}:8001"
     depends_on:
       db:

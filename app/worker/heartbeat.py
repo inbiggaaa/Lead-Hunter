@@ -11,10 +11,13 @@ logger = logging.getLogger(__name__)
 
 
 async def send_heartbeat():
-    """Set heartbeat timestamp in Redis."""
+    """Set heartbeat timestamp in Redis (monotonic + wall clock for watchdog)."""
+    import time
     redis = await get_redis()
     await redis.set(HEARTBEAT_KEY, str(asyncio.get_event_loop().time()))
     await redis.expire(HEARTBEAT_KEY, settings.heartbeat_interval_minutes * 60 * 2)
+    await redis.set("heartbeat:wall:userbot:1", str(int(time.time())))
+    await redis.expire("heartbeat:wall:userbot:1", settings.heartbeat_interval_minutes * 60 * 2)
 
 
 async def heartbeat_loop():

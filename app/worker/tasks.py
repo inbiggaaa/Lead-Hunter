@@ -11,12 +11,14 @@ from app.worker.payment_checker import payment_checker_loop
 from app.worker.digest import digest_flush_loop
 from app.config import settings
 from app.userbot.poller import ChannelPoller
+from app.sentry_setup import init_sentry
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 async def main():
+    init_sentry("worker")
     logger.info("Worker starting (poller + sender + heartbeat)...")
 
     poller = ChannelPoller()

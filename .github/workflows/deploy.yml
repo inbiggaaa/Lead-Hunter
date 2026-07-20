@@ -49,3 +49,9 @@ jobs:
             git pull --ff-only origin main
             chmod +x scripts/deploy.sh
             bash scripts/deploy.sh
+            docker compose ps --all
+            docker compose logs --tail=80 worker | tee /tmp/lh_worker_tail.txt
+            if grep -Eiq 'FloodWait|CRITICAL' /tmp/lh_worker_tail.txt; then
+              echo "FloodWait/CRITICAL in worker logs — failing deploy"
+              exit 1
+            fi

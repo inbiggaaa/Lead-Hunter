@@ -39,3 +39,9 @@ def test_stars_uses_internal_user_id_for_referral_reward() -> None:
     source = (ROOT / "app/bot/handlers/plan.py").read_text()
     assert "await _apply_referral_bonus(user_db_id)" in source
     assert "await _apply_referral_bonus(message.from_user.id)" not in source
+
+
+def test_referral_monthly_cap_is_enforced() -> None:
+    source = (ROOT / "app/bot/handlers/plan.py").read_text()
+    assert "max_referrals_per_month" in source
+    assert 'referral.status = "capped"' in source

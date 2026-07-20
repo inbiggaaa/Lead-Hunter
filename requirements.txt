@@ -30,6 +30,9 @@ pydantic-settings>=2.2,<3.0
 
 # NLP
 pymorphy3>=1.2,<2.0
+pymorphy3-dicts-ru>=2.4,<3.0
+# setuptools provides pkg_resources for older pymorphy3 entry-point discovery
+setuptools>=68,<81
 
 # Monitoring
 sentry-sdk>=2.0,<3.0

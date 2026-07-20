@@ -57,7 +57,7 @@ SaaS-сервис на базе Telegram-бота. Отслеживает соо
 | Ключевых фраз | 1 | 3 | 20 | 50 |
 | Контакты | СКРЫТЫ | Полные | Полные | Полные |
 | Кнопки | «🎯 Открыть контакты» | «💬 Ответить» | «💬 Ответить» | «💬 Ответить» |
-| Regex | — | — | да | да |
+| Regex | — | — | отложено | отложено |
 | Статистика в боте | — | — | базовая (7 дн.) | полная (30 дн., по сегментам) |
 | CSV-экспорт | — | — | — | да |
 | Digest-режим | да | да | да | да |
@@ -598,9 +598,11 @@ show_last_leads → done
 
 **ОБНОВЛЯТЬ ПОСЛЕ КАЖДОЙ СЕССИИ.** Полная история — `docs/SESSION_LOG.md` (записи о задачах — туда, в конец файла).
 
-Дата: **2026-07-16**
+Дата: **2026-07-20**
 
-Статус: **Этап 4 — CI release gate:** `.github/workflows/ci.yml` — 5 параллельных jobs (полный pytest без deselect, alembic up/down-1/up + один head, admin lint+build, docker build, secret scan). Deploy ждёт approve Environment `production`. `_session_ticker_step` — однотиковый тест вместо hanging loop. P0 (очередь/оплата) в коде, прод ещё не задеплоен; `DEPLOY_*` секреты + Environment reviewers — настроить владельцу. P1 (TLS/WS/offsite) отложен.
+Статус: **Инженерный потолок плана достигнут (без деплоя).** Код: B2 few-shot, U9.4, Sentry scrub, phase-2 tooling (quarantine CLI, recall export, synonym seed), immutable compose, smoke, referral cap. **Pytest 501 passed.** Отложено тобой: P0 security, live payments/шлюз. **Не закрыто без прод/API:** baseline v2 precision, B2 live ≥37/40, B3 labeling, restore drill, `DEPLOY_*`, paid beta 14d. Миграция `u94` не применена. Прод не трогали.
+
+Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 
 Предыдущий статус: **🚀 ТАРИФЫ v2 ЗАДЕПЛОЕНЫ В ПРОД 13.07.2026 ~17:15 MSK (тег `tariffs-v2-live`, main 4144e7b). Деплой чистый: 0 FloodWait, worker «Pool initialized: 2 healthy»/«Tiers rebuilt: 73 hot», bot polling без ошибок.**
 Линейка: 🎯 Старт $9 / 🚀 Профи $19 / 🏆 Бизнес $39, дневной лимит уведомлений ОТМЕНЁН (метрика ценности = широта покрытия; DECISIONS #81). Реализация T0–T7 (план `fable_tariff_plan.md`, все фазы [x]): единая матрица лимитов + план start (crud `_plan_limits`); гео-лимиты FSM (реально биндит город-на-подписку); 3 тарифа в оплате Stars/CryptoBot; экраны «короче и суше» (build_plan_screen, живой счётчик меню, Free-CTA «Открыть контакты — от $9»); воронки (build_paywall контекстные пейволлы, End-of-day v2, trial-воронка, годовой апселл, subscription_ending); платные фичи (статистика menu:stats/​/stats, CSV-экспорт Бизнеса = метаданные без текста заявки, digest-режим instant/hourly/daily2); T7 реактивация (даунгрейд платных после grace 7д с сохранением ниши + winback_missed с числом пропущенных заявок из sent_log). 3 миграции применены (sentlog_meta01, user_digest01). Сьют 360 passed (4 пред­существующих poller-фейла test_poller_fixes — async-сигнатура, НЕ регрессия). **Попутно исправлено 4 живых бага:** крипто-оплата NameError (`_get_user_id`), кэш не инвалидировался при оплате (Stars+крипто), trial_expired-напоминания никогда не срабатывали.
@@ -673,7 +675,7 @@ show_last_leads → done
 - **Мобильная админка:** адаптация после десктопной версии.
 
 
-**U6–U9 LIFECYCLE COMPLETE (14.07.2026, feature/codex-userflow-v2):** контакты скрываются точно после expiry; Free lifecycle = до 2 уникальных скрытых лидов + EOD `total/delivered/missed` в дни 0/3/7/14; старые periodic broadcasts отключены; день 30 = одноразовая серверная скидка 25% на любой 3-месячный тариф, 12 часов, Stars/CryptoBot. Миграция `winback_u89` (`users.free_lifecycle_at`, `winback_offers`). Welcome/tariffs/period/referral/help/about обновлены RU-first с EN parity. Не считать старое описание 7-дневного full-access grace и winback 14/28 актуальным. Осталось отдельно: U9.4 opt-out lifecycle marketing и U10 rollout/snapshots.
+**U6–U9 LIFECYCLE COMPLETE (14.07.2026, feature/codex-userflow-v2):** контакты скрываются точно после expiry; Free lifecycle = до 2 уникальных скрытых лидов + EOD `total/delivered/missed` в дни 0/3/7/14; старые periodic broadcasts отключены; день 30 = одноразовая серверная скидка 25% на любой 3-месячный тариф, 12 часов, Stars/CryptoBot. Миграция `winback_u89` (`users.free_lifecycle_at`, `winback_offers`). Welcome/tariffs/period/referral/help/about обновлены RU-first с EN parity. Не считать старое описание 7-дневного full-access grace и winback 14/28 актуальным. **U9.4 закрыт 20.07.2026:** opt-out lifecycle-маркетинга в Настройках. U10 rollout/snapshots остаются отдельно.
 **U10.1–U10.2 COMPLETE (14.07.2026, `4156208`):** создана исполнимая матрица 12 persona × RU/EN с AUTO/STAGING/LIVE gate и автоматические text+keyboard snapshots. Новый suite 80 passed; расширенный userflow regression 134 passed. Production/main/Docker не менялись. U10 НЕ закрыта: далее U10.3 ручная RU/EN/business/functional редактура, затем только по отдельной команде владельца U10.4 staging/live rollout и U10.5 сравнение метрик.
 **U10.3 REVIEW CHECKPOINT (14.07.2026):** read-only RU/EN/business/CTA аудит выполнен; находки записаны в `docs/userflow_u10_editorial_review.md`. По решению владельца пользовательские тексты сейчас не меняются: E-01–E-09 проверяются и согласуются во время совместного ручного userflow-прогона. U10.3 остаётся открытой.
 **U10 PRODUCTION MANUAL QA ACTIVE (14.07.2026 ~12:42 MSK):** production bot переключён на `feature/codex-userflow-v2`, Alembic `winback_u89`; backup `backups/pre_userflow_u10_2026-07-14_1230.sql`. Тестовый `BurnPM` (старый users.id=152) удалён после backup для чистого `/start`. Bot healthy/polling. Worker ОСТАНОВЛЕН на время UI-прохода; не запускать до отдельного шага lead QA. При rollout исправлены два Python 3.11 f-string blocker-а (`bd7aed1`). Compose трижды неожиданно автозапустил worker (`run`, `up`, даже `build`); каждый раз остановлен, FloodWait/ERROR/CRITICAL нет, инцидент записан в OPERATIONS.md §7.

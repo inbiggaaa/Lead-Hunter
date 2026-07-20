@@ -143,8 +143,65 @@ async def _record_llm_stats(results: "list[LLMResult]") -> None:
 # before B4 — its actual demand keywords are «куплю квартиру» (lead = buyer).
 DEFAULT_SUPPLY_SEGMENTS: frozenset[str] = frozenset({"moto-purchase", "car-purchase"})
 
+# B2: manually curated calibration examples (👍→DEMAND, 👎→OFFER/OTHER).
+# NOT auto-selected from live feedback — edit this constant only after eval.
+# Keep short (≤6 lines) so prompt_tokens growth stays within ~30%.
+FEW_SHOT_EXAMPLES: tuple[tuple[str, str, str, str], ...] = (
+    # (text, candidate_segments_json, verdict, short_reason)
+    (
+        "нужен сантехник сегодня, протечка",
+        '["repair"]',
+        "DEMAND",
+        "specialist need",
+    ),
+    (
+        "подскажите репетитора английского для ребёнка",
+        '["language-courses"]',
+        "DEMAND",
+        "tutor ask = demand",
+    ),
+    (
+        "обмен USDT/VND, лучший курс, в личку",
+        '["currency-exchange"]',
+        "OFFER",
+        "rate ad",
+    ),
+    (
+        "массаж выезд, прайс в шапке, записывайтесь",
+        '["massage"]',
+        "OFFER",
+        "service ad",
+    ),
+    (
+        "логотипы от 150$, портфолио по запросу",
+        '["design"]',
+        "OFFER",
+        "self-promo",
+    ),
+    (
+        "ищу попутчика до Хошимина, делим бензин",
+        '["taxi-transfer"]',
+        "OTHER",
+        "social ride",
+    ),
+)
 
-def build_system_prompt(supply_segments: "set[str] | frozenset[str]") -> str:
+
+def _render_few_shot(examples: tuple[tuple[str, str, str, str], ...] = FEW_SHOT_EXAMPLES) -> str:
+    """Format curated few-shot lines for the system prompt."""
+    if not examples:
+        return ""
+    lines = ["", "CALIBRATION (from real 👍/👎 feedback — follow these patterns):"]
+    for text, segs, verdict, reason in examples:
+        lines.append(f'"{text}" / {segs} → {verdict}, high ({reason})')
+    return "\n".join(lines) + "\n"
+
+
+def build_system_prompt(
+    supply_segments: "set[str] | frozenset[str]",
+    *,
+    include_few_shot: bool = True,
+) -> str:
     """Render the system prompt with the supply-direction segment list.
 
     The inverted DEMAND/OFFER block is generated from DB-driven slugs so new
@@ -169,6 +226,8 @@ ALL OTHER SEGMENTS (rental, services, buy/sale where the lead is the buyer):
         supply_block = ""
         supply_examples = ""
 
+    few_shot = _render_few_shot() if include_few_shot else ""
+
     return f"""You are a message classifier for LeadHunter, a lead generation service.
 Classify each message as: DEMAND | OFFER | MIXED | OTHER.
 
@@ -188,7 +247,7 @@ EXAMPLES:
 {supply_examples}"сдам квартиру, 10 млн" / ["housing-rent"] → OFFER, high (competing landlord)
 "сниму квартиру, бюджет 10 млн" / ["housing-rent"] → DEMAND, high (renter=lead)
 "ищу с кем поиграть в теннис" / ["tennis"] → OTHER, high (social, not commercial)
-
+{few_shot}
 Return a JSON array with one object per message:
 [{{"index": N, "category": "DEMAND"|"OFFER"|"MIXED"|"OTHER", "relevant_segments": [...], "certainty": "high"|"medium"|"low", "reason": "..."}}, ...]
 

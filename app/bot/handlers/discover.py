@@ -37,6 +37,7 @@ async def on_settings(callback: CallbackQuery):
         [InlineKeyboardButton(text=get_text(lang, "btn_keywords"), callback_data="menu:keywords")],
         [InlineKeyboardButton(text=get_text(lang, "btn_channels"), callback_data="menu:channels")],
         [InlineKeyboardButton(text=get_text(lang, "btn_digest"), callback_data="menu:digest")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_messages"), callback_data="menu:messages")],
         [InlineKeyboardButton(text=get_text(lang, "btn_language"), callback_data="menu:language")],
         [InlineKeyboardButton(text=get_text(lang, "btn_instructions"), callback_data="menu:instructions")],
         [InlineKeyboardButton(text=get_text(lang, "btn_about"), callback_data="menu:about")],
@@ -44,6 +45,58 @@ async def on_settings(callback: CallbackQuery):
     ])
     await callback.message.edit_text(get_text(lang, "settings_title"), reply_markup=kb)
     await callback.answer()
+
+
+async def _messages_screen(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    from app.lifecycle import is_lifecycle_marketing_disabled
+
+    disabled = await is_lifecycle_marketing_disabled(user_id)
+    toggle = get_text(lang, "messages_btn_enable" if disabled else "messages_btn_disable")
+    text = (
+        f"{get_text(lang, 'messages_title')}\n\n"
+        f"{get_text(lang, 'messages_body')}\n\n"
+        f"{get_text(lang, 'messages_status_off' if disabled else 'messages_status_on')}"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=toggle, callback_data="messages:toggle")],
+        [InlineKeyboardButton(text=get_text(lang, "btn_back"), callback_data="menu:settings")],
+    ])
+    return text, kb
+
+
+@router.callback_query(F.data == "menu:messages")
+async def on_messages_prefs(callback: CallbackQuery):
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        lang = user.language if user else "ru"
+        user_id = user.id if user else 0
+    if not user_id:
+        await callback.answer()
+        return
+    text, kb = await _messages_screen(user_id, lang)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "messages:toggle")
+async def on_messages_toggle(callback: CallbackQuery):
+    from app.lifecycle import (
+        is_lifecycle_marketing_disabled,
+        set_lifecycle_marketing_disabled,
+    )
+
+    async for session in get_session():
+        user = await get_user(session, callback.from_user.id)
+        lang = user.language if user else "ru"
+        user_id = user.id if user else 0
+    if not user_id:
+        await callback.answer()
+        return
+    currently_off = await is_lifecycle_marketing_disabled(user_id)
+    await set_lifecycle_marketing_disabled(user_id, not currently_off)
+    text, kb = await _messages_screen(user_id, lang)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer(get_text(lang, "messages_saved"))
 
 
 async def build_stats_screen(user, lang: str) -> tuple[str, InlineKeyboardMarkup]:

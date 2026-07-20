@@ -68,6 +68,8 @@ def create_app() -> FastAPI:
 
 
 def main():
+    from app.sentry_setup import init_sentry
+    init_sentry("admin")
     app = create_app()
     uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
 

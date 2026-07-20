@@ -14,9 +14,23 @@ from typing import NamedTuple
 
 try:
     import pymorphy3
-    _morph = pymorphy3.MorphAnalyzer()
+    try:
+        # Prefer explicit dict path: pymorphy3 still imports pkg_resources,
+        # which is missing on newer setuptools / Python 3.14+.
+        import pymorphy3_dicts_ru
+        _morph = pymorphy3.MorphAnalyzer(path=pymorphy3_dicts_ru.get_path())
+    except Exception:
+        _morph = pymorphy3.MorphAnalyzer()
 except Exception:
     _morph = None
+
+# A1 fallback when morphology is unavailable: common demand/trade verbs that
+# must still be gated in buy/supply segments.
+_FALLBACK_SINGLE_VERBS = frozenset({
+    "продам", "продаю", "продаёт", "продает", "продаёте", "продаете",
+    "продать", "продавать", "куплю", "покупаю", "купить", "покупать",
+    "сниму", "снять", "возьму", "взять", "ищу", "ищем",
+})
 
 
 class ClassificationResult(NamedTuple):
@@ -49,14 +63,21 @@ def _lemmatize_text(text: str) -> str:
 
 
 def _is_verb(word: str) -> bool:
-    """True для русских глаголов (VERB/INFN по pymorphy). Без морфологии — False."""
+    """True для русских глаголов (VERB/INFN по pymorphy).
+
+    Без морфологии — только известные demand/trade глаголы из
+    `_FALLBACK_SINGLE_VERBS`, иначе A1-гейт молча деградирует.
+    """
+    low = word.lower()
     if _morph is None:
-        return False
+        return low in _FALLBACK_SINGLE_VERBS
     try:
         parsed = _morph.parse(word)
-        return bool(parsed) and parsed[0].tag.POS in ("VERB", "INFN")
+        if parsed and parsed[0].tag.POS in ("VERB", "INFN"):
+            return True
     except Exception:
-        return False
+        pass
+    return low in _FALLBACK_SINGLE_VERBS
 
 
 # ── Universal stop-phrases ──

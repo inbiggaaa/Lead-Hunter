@@ -90,16 +90,21 @@ else
             else
                 echo "[$(date)] Session backup encrypted: $(du -h "$SESSION_ARCHIVE" | cut -f1) ($FILE_COUNT files)"
 
-            # ── S3 upload (PLACEHOLDER — NOT TESTED against real B2/S3) ──
-            # Backblaze B2 requires either:
-            #   awscli:  aws s3 cp --endpoint-url "$S3_ENDPOINT" ... (S3-compatible API)
-            #   b2 CLI:  b2 upload-file ... (native API with key + application key)
-            # Current curl approach is NOT functional — DO NOT rely on it.
-            if [ -n "${S3_BUCKET:-}" ] && [ -n "${S3_ACCESS_KEY:-}" ]; then
-                echo "[$(date)] WARNING: S3 upload not implemented — use awscli or b2 CLI"
-                echo "[$(date)] Session backup is LOCAL ONLY: $SESSION_ARCHIVE"
+            # ── S3 / B2 upload (requires awscli configured for S3-compatible API) ──
+            if [ -n "${S3_BUCKET:-}" ] && [ -n "${S3_ENDPOINT:-}" ]; then
+                if command -v aws >/dev/null 2>&1; then
+                    echo "[$(date)] Uploading session archive to s3://${S3_BUCKET}/sessions/"
+                    AWS_ACCESS_KEY_ID="${S3_ACCESS_KEY:-${AWS_ACCESS_KEY_ID:-}}" \
+                    AWS_SECRET_ACCESS_KEY="${S3_SECRET_KEY:-${AWS_SECRET_ACCESS_KEY:-}}" \
+                    aws s3 cp "$SESSION_ARCHIVE" \
+                        "s3://${S3_BUCKET}/sessions/$(basename "$SESSION_ARCHIVE")" \
+                        --endpoint-url "$S3_ENDPOINT" \
+                        || echo "[$(date)] WARN: session offsite upload failed"
+                else
+                    echo "[$(date)] WARN: awscli not installed — session backup LOCAL ONLY"
+                fi
             else
-                echo "[$(date)] S3 not configured — local backup only"
+                echo "[$(date)] S3 not configured — local session backup only"
             fi
 
             # Rotation
@@ -112,6 +117,17 @@ else
     fi
 
     set -e  # restore
+fi
+
+# Offsite DB dump (same bucket)
+if [ -n "${S3_BUCKET:-}" ] && [ -n "${S3_ENDPOINT:-}" ] && command -v aws >/dev/null 2>&1; then
+    echo "[$(date)] Uploading DB backup to s3://${S3_BUCKET}/db/"
+    AWS_ACCESS_KEY_ID="${S3_ACCESS_KEY:-${AWS_ACCESS_KEY_ID:-}}" \
+    AWS_SECRET_ACCESS_KEY="${S3_SECRET_KEY:-${AWS_SECRET_ACCESS_KEY:-}}" \
+    aws s3 cp "$DB_BACKUP" \
+        "s3://${S3_BUCKET}/db/$(basename "$DB_BACKUP")" \
+        --endpoint-url "$S3_ENDPOINT" \
+        || echo "[$(date)] WARN: DB offsite upload failed"
 fi
 
 echo "[$(date)] Backup finished"

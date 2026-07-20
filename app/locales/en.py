@@ -118,6 +118,19 @@ TEXTS = {
     "btn_stats": "📈 Statistics",
     "btn_csv": "📥 CSV export",
     "btn_digest": "🔔 Notification mode",
+    "btn_messages": "📨 Service messages",
+    "messages_title": "📨 Service messages",
+    "messages_body": (
+        "You can turn off Free-cycle marketing messages:\n"
+        "• daily lead reports (days 0/3/7/14)\n"
+        "• one-time discount offer (day 30)\n\n"
+        "You cannot turn off: payments, access expiry, or renewal reminders."
+    ),
+    "messages_status_on": "Now: marketing messages are <b>on</b>.",
+    "messages_status_off": "Now: marketing messages are <b>off</b>.",
+    "messages_btn_disable": "🔕 Turn marketing off",
+    "messages_btn_enable": "🔔 Turn marketing on",
+    "messages_saved": "✅ Saved",
     "digest_header": "📬 {count} new leads for the period:",
     "digest_title": "🔔 Notification delivery mode",
     "digest_instant": "⚡ Instant",

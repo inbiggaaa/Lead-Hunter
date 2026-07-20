@@ -963,7 +963,11 @@ winback
 - какие данные скрыты/открыты на тарифах;
 - только подтверждённые динамические цифры.
 
-### [ ] U9.4 Добавить управление сообщениями
+### [x] U9.4 Добавить управление сообщениями
+**Выполнено: 20.07.2026.** Settings → «Сервисные сообщения»: opt-out `lifecycle_marketing`
+в `periodic_prefs` (миграция `u94_lifecycle_optout`). Гасит Free EOD (дни 0/3/7/14) и
+winback day-30. Оплата / expiry / trial&subscription ending не отключаются. RU/EN + тесты
+`tests/test_u94_lifecycle_optout.py`.
 
 Пользователь может отдельно отключить:
 

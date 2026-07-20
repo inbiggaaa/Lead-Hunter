@@ -413,10 +413,15 @@ async def _notify_referral_reward(referrer) -> None:
 
 
 async def _apply_referral_bonus(user_id: int) -> None:
-    """Activate the referrer's reward once after the referral pays."""
+    """Activate the referrer's reward once after the referral pays.
+
+    Cap: at most ``settings.max_referrals_per_month`` paid rewards per
+    referrer in the current UTC calendar month.
+    """
     from app.config import settings
     from app.db.models import Referral, User
     from app.db.session import async_session_factory
+    from sqlalchemy import func
 
     async with async_session_factory() as session:
         referral = (await session.execute(select(Referral).where(
@@ -429,12 +434,30 @@ async def _apply_referral_bonus(user_id: int) -> None:
         )).scalar_one_or_none()
         if not referrer:
             return
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        paid_this_month = (await session.execute(
+            select(func.count(Referral.id)).where(
+                Referral.referrer_id == referrer.id,
+                Referral.status == "paid",
+                Referral.activated_at >= month_start,
+            )
+        )).scalar() or 0
+        if paid_this_month >= settings.max_referrals_per_month:
+            logger.info(
+                "Referral reward skipped: referrer %d hit monthly cap %d",
+                referrer.id, settings.max_referrals_per_month,
+            )
+            referral.status = "capped"
+            await session.commit()
+            return
+
         last_paid_plan = (await session.execute(select(Subscription.plan).where(
             Subscription.user_id == referrer.id,
             Subscription.payment_status == "paid",
             Subscription.plan.in_(("start", "pro", "business")),
         ).order_by(Subscription.created_at.desc()).limit(1))).scalar_one_or_none()
-        now = datetime.datetime.now(datetime.timezone.utc)
         reward_plan = referral_reward_plan(referrer.plan, last_paid_plan)
         if referrer.plan != reward_plan or not referrer.plan_expires_at or referrer.plan_expires_at <= now:
             referrer.plan_activated_at = now

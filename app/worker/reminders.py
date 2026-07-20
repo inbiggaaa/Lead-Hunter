@@ -97,6 +97,9 @@ async def _send_expiry_notice(user: User):
 
 
 async def _maybe_send_winback_offer(session, user: User, now: datetime):
+    from app.lifecycle import is_lifecycle_marketing_disabled
+    if await is_lifecycle_marketing_disabled(user.id):
+        return
     offer = (await session.execute(select(WinbackOffer).where(WinbackOffer.user_id == user.id))).scalar_one_or_none()
     if offer:
         return
