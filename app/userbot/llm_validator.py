@@ -29,6 +29,7 @@ from app.userbot.llm_prompt import (
     build_segment_aware_prompt,
     build_untrusted_batch_user_message,
 )
+from app.userbot.llm_profiles import SegmentLLMProfile, get_profile_snapshot
 from app.userbot.llm_response import (
     CommercialIntent,
     LLMDecision,
@@ -327,12 +328,77 @@ _HIGH_CONFIDENCE_DEMAND_LEAD = re.compile(
 # If message starts with demand verb AND is short (< 200 chars), skip LLM
 HIGH_CONFIDENCE_MAX_LENGTH = 200
 
+_VACANCY_MARKERS = re.compile(
+    r'(?iu)(?<!\w)(вакансия|зарплата|график|смена|в\s+штат)(?!\w)',
+)
+_JOB_SEARCH_MARKERS = re.compile(
+    r'(?iu)(?<!\w)(ищу\s+работу|возьму\s+заказы)(?!\w)',
+)
+_SOCIAL_MARKERS = re.compile(
+    r'(?iu)(ищу\s+партн[её]ра|кто\s+хочет\s+поиграть|поиграть)',
+)
+_PROVIDER_MARKERS = re.compile(
+    r'(?iu)(?<!\w)(предлагаю|оказываю\s+услуги|открыта\s+запись|набираю\s+клиентов)(?!\w)',
+)
+_SELL_MARKERS = re.compile(r'(?iu)(?<!\w)(продам|продаю)(?!\w)')
+_BUY_MARKERS = re.compile(r'(?iu)(?<!\w)(куплю|покупаю)(?!\w)')
+
+
+def _strip_leading_noise(text: str) -> str:
+    """Drop leading emoji/punctuation so verb gates still see Cyrillic leads."""
+    cleaned = (text or "").strip()
+    while cleaned and not (cleaned[0].isalnum() or cleaned[0] in "«\"'("):
+        cleaned = cleaned[1:].lstrip()
+    return cleaned
+
 
 def is_high_confidence_demand(text: str) -> bool:
-    """Check if message is an obvious demand that doesn't need LLM validation."""
+    """Surface shape check only — must also pass may_bypass_llm to skip LLM."""
     if len(text) > HIGH_CONFIDENCE_MAX_LENGTH:
         return False
-    return bool(_HIGH_CONFIDENCE_DEMAND_LEAD.match(text.strip()))
+    return bool(_HIGH_CONFIDENCE_DEMAND_LEAD.match(_strip_leading_noise(text)))
+
+
+def may_bypass_llm(
+    *,
+    text: str,
+    candidate_segments: tuple[str, ...],
+    profiles: Mapping[str, SegmentLLMProfile],
+    lead_directions: Mapping[str, str],
+) -> bool:
+    """Return True only when every candidate is proven safe to skip LLM.
+
+    v1 default profiles use requires_llm=True → bypass stays off until eval
+    justifies flipping the flag per segment.
+    """
+    candidates = tuple(dict.fromkeys(candidate_segments))
+    if not candidates:
+        return False
+
+    for slug in candidates:
+        profile = profiles.get(slug)
+        if profile is None or profile.requires_llm:
+            return False
+
+    body = _strip_leading_noise(text)
+    if _VACANCY_MARKERS.search(body):
+        return False
+    if _JOB_SEARCH_MARKERS.search(body):
+        return False
+    if _SOCIAL_MARKERS.search(body):
+        return False
+    if _PROVIDER_MARKERS.search(body):
+        return False
+
+    has_sell = bool(_SELL_MARKERS.search(body))
+    has_buy = bool(_BUY_MARKERS.search(body))
+    for slug in candidates:
+        direction = (lead_directions.get(slug) or "demand").lower()
+        if has_sell and direction != "supply":
+            return False
+        if has_buy and direction == "supply":
+            return False
+    return True
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -416,6 +482,9 @@ class LLMValidator:
         self._timeout = aiohttp.ClientTimeout(total=30)  # longer for batches
         self._system_prompt = LLM_SYSTEM_PROMPT
         self._supply_segments: frozenset[str] = DEFAULT_SUPPLY_SEGMENTS
+        self._lead_directions: dict[str, str] = {
+            slug: "supply" for slug in DEFAULT_SUPPLY_SEGMENTS
+        }
 
     def set_supply_segments(self, slugs: "set[str] | frozenset[str]") -> None:
         """Rebuild the cached system prompt from DB-driven supply segments.
@@ -428,7 +497,17 @@ class LLMValidator:
             self._supply_segments = slugs
             self._system_prompt = build_system_prompt(slugs)
             logger.info("LLM prompt rebuilt: supply segments = %s", sorted(slugs))
+        # Keep direction map in sync for bypass checks (buy/demand filled by
+        # set_lead_directions; supply always reflected here).
+        for slug in slugs:
+            self._lead_directions[slug] = "supply"
 
+    def set_lead_directions(self, directions: Mapping[str, str]) -> None:
+        """Full slug→lead_direction map from DB (demand/buy/supply)."""
+        self._lead_directions = {
+            str(slug): str(direction).lower()
+            for slug, direction in directions.items()
+        }
     def build_prompt_v2(
         self,
         profiles: tuple,
@@ -484,12 +563,28 @@ class LLMValidator:
                 for _ in matches
             ]
 
-        # Separate: high-confidence demands skip LLM entirely
+        # Separate: only proven-safe high-confidence demands skip LLM.
+        # keyword_only (Variant B) still skips unconditionally.
         results: list[LLMResult | None] = [None] * len(matches)
         needs_llm: list[tuple[int, PendingMatch]] = []
+        profiles = get_profile_snapshot()
 
         for i, m in enumerate(matches):
-            if m.skip_llm or is_high_confidence_demand(m.text):
+            if m.keyword_only:
+                results[i] = LLMResult(
+                    verdict="DEMAND",
+                    relevant_segments=m.candidate_segments,
+                    reason="Personal keyword — skipped LLM",
+                    certainty="high",
+                )
+                continue
+            shape_ok = m.skip_llm or is_high_confidence_demand(m.text)
+            if shape_ok and may_bypass_llm(
+                text=m.text,
+                candidate_segments=tuple(m.candidate_segments),
+                profiles=profiles,
+                lead_directions=self._lead_directions,
+            ):
                 results[i] = LLMResult(
                     verdict="DEMAND",
                     relevant_segments=m.candidate_segments,

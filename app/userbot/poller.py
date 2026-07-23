@@ -1970,6 +1970,9 @@ class ChannelPoller:
             s.slug for s in seg_rows if s.lead_direction == "buy"
         }
         llm_validator.set_supply_segments(self._supply_segments)
+        llm_validator.set_lead_directions(
+            {s.slug: s.lead_direction for s in seg_rows}
+        )
 
         # C5: segment lookups for _dispatch + channel geo memo reset
         self._set_seg_maps(seg_rows)
