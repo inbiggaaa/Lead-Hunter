@@ -14,8 +14,8 @@ from app.db.crud import cities_within_limit, countries_within_limit, plan_has_un
 def fixed_geo(monkeypatch):
     vals = {
         "max_cities_free": 1, "max_countries_start": 1, "max_cities_start": 1,
-        "max_countries_pro": 3, "max_cities_pro": 9, "max_countries_business": 9,
-        "max_segments_business": 12, "max_channels_business": 50,
+        "max_countries_pro": 3, "max_cities_pro": 9, "max_countries_business": 20,
+        "max_segments_business": 9999, "max_channels_business": 50,
         "max_keywords_business": 50,
     }
     for k, v in vals.items():
@@ -48,8 +48,8 @@ def test_countries_pro_up_to_3(fixed_geo):
     assert countries_within_limit("pro", {1, 2, 3}, 4) is False
 
 
-def test_countries_business_caps_at_9(fixed_geo):
-    assert countries_within_limit("business", set(range(1, 9)), 9) is True
-    assert countries_within_limit("business", set(range(1, 10)), 10) is False
+def test_countries_business_caps_at_20(fixed_geo):
+    assert countries_within_limit("business", set(range(1, 20)), 20) is True
+    assert countries_within_limit("business", set(range(1, 21)), 21) is False
     assert countries_within_limit("trial", {1, 2}, 3) is True
     assert countries_within_limit("trial", {1, 2, 3}, 4) is False

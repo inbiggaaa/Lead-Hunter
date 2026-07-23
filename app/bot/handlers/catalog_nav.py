@@ -13,6 +13,7 @@ from app.db.crud import (
     count_user_subscriptions,
     countries_within_limit,
     create_subscription,
+    format_plan_cap,
     get_categories,
     get_countries,
     get_cities,
@@ -130,7 +131,10 @@ async def on_show_categories(callback: CallbackQuery, state: FSMContext):
         current_subs=current, selected_by_cat=selected_by_cat,
     )
 
-    text = get_text(lang, "catalog_categories", current=current + total_selected, limit=max_seg)
+    text = get_text(
+        lang, "catalog_categories",
+        current=current + total_selected, limit=format_plan_cap(max_seg),
+    )
 
     kb_rows = []
     row = []
@@ -210,7 +214,10 @@ async def on_category_open(callback: CallbackQuery, state: FSMContext):
     max_seg = data.get("max_seg", 9)
     current = data.get("current_subs", 0)
 
-    text = get_text(lang, "catalog_services", category=cat_name, current=current + total_selected, limit=max_seg)
+    text = get_text(
+        lang, "catalog_services", category=cat_name,
+        current=current + total_selected, limit=format_plan_cap(max_seg),
+    )
 
     kb_rows = []
     row = []
@@ -291,7 +298,10 @@ async def on_toggle_segment(callback: CallbackQuery, state: FSMContext):
                 cat_name = ""
 
     total_after = _count_selected({"selected_by_cat": selected_by_cat})
-    text = get_text(lang, "catalog_services", category=cat_name, current=current + total_after, limit=max_seg)
+    text = get_text(
+        lang, "catalog_services", category=cat_name,
+        current=current + total_after, limit=format_plan_cap(max_seg),
+    )
 
     kb_rows = []
     row = []
@@ -826,7 +836,7 @@ async def on_show_subscriptions(callback: CallbackQuery):
                 )).scalars().all()
                 sub_cities_map[sub.id] = [city_names.get(cid, f"#{cid}") for cid in sc]
 
-    text = get_text(lang, "searches_title", current=current, limit=max_seg) + "\n\n"
+    text = get_text(lang, "searches_title", current=current, limit=format_plan_cap(max_seg)) + "\n\n"
     if not subs:
         text += get_text(lang, "searches_empty")
 

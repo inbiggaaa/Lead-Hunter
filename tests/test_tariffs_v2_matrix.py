@@ -7,6 +7,7 @@ import pytest
 
 from app.config import settings
 from app.db.crud import (
+    format_plan_cap,
     get_max_segments,
     get_max_channels,
     get_max_keywords,
@@ -19,13 +20,13 @@ from app.db.crud import (
 def fixed_limits(monkeypatch):
     vals = {
         "max_segments_free": 1, "max_segments_start": 1, "max_segments_pro": 3,
-        "max_segments_business": 12,
+        "max_segments_business": 9999,
         "max_channels_free": 1, "max_channels_start": 1, "max_channels_pro": 10,
         "max_channels_business": 50,
         "max_keywords_free": 1, "max_keywords_start": 3, "max_keywords_pro": 20,
         "max_keywords_business": 50,
         "max_cities_free": 1, "max_countries_start": 1, "max_cities_start": 1,
-        "max_countries_pro": 3, "max_cities_pro": 9, "max_countries_business": 9,
+        "max_countries_pro": 3, "max_cities_pro": 9, "max_countries_business": 20,
     }
     for k, v in vals.items():
         monkeypatch.setattr(settings, k, v)
@@ -36,7 +37,7 @@ def test_segments_by_plan(fixed_limits):
     assert get_max_segments("free") == 1
     assert get_max_segments("start") == 1
     assert get_max_segments("pro") == 3
-    assert get_max_segments("business") == 12
+    assert get_max_segments("business") == 9999
     assert get_max_segments("trial") == 3
 
 
@@ -61,7 +62,7 @@ def test_geo_countries_by_plan(fixed_limits):
     assert get_max_countries("free") == 1
     assert get_max_countries("start") == 1
     assert get_max_countries("pro") == 3
-    assert get_max_countries("business") == 9
+    assert get_max_countries("business") == 20
     assert get_max_countries("trial") == 3
 
 
@@ -70,6 +71,13 @@ def test_geo_cities_total_by_plan(fixed_limits):
     assert get_max_cities("start") == 9999
     assert get_max_cities("pro") == 9999
     assert get_max_cities("business") == 9999
+
+
+def test_format_plan_cap():
+    assert format_plan_cap(3) == "3"
+    assert format_plan_cap(20) == "20"
+    assert format_plan_cap(9999) == "∞"
+    assert format_plan_cap(10_000) == "∞"
 
 
 def test_unknown_plan_falls_back_to_free(fixed_limits):

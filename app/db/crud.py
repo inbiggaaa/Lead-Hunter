@@ -210,7 +210,13 @@ async def delete_subscription(session: AsyncSession, sub_id: int, user_id: int) 
 # ── Limits helpers (тарифы v2, #81 — единая матрица) ──
 
 # Города не лимитируются ни на одном тарифе; sentinel нужен только для UI.
+# Тот же sentinel — для безлимита направлений на Business (#89).
 _GEO_UNLIMITED = 9999
+
+
+def format_plan_cap(n: int) -> str:
+    """UI cap: ∞ для sentinel >= 9999, иначе число."""
+    return "∞" if n >= _GEO_UNLIMITED else str(n)
 
 
 def _plan_limits(plan: str) -> dict:

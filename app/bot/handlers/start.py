@@ -194,7 +194,7 @@ async def cmd_cancel(message: Message, state: FSMContext):
 async def cmd_search(message: Message, state: FSMContext):
     """Open the category picker directly."""
     from app.bot.handlers.catalog_nav import CatStates
-    from app.db.crud import get_user, count_user_subscriptions, get_max_segments, get_categories
+    from app.db.crud import get_user, count_user_subscriptions, get_max_segments, get_categories, format_plan_cap
 
     await state.clear()
     lang = await _get_user_lang_for_message(message)
@@ -214,7 +214,7 @@ async def cmd_search(message: Message, state: FSMContext):
     )
 
     # Build category picker keyboard
-    text = get_text(lang, "catalog_categories", current=current, limit=max_seg)
+    text = get_text(lang, "catalog_categories", current=current, limit=format_plan_cap(max_seg))
 
     kb_rows = []
     row = []
@@ -304,7 +304,7 @@ async def _get_user_lang_for_message(message: Message) -> str:
 
 async def _show_subscriptions_via_message(message: Message, lang: str):
     """Show subscriptions list via message.answer() — used by /subscriptions."""
-    from app.db.crud import get_user, get_user_subscriptions, get_max_segments, get_max_countries
+    from app.db.crud import get_user, get_user_subscriptions, get_max_segments, get_max_countries, format_plan_cap
     from app.db.models import Segment, Country, SubscriptionCity, City
     from sqlalchemy import select as sa_select
 
@@ -332,8 +332,8 @@ async def _show_subscriptions_via_message(message: Message, lang: str):
                 )).scalars().all()
                 sub_cities_map[sub.id] = [city_names.get(cid, f"#{cid}") for cid in sc]
 
-    countries_cap = "∞" if max_countries >= 9999 else str(max_countries)
-    text = get_text(lang, "searches_title", current=current, limit=max_seg) + "\n\n"
+    countries_cap = format_plan_cap(max_countries)
+    text = get_text(lang, "searches_title", current=current, limit=format_plan_cap(max_seg)) + "\n\n"
     if subs:
         text += get_text(lang, "searches_countries", current=distinct_countries, limit=countries_cap) + "\n\n"
     if not subs:
