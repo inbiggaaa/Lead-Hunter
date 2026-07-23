@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-23**
 
-Статус: **Stability audit ЗАДЕПЛОЕН на прод; watchdog fix готов локально, НЕ задеплоен.** `main` на проде @ `f8c8892` (alembic `stability_referral01`), bot/worker/admin healthy: Pool 2, Hot 198, 0 FloodWait; follow-up deploy script `9ebc93f` подготовлен. Watchdog теперь адресует `ADMIN_CHANNEL_ID` с fallback владельцу и сообщает только новые leader rejection/loss события; 6 integrity-тестов прошли. Для применения нужен отдельный deploy/обновление серверного скрипта.
+Статус: **Watchdog fix ЗАДЕПЛОЕН на прод.** Production @ `fcaca3e` (alembic `stability_referral01`): watchdog отправляет в `ADMIN_CHANNEL_ID` с fallback владельцу и сообщает только новые leader rejection/loss события. Bot/worker/admin healthy: Pool 2, Hot 198, bot polling, admin health 200; 2 минуты мониторинга — 0 FloodWait/CRITICAL. CI #18 и Deploy #18 green.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 
