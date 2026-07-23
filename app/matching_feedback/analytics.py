@@ -43,6 +43,7 @@ def _row_as_dict(row: Feedback) -> dict[str, Any]:
         "prompt_version": row.prompt_version,
         "schema_version": row.schema_version,
         "profile_versions": dict(row.profile_versions or {}),
+        "keyword_only": bool(row.keyword_only),
         "verdict": row.verdict,
         "reason_code": row.reason_code,
         "confirmed_segments": list(row.confirmed_segments or []),

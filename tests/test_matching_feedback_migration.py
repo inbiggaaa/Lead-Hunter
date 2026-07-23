@@ -153,8 +153,37 @@ async def test_matching_feedback_migration_upgrade_downgrade_upgrade(migration_e
         assert "uq_feedback_public_token" in constraints
         assert "uq_feedback_batch_user_chat_msg" in constraints
         assert "ck_feedback_verdict" in constraints
+        cols = {
+            r[0]
+            for r in (
+                await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = 'feedback'"
+                    )
+                )
+            )
+        }
+        assert "keyword_only" in cols
 
-    _alembic("downgrade", "-1")
+    _alembic("downgrade", "-1")  # keyword01 → matching_feedback_v2
+
+    async with migration_engine.begin() as conn:
+        cols = {
+            r[0]
+            for r in (
+                await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = 'feedback'"
+                    )
+                )
+            )
+        }
+        assert "keyword_only" not in cols
+        assert "public_token" in cols
+
+    _alembic("downgrade", "-1")  # matching_feedback_v2 → legacy
 
     async with migration_engine.begin() as conn:
         remaining = (
@@ -179,8 +208,12 @@ async def test_matching_feedback_migration_upgrade_downgrade_upgrade(migration_e
 
     async with migration_engine.begin() as conn:
         head = await conn.scalar(text("SELECT version_num FROM alembic_version"))
-        assert head == "matching_feedback_v2"
+        assert head == "matching_feedback_keyword01"
         n = await conn.scalar(text("SELECT count(*) FROM feedback"))
         assert n == 2
+        kw_default = await conn.scalar(
+            text("SELECT keyword_only FROM feedback WHERE message_id = 1")
+        )
+        assert kw_default is False
         await conn.execute(text("DROP SCHEMA public CASCADE"))
         await conn.execute(text("CREATE SCHEMA public"))

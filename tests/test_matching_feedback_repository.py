@@ -63,6 +63,30 @@ async def test_get_or_create_is_idempotent(session, feedback_snapshot):
     assert first.delivered_segments == ["cleaning"]
     assert first.rule_segments == ["cleaning", "repair"]
     assert first.v2_intent == "commercial_demand"
+    assert first.keyword_only is False
+
+
+@pytest.mark.asyncio
+async def test_keyword_only_persists_on_create(session, feedback_user):
+    snapshot = FeedbackSnapshot(
+        test_batch="ru_matching_v1",
+        user_id=feedback_user.id,
+        telegram_id=feedback_user.telegram_id,
+        chat_username="kw_chat",
+        message_id=77,
+        message_hash="c" * 64,
+        content_hash=None,
+        message_text_masked="ищу повар [phone]",
+        delivered_segments=(),
+        rule_segments=(),
+        reality_segments=(),
+        llm_snapshot={"keyword_only": True},
+    )
+    item = await get_or_create_feedback_item(snapshot, session=session)
+    await session.refresh(item)
+    assert item.keyword_only is True
+    assert item.legacy_llm_verdict is None
+    assert item.v2_intent is None
 
 
 @pytest.mark.asyncio

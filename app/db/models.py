@@ -648,6 +648,9 @@ class Feedback(Base):
     prompt_version: Mapped[int | None] = mapped_column(Integer)
     schema_version: Mapped[int | None] = mapped_column(Integer)
     profile_versions: Mapped[dict | None] = mapped_column(JSONB)
+    keyword_only: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     # Current label (nullable until rated)
     verdict: Mapped[str | None] = mapped_column(String(15))
     reason_code: Mapped[str | None] = mapped_column(String(32))

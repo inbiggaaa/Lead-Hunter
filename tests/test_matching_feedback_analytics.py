@@ -32,9 +32,31 @@ def _row(**overrides):
         "prompt_version": 2,
         "schema_version": 2,
         "profile_versions": {},
+        "keyword_only": False,
     }
     base.update(overrides)
     return base
+
+
+def test_keyword_only_not_counted_as_missing_snapshot():
+    rows = [
+        _row(
+            message_id=10,
+            legacy_llm_verdict=None,
+            v2_intent=None,
+            rule_segments=[],
+            keyword_only=True,
+        ),
+        _row(
+            message_id=11,
+            legacy_llm_verdict=None,
+            v2_intent=None,
+            rule_segments=[],
+            keyword_only=False,
+        ),
+    ]
+    summary = aggregate_feedback(rows)
+    assert summary["missing_snapshot"] == 1
 
 
 def test_aggregate_precision_excludes_uncertain():

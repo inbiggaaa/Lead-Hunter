@@ -97,6 +97,7 @@ async def _get_or_create(session: AsyncSession, snapshot: FeedbackSnapshot) -> F
             prompt_version=_llm_int(llm.get("prompt_version")),
             schema_version=_llm_int(llm.get("schema_version")),
             profile_versions=_llm_dict(llm.get("profile_versions")),
+            keyword_only=bool(llm.get("keyword_only")),
             verdict=None,
             reason_code=None,
         )
