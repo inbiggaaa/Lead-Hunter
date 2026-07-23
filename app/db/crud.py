@@ -11,6 +11,7 @@ from app.db.models import (
     City,
     Segment,
     SegmentKeyword,
+    SegmentLLMProfile,
 )
 
 # ── Users ──
@@ -331,3 +332,117 @@ def countries_within_limit(plan: str, existing_country_ids, new_country_id: int)
     При утверждённых числах v2 обычно подчинён лимиту подписок (стран = сегментов),
     но защищает при их будущей смене через .env."""
     return len(set(existing_country_ids) | {new_country_id}) <= get_max_countries(plan)
+
+
+# ── Segment LLM profiles ──
+
+class SegmentLLMProfileValidationError(ValueError):
+    """Invalid segment LLM profile payload (CRUD gate before flush)."""
+
+
+def _normalize_profile_locale(locale: str) -> str:
+    normalized = (locale or "").strip().lower()
+    if not normalized or len(normalized) > 10:
+        raise SegmentLLMProfileValidationError("locale must be 1–10 chars")
+    return normalized
+
+
+def _validate_profile_string_list(field: str, value: object) -> list[str]:
+    if not isinstance(value, list):
+        raise SegmentLLMProfileValidationError(f"{field} must be a list of strings")
+    cleaned: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise SegmentLLMProfileValidationError(f"{field} items must be strings")
+        text = item.strip()
+        if not text:
+            raise SegmentLLMProfileValidationError(f"{field} items must be non-empty")
+        cleaned.append(text)
+    return cleaned
+
+
+def _validate_target_lead(target_lead: str) -> str:
+    text = (target_lead or "").strip()
+    if not text:
+        raise SegmentLLMProfileValidationError("target_lead must be non-empty")
+    return text
+
+
+def _validate_profile_version(version: int) -> int:
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        raise SegmentLLMProfileValidationError("version must be a positive integer")
+    return version
+
+
+async def get_segment_llm_profile(
+    session: AsyncSession,
+    *,
+    segment_id: int,
+    locale: str = "ru",
+) -> SegmentLLMProfile | None:
+    locale = _normalize_profile_locale(locale)
+    result = await session.execute(
+        select(SegmentLLMProfile).where(
+            SegmentLLMProfile.segment_id == segment_id,
+            SegmentLLMProfile.locale == locale,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_segment_llm_profile(
+    session: AsyncSession,
+    *,
+    segment_id: int,
+    target_lead: str,
+    accept_examples: list[str],
+    reject_examples: list[str],
+    conflict_slugs: list[str],
+    locale: str = "ru",
+    requires_llm: bool = True,
+    version: int = 1,
+) -> SegmentLLMProfile:
+    profile = SegmentLLMProfile(
+        segment_id=segment_id,
+        locale=_normalize_profile_locale(locale),
+        target_lead=_validate_target_lead(target_lead),
+        accept_examples=_validate_profile_string_list("accept_examples", accept_examples),
+        reject_examples=_validate_profile_string_list("reject_examples", reject_examples),
+        conflict_slugs=_validate_profile_string_list("conflict_slugs", conflict_slugs),
+        requires_llm=bool(requires_llm),
+        version=_validate_profile_version(version),
+    )
+    session.add(profile)
+    await session.flush()
+    return profile
+
+
+async def update_segment_llm_profile(
+    session: AsyncSession,
+    *,
+    profile_id: int,
+    target_lead: str,
+    accept_examples: list[str],
+    reject_examples: list[str],
+    conflict_slugs: list[str],
+    requires_llm: bool | None = None,
+) -> SegmentLLMProfile:
+    result = await session.execute(
+        select(SegmentLLMProfile).where(SegmentLLMProfile.id == profile_id)
+    )
+    profile = result.scalar_one()
+    profile.target_lead = _validate_target_lead(target_lead)
+    profile.accept_examples = _validate_profile_string_list(
+        "accept_examples", accept_examples
+    )
+    profile.reject_examples = _validate_profile_string_list(
+        "reject_examples", reject_examples
+    )
+    profile.conflict_slugs = _validate_profile_string_list(
+        "conflict_slugs", conflict_slugs
+    )
+    if requires_llm is not None:
+        profile.requires_llm = bool(requires_llm)
+    profile.version = profile.version + 1
+    await session.flush()
+    return profile
