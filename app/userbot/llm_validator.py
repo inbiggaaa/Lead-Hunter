@@ -24,6 +24,12 @@ import aiohttp
 
 from app.config import settings
 
+from app.userbot.llm_prompt import (
+    SYSTEM_PROMPT_VERSION as LLM_PROMPT_V2_VERSION,
+    build_segment_aware_prompt,
+    build_untrusted_batch_user_message,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -373,6 +379,26 @@ class LLMValidator:
             self._supply_segments = slugs
             self._system_prompt = build_system_prompt(slugs)
             logger.info("LLM prompt rebuilt: supply segments = %s", sorted(slugs))
+
+    def build_prompt_v2(
+        self,
+        profiles: tuple,
+        *,
+        system_prompt_version: int = LLM_PROMPT_V2_VERSION,
+    ) -> str:
+        """Compose segment-aware prompt v2 (not used for delivery until Phase 8)."""
+        return build_segment_aware_prompt(
+            system_prompt_version=system_prompt_version,
+            supply_segments=self._supply_segments,
+            profiles=profiles,
+        )
+
+    @staticmethod
+    def build_user_message_v2(
+        items: list[tuple[int, str, list[str]]],
+    ) -> str:
+        """User-role payload with Telegram text marked UNTRUSTED_CONTENT."""
+        return build_untrusted_batch_user_message(items)
 
     @property
     def enabled(self) -> bool:

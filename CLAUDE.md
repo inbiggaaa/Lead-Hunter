@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Фазы 1–3 segment-aware LLM profiles на `feature/segment-llm-profiles` (не в prod).** Фазы 1–2: таблица + seed 71 + validate/rollback tool. Фаза 3: runtime loader `app/userbot/llm_profiles.py` (immutable snapshot, reload в keyword cycle poller, без Telegram API). Gate: test_llm_profiles+test_poller_fixes 82 passed. Production не трогали. Следующее: Фаза 4 prompt composer v2.
+Статус: **Фазы 1–4 segment-aware LLM на `feature/segment-llm-profiles` (не в prod).** Фазы 1–3: таблица, seed 71, runtime snapshot. Фаза 4: `llm_prompt.py` composer v2 (intents + candidate JSON data, UNTRUSTED user payload); legacy `build_system_prompt` сохранён. Delivery/LLM path не переключён. Gate: test_llm_prompt_v2+test_lead_direction 19 passed. Следующее: Фаза 5 response schema v2.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 
