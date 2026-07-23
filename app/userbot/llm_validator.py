@@ -508,6 +508,8 @@ class LLMResult:
     # Phase 8: correlate legacy vs segment-aware v2; from_v2 marks delivery source
     correlation_id: str = ""
     from_v2: bool = False
+    # Closed matching feedback: JSON-safe layer fields (no raw text/response)
+    layer_snapshot: dict = field(default_factory=dict)
 
 
 FIRST_WAVE_BLOCKING_SEGMENTS: frozenset[str] = frozenset({
@@ -589,7 +591,7 @@ class PendingMatch:
     chat_username: str
     message_id: int
     text: str
-    candidate_segments: list[str]
+    candidate_segments: list[str]  # reality-confirmed segments
     chat_title: str | None = None  # human-readable name for the notification
     account_id: int = 0  # which userbot account found this match
     is_urgent: bool = False
@@ -603,6 +605,8 @@ class PendingMatch:
     # Matched only by a personal user keyword (no segments) — always skips
     # LLM and the reality filter: personal keywords work unconditionally.
     keyword_only: bool = False
+    # Pre-reality rule candidates (closed matching feedback snapshot)
+    rule_segments: list[str] = field(default_factory=list)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -841,6 +845,17 @@ class LLMValidator:
                 v2_legacy=v2_legacy,
                 profile_missing=missing,
             )
+            from app.matching_feedback.snapshot import layer_snapshot_from_v2
+
+            layer = layer_snapshot_from_v2(
+                legacy=legacy,
+                verdicts=parsed.verdicts,
+                profiles=profiles,
+                candidate_segments=match.candidate_segments,
+                model_name=settings.deepseek_model,
+                prompt_version=settings.llm_prompt_version,
+                schema_version=settings.llm_response_schema_version,
+            )
             if settings.llm_segment_profiles_blocking:
                 merged = merge_v2_blocking_result(
                     candidate_segments=match.candidate_segments,
@@ -849,12 +864,17 @@ class LLMValidator:
                     allowlist=settings.blocking_segment_allowlist(),
                 )
                 if merged is not None:
+                    merged.layer_snapshot = layer
                     results[i] = merged
-                elif not settings.blocking_segment_allowlist():
-                    logger.debug(
-                        "LLM v2 blocking on but allowlist empty — shadow only "
-                        "(set LLM_SEGMENT_PROFILES_BLOCKING_SEGMENTS)",
-                    )
+                else:
+                    legacy.layer_snapshot = layer
+                    if not settings.blocking_segment_allowlist():
+                        logger.debug(
+                            "LLM v2 blocking on but allowlist empty — shadow only "
+                            "(set LLM_SEGMENT_PROFILES_BLOCKING_SEGMENTS)",
+                        )
+            else:
+                legacy.layer_snapshot = layer
     async def _call_llm_batch_v2(
         self, items: list[tuple[int, PendingMatch]],
     ) -> dict[int, dict]:
