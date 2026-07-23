@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Closed matching feedback gap-closure done on `feature/closed-matching-feedback-v2` (worktree/PR), prod enable in progress.** Head `matching_feedback_keyword01` (после `matching_feedback_v2`). Defaults in git: `MATCHING_FEEDBACK_ENABLED=false`. Runbook: `docs/ops/closed_matching_feedback_ru.md`.
+Статус: **Closed matching feedback ENABLED on prod for owner tester (`e17b336`).** Alembic `matching_feedback_keyword01`. VPS flags ON (tester=OWNER_TELEGRAM_ID, batch=ru_matching_v1). Bot/admin/worker healthy; 0 FloodWait. LLM blocking OFF. Owner smoke: Matching QA keyboard + admin `/matching-feedback`.
 
 Предыдущий статус: **Business #89 в проде (`79b5ca1`).** VPS `.env` 9999/20; bot-only rebuild `--no-deps`; bot healthy/polling; worker не рестартовали (0 FloodWait). Segment-aware LLM runtime OFF.
 
