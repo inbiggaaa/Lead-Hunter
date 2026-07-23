@@ -1,35 +1,25 @@
-"""API smoke tests for matching feedback endpoints."""
+"""API smoke tests for matching feedback endpoints (no httpx dependency)."""
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-from app.admin.api.matching_feedback import router
-
-
-@pytest.fixture
-def client():
-    app = FastAPI()
-    app.include_router(router)
-    return TestClient(app)
+from app.admin.api import matching_feedback as api
+from app.matching_feedback.analytics import export_feedback_jsonl_bytes
 
 
-def test_summary_endpoint(client):
+@pytest.mark.asyncio
+async def test_summary_endpoint():
     fake = {"batch": "ru_matching_v1", "delivered": 2, "precision": 1.0}
-    with patch(
-        "app.admin.api.matching_feedback.build_feedback_summary",
-        new=AsyncMock(return_value=fake),
-    ):
-        resp = client.get("/api/matching-feedback/summary", params={"batch": "ru_matching_v1"})
-    assert resp.status_code == 200
-    assert resp.json()["precision"] == 1.0
+    with patch.object(api, "build_feedback_summary", new=AsyncMock(return_value=fake)):
+        result = await api.matching_feedback_summary(batch="ru_matching_v1")
+    assert result["precision"] == 1.0
 
 
-def test_export_jsonl_endpoint(client):
+@pytest.mark.asyncio
+async def test_export_jsonl_endpoint():
     rows = [
         {
             "test_batch": "ru_matching_v1",
@@ -50,14 +40,9 @@ def test_export_jsonl_endpoint(client):
             "profile_versions": {},
         }
     ]
-    with patch(
-        "app.admin.api.matching_feedback.list_feedback_rows",
-        new=AsyncMock(return_value=rows),
-    ):
-        resp = client.get(
-            "/api/matching-feedback/export.jsonl",
-            params={"batch": "ru_matching_v1"},
-        )
-    assert resp.status_code == 200
-    assert "correct" in resp.text
-    assert "telegram_id" not in resp.text
+    with patch.object(api, "list_feedback_rows", new=AsyncMock(return_value=rows)):
+        resp = await api.matching_feedback_export_jsonl(batch="ru_matching_v1")
+    body = resp.body.decode("utf-8")
+    assert "correct" in body
+    assert "telegram_id" not in body
+    assert export_feedback_jsonl_bytes(rows).decode("utf-8") == body
