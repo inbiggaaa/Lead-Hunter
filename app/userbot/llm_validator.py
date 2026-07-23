@@ -29,6 +29,14 @@ from app.userbot.llm_prompt import (
     build_segment_aware_prompt,
     build_untrusted_batch_user_message,
 )
+from app.userbot.llm_response import (
+    CommercialIntent,
+    LLMDecision,
+    ParsedSegmentMessage,
+    SegmentVerdict,
+    parse_segment_aware_message,
+    to_legacy_llm_result,
+)
 
 logger = logging.getLogger(__name__)
 
