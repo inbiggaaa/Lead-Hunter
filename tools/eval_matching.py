@@ -1,12 +1,13 @@
 """Eval-конвейер качества матчинга (задача C1 из fable_audit.md).
 
 Офлайн, read-only к прод-БД/Redis (localhost-биндинги, worker НЕ трогается):
-- корпус: llm_decisions (последние N) + feedback (👍=relevant / 👎=not_relevant,
-  текст через join с llm_decisions) + сэмпл stats:unmatched из Redis;
+- корпус: llm_decisions (последние N) + feedback snapshots (correct/error/
+  uncertain; legacy thumbs still accepted) + сэмпл stats:unmatched из Redis;
+- feedback aggregation uses delivery snapshots (no JOIN to latest llm_decisions)
+  and calls app.matching_feedback.analytics.aggregate_feedback for closed batches;
 - прогон через ТЕКУЩИЙ классификатор (app.userbot.classifier) с прод-набором
   keywords из БД — по-сегментно: pass1-хиты, блоки stop-словами, блоки Pass 3,
   блоки reality-фильтром, финальные матчи;
-- LLM-вердикты и precision по feedback — из сохранённых решений;
 - шаблон таблицы ручной разметки 100 unmatched-сообщений (кандидаты в FN).
 
 Segment-aware LLM profiles (Phase 9): offline golden corpus eval is separate —
@@ -202,19 +203,18 @@ async def fetch_decisions(conn, limit: int) -> list[dict]:
 
 
 async def fetch_feedback(conn) -> list[dict]:
-    """Feedback + текст/сегменты из последнего llm_decision по тому же сообщению."""
+    """Closed matching rows use delivery snapshots; no JOIN to latest llm_decisions."""
     rows = await conn.fetch(
         """
-        SELECT f.chat_username, f.message_id, f.verdict,
-               d.message_text_masked, d.rule_segments, d.llm_segments
+        SELECT f.chat_username, f.message_id, f.verdict, f.reason_code,
+               f.test_batch, f.message_text_masked,
+               f.delivered_segments, f.rule_segments, f.reality_segments,
+               f.legacy_llm_segments, f.confirmed_segments,
+               f.expected_segment_slug, f.expected_segment_missing,
+               f.keyword_only, f.legacy_llm_verdict, f.v2_intent,
+               f.model_name, f.prompt_version, f.schema_version,
+               f.profile_versions
         FROM feedback f
-        LEFT JOIN LATERAL (
-            SELECT message_text_masked, rule_segments, llm_segments
-            FROM llm_decisions d
-            WHERE d.chat_username = f.chat_username
-              AND d.message_id = f.message_id
-            ORDER BY d.id DESC LIMIT 1
-        ) d ON true
         ORDER BY f.id
         """
     )
@@ -278,29 +278,61 @@ def aggregate_llm(decisions: list[dict], stats: dict[str, dict[str, int]]) -> di
     return dict(verdict_counts)
 
 
+def _normalize_feedback_verdict(verdict: str | None) -> str | None:
+    """Map closed-matching + legacy thumbs onto relevant/not_relevant."""
+    if verdict in ("correct", "relevant"):
+        return "relevant"
+    if verdict in ("error", "not_relevant"):
+        return "not_relevant"
+    return None
+
+
 def aggregate_feedback(
     feedback: list[dict], stats: dict[str, dict[str, int]],
     current_slugs: set[str],
 ) -> dict:
-    """Precision по feedback: общая и по-сегментно (сегменты — из llm_decision).
+    """Precision по feedback: snapshots are authoritative.
 
-    Оценки, все сегменты которых отсутствуют в текущем каталоге (эпоха
-    каталога-29), уходят в legacy-корзину: справочно, вне общего precision
-    и вне по-сегментной таблицы (задача 0.2 fable_core_plan).
+    Closed-matching verdicts (correct/error) and legacy thumbs are both
+    accepted. Uncertain/unrated are skipped. Per-segment attribution uses
+    delivered/confirmed segments from the feedback row when present.
     """
+    from app.matching_feedback.analytics import aggregate_feedback as canonical_aggregate
+
+    closed_rows = [fb for fb in feedback if fb.get("test_batch") and fb.get("test_batch") != "legacy"]
+    closed_summary = canonical_aggregate(closed_rows) if closed_rows else None
+
     totals = {
         "relevant": 0, "not_relevant": 0, "no_text": 0,
         "legacy_relevant": 0, "legacy_not_relevant": 0,
+        "uncertain": 0,
+        "closed_precision": None if closed_summary is None else closed_summary.get("precision"),
+        "closed_defined": 0 if closed_summary is None else closed_summary.get("defined"),
+        "closed_missing_snapshot": (
+            0 if closed_summary is None else closed_summary.get("missing_snapshot")
+        ),
     }
     for fb in feedback:
-        v = fb["verdict"]
-        if v not in ("relevant", "not_relevant"):
+        if fb.get("verdict") == "uncertain":
+            totals["uncertain"] += 1
             continue
-        if fb["message_text_masked"] is None:
+        v = _normalize_feedback_verdict(fb.get("verdict"))
+        if v is None:
+            continue
+        text = fb.get("message_text_masked")
+        if text is None and not fb.get("keyword_only"):
             totals[v] += 1
-            totals["no_text"] += 1  # keyword-only уведомления минуют LLM-лог
+            totals["no_text"] += 1
             continue
-        segs = fb["llm_segments"] or fb["rule_segments"] or []
+        confirmed = list(fb.get("confirmed_segments") or [])
+        delivered = list(fb.get("delivered_segments") or [])
+        legacy_segs = list(fb.get("legacy_llm_segments") or fb.get("rule_segments") or [])
+        if v == "relevant" and confirmed:
+            segs = confirmed
+        elif v == "relevant" and delivered:
+            segs = delivered
+        else:
+            segs = delivered or legacy_segs
         actual = [s for s in segs if s in current_slugs]
         if segs and not actual:
             totals[f"legacy_{v}"] += 1
@@ -366,7 +398,14 @@ def render_report(
         f"- 👍 relevant: {fb_totals['relevant']}",
         f"- 👎 not_relevant: {fb_totals['not_relevant']}",
         f"- **Precision: {_pct(fb_totals['relevant'], fb_rated)}**",
-        f"- без текста в llm_decisions (keyword-only и до-LLM эпоха): {fb_totals['no_text']}",
+        f"- uncertain (excluded): {fb_totals.get('uncertain', 0)}",
+        f"- без текста в snapshot (keyword-only / до-snapshot): {fb_totals['no_text']}",
+        (
+            f"- closed-batch canonical precision: "
+            f"{fb_totals.get('closed_precision')} "
+            f"(defined={fb_totals.get('closed_defined')}, "
+            f"missing_snapshot={fb_totals.get('closed_missing_snapshot')})"
+        ),
         "",
         "### Legacy — уведомления эпохи каталога-29 (slug'ов нет в БД), справочно",
         "",
