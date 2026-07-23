@@ -831,10 +831,8 @@ class ChannelPoller:
             # Личные keywords безусловны (спека «Вариант Б»): если текст матчит
             # хоть один — сообщение идёт в _dispatch (keyword-ветка) даже при
             # полностью карантинных сегментах.
-            active_segments = [
-                s for s in match.candidate_segments
-                if s not in self._quarantined_slugs
-            ]
+            # Phase 8: when v2 blocking is on, intersect with relevant_segments.
+            active_segments = self._segments_for_dispatch(match, llm_result)
             if (
                 not active_segments
                 and not match.keyword_only
@@ -873,6 +871,27 @@ class ChannelPoller:
             )
 
     # ── Reality filter (zero-cost LLM bypass) ──
+
+    def _segments_for_dispatch(self, match, llm_result) -> list[str]:
+        """Segments that may reach users after quarantine (+ optional v2 filter).
+
+        When segment-profile blocking is on and the verdict came from v2,
+        intersect candidates with ``relevant_segments`` so per-segment rejects
+        do not still dispatch every classifier hit.
+        """
+        active = [
+            s for s in match.candidate_segments
+            if s not in self._quarantined_slugs
+        ]
+        if (
+            settings.llm_segment_profiles_enabled
+            and settings.llm_segment_profiles_blocking
+            and getattr(llm_result, "from_v2", False)
+            and not match.keyword_only
+        ):
+            allowed = set(llm_result.relevant_segments or [])
+            active = [s for s in active if s in allowed]
+        return active
 
     def _filter_by_domain(self, text: str, segments: list[str]) -> list[str]:
         """Return only segments that have at least one domain word in the text.
@@ -2120,13 +2139,21 @@ class ChannelPoller:
                     rule_segments=rule_segments,
                     llm_verdict=llm_result.verdict,
                     llm_segments=llm_result.relevant_segments or [],
-                    llm_reason=llm_result.reason,
+                    llm_reason=(
+                        f"cid={llm_result.correlation_id} {llm_result.reason}"
+                        if getattr(llm_result, "correlation_id", "")
+                        else llm_result.reason
+                    ),
                     certainty=llm_result.certainty,
                     # B5: кэш-хиты помечаются отдельно — датасет fine-tune
                     # не засоряется дублями решений
                     llm_mode=(
                         "cache" if getattr(llm_result, "from_cache", False)
-                        else settings.llm_mode
+                        else (
+                            "v2_blocking"
+                            if getattr(llm_result, "from_v2", False)
+                            else settings.llm_mode
+                        )
                     ),
                     prompt_tokens=llm_result.prompt_tokens or None,
                     completion_tokens=llm_result.completion_tokens or None,

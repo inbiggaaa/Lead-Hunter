@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Фазы 1–7 segment-aware LLM на `feature/segment-llm-profiles` (не в prod).** Фаза 7: `may_bypass_llm` — bypass только если все кандидаты `requires_llm=false` и нет vacancy/job/social/provider/buy-sell конфликтов; validate_batch больше не скипает небезопасный high-conf. Gate: bypass+validator+a2 39 passed. Следующее: Фаза 8 shadow mode.
+Статус: **Фазы 1–8 segment-aware LLM на `feature/segment-llm-profiles` (не в prod).** Фаза 8: флаги `LLM_SEGMENT_PROFILES_ENABLED/BLOCKING` (default false); shadow сравнивает v2 с legacy + Redis `stats:llm_v2:*`; blocking подменяет delivery через `to_legacy_llm_result` и фильтрует `matched_segments` по `relevant_segments`; ошибка v2 → keep legacy. Gate: shadow+blocking_mode 6 passed. Следующее: Фаза 9 offline golden corpus.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 

@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-chat"
     llm_enabled: bool = False           # master switch for LLM validator
     llm_mode: str = "shadow"            # "shadow" (log only) | "blocking" (filter)
+    # Segment-aware profiles v2 (Phase 8). Defaults keep legacy delivery.
+    llm_segment_profiles_enabled: bool = False
+    llm_segment_profiles_blocking: bool = False
+    llm_prompt_version: int = 2
+    llm_response_schema_version: int = 2
     exclude_broadcast_channels: bool = True  # skip broadcast-only channels (not chats)
 
     # Monitoring
