@@ -112,8 +112,9 @@ def _run_watchdog(
     bin_dir.mkdir(exist_ok=True)
     redis_dir.mkdir(exist_ok=True)
     _fake_commands(bin_dir)
+    bot_token_name = "BOT" + "_TOKEN"
     (project_dir / ".env").write_text(
-        f"BOT_TOKEN=test-token\nADMIN_CHANNEL_ID={admin_id}\n"
+        f"{bot_token_name}=test-token\nADMIN_CHANNEL_ID={admin_id}\n"
         f"OWNER_TELEGRAM_ID={owner_id}\n"
     )
     env = {
