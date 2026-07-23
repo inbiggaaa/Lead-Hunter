@@ -233,7 +233,8 @@ class NotificationSender:
 
         # Build and send message
         text = self._format_notification(payload)
-        kb = self._build_keyboard(payload)
+        feedback_token = await self._maybe_create_feedback_token(payload)
+        kb = self._build_keyboard(payload, feedback_token=feedback_token)
 
         delivered = await self._deliver_with_retry(envelope, payload, text, kb)
         if not delivered:
@@ -344,7 +345,68 @@ class NotificationSender:
 
         return msg
 
-    def _build_keyboard(self, payload: dict) -> InlineKeyboardMarkup:
+    async def _maybe_create_feedback_token(self, payload: dict) -> str | None:
+        """Create closed-feedback item for testers; fail-open on any error."""
+        from app.matching_feedback.domain import (
+            FeedbackSnapshot,
+            is_matching_feedback_enabled_for,
+            mask_message_text,
+        )
+        from app.matching_feedback.repository import get_or_create_feedback_item
+
+        telegram_id = int(payload.get("telegram_id") or 0)
+        if not is_matching_feedback_enabled_for(telegram_id):
+            return None
+        batch = (settings.matching_feedback_batch or "").strip()
+        if not batch:
+            return None
+
+        snap = payload.get("matching_feedback_snapshot") or {}
+        try:
+            delivered = tuple(
+                payload.get("matched_segment_slugs")
+                or snap.get("delivered_segments")
+                or ()
+            )
+            snapshot = FeedbackSnapshot(
+                test_batch=batch,
+                user_id=int(payload["user_id"]),
+                telegram_id=telegram_id,
+                chat_username=str(payload.get("chat_username") or ""),
+                message_id=int(payload.get("message_id") or 0),
+                message_hash=str(payload.get("message_hash") or ""),
+                content_hash=payload.get("content_hash"),
+                message_text_masked=mask_message_text(str(payload.get("text") or "")),
+                delivered_segments=tuple(str(s) for s in delivered),
+                rule_segments=tuple(str(s) for s in (snap.get("rule_segments") or ())),
+                reality_segments=tuple(
+                    str(s) for s in (snap.get("reality_segments") or delivered)
+                ),
+                llm_snapshot={
+                    "legacy_llm_verdict": snap.get("legacy_llm_verdict"),
+                    "legacy_llm_segments": snap.get("legacy_llm_segments") or [],
+                    "v2_intent": snap.get("v2_intent"),
+                    "v2_segment_verdicts": snap.get("v2_segment_verdicts") or {},
+                    "model_name": snap.get("model_name"),
+                    "prompt_version": snap.get("prompt_version"),
+                    "schema_version": snap.get("schema_version"),
+                    "profile_versions": snap.get("profile_versions") or {},
+                },
+            )
+            item = await get_or_create_feedback_item(snapshot)
+            return item.public_token
+        except Exception as exc:
+            logger.warning(
+                "matching feedback item create failed (fail-open): %s",
+                type(exc).__name__,
+            )
+            return None
+
+    def _build_keyboard(
+        self,
+        payload: dict,
+        feedback_token: str | None = None,
+    ) -> InlineKeyboardMarkup:
         """Build notification keyboard with feedback buttons."""
         is_free = payload.get("plan", "free") == "free"
         lang = normalize_language(payload.get("lang"))
@@ -354,12 +416,30 @@ class NotificationSender:
 
         rows = []
 
-        # Feedback row — always present
-        fb_data = f"fb:{chat}:{msg_id}"
-        rows.append([
-            InlineKeyboardButton(text="👍", callback_data=f"{fb_data}:relevant"),
-            InlineKeyboardButton(text="👎", callback_data=f"{fb_data}:not_relevant"),
-        ])
+        if feedback_token:
+            from app.matching_feedback.domain import encode_feedback_callback
+
+            rows.append([
+                InlineKeyboardButton(
+                    text=get_text(lang, "mf_btn_correct"),
+                    callback_data=encode_feedback_callback("correct", feedback_token),
+                ),
+                InlineKeyboardButton(
+                    text=get_text(lang, "mf_btn_error"),
+                    callback_data=encode_feedback_callback("error", feedback_token),
+                ),
+                InlineKeyboardButton(
+                    text=get_text(lang, "mf_btn_uncertain"),
+                    callback_data=encode_feedback_callback("uncertain", feedback_token),
+                ),
+            ])
+        else:
+            # Legacy feedback row — always present for non-testers
+            fb_data = f"fb:{chat}:{msg_id}"
+            rows.append([
+                InlineKeyboardButton(text="👍", callback_data=f"{fb_data}:relevant"),
+                InlineKeyboardButton(text="👎", callback_data=f"{fb_data}:not_relevant"),
+            ])
 
         if is_free:
             # D1 (DECISIONS #79): no «💬 Чат» button on Free — the link led
