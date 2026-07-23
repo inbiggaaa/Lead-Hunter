@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Фазы 1–9 segment-aware LLM на `feature/segment-llm-profiles` (не в prod).** Фаза 9: golden corpus 552 synthetic cases (71×accept/reject/collision/offer + vacancy/job где применимо); offline marker eval P=92.2% R=100%; adapter roundtrip + profile-example coverage. Baseline `docs/eval/segment_profiles_ru_baseline.md`. Blocking в prod всё ещё запрещён без Phase 11 live shadow. Следующее: Фаза 10 admin CRUD профилей.
+Статус: **Фазы 1–10 segment-aware LLM на `feature/segment-llm-profiles` (не в prod).** Фаза 10: admin CRUD LLM-профилей — draft/publish/rollback + audit table `segment_llm_profile_audits`, migration `segment_profile_audit01`, API `/api/segments/{id}/llm-profile*`, UI вкладка в Categories. Preview offline. Prod migration/worker не применялись. Следующее: Фаза 11 staged enable (shadow → blocking 3–5 сегментов).
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 

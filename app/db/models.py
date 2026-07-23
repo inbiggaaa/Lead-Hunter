@@ -270,6 +270,8 @@ class SegmentLLMProfile(Base):
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
     )
+    # Admin-only working copy — worker/runtime ignores this column.
+    draft_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -278,6 +280,37 @@ class SegmentLLMProfile(Base):
     )
 
     segment: Mapped["Segment"] = relationship(back_populates="llm_profiles")
+    audits: Mapped[list["SegmentLLMProfileAudit"]] = relationship(
+        back_populates="profile", cascade="all, delete-orphan"
+    )
+
+
+class SegmentLLMProfileAudit(Base):
+    """Append-only admin audit for segment LLM profile changes."""
+
+    __tablename__ = "segment_llm_profile_audits"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    profile_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("segment_llm_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    segment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("segments.id", ondelete="CASCADE"), nullable=False
+    )
+    segment_slug: Mapped[str] = mapped_column(String(50), nullable=False)
+    admin_user: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    before_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    after_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    version_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    profile: Mapped["SegmentLLMProfile"] = relationship(back_populates="audits")
 
 
 # ── segment_keywords ──
