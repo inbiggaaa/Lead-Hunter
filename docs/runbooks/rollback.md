@@ -59,6 +59,15 @@ sudo chown -R 10001:10001 sessions
 | `docker-compose.dev.yml` | DB/Redis on `127.0.0.1` |
 | `docker-compose.prod.yml` | DB/Redis unpublished; admin loopback |
 
+### Admin UI (prod loopback)
+
+Admin binds `127.0.0.1:17421` on the VPS. From a machine with SSH host `leadhunter`:
+
+```bash
+ssh -fN -o ExitOnForwardFailure=yes -L 17421:127.0.0.1:17421 leadhunter
+open http://127.0.0.1:17421/login   # macOS
+```
+
 Local example:
 
 ```bash

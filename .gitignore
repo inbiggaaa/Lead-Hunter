@@ -38,3 +38,7 @@ docker-compose.override.yml
 Thumbs.db
 logs/
 .claude/settings.local.json.tmp.*
+
+# Local-only Mac shortcuts (do not commit)
+scripts/open-admin.sh
+scripts/Open LeadHunter Admin.command

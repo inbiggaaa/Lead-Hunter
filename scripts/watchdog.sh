@@ -11,13 +11,15 @@
 
 set -euo pipefail
 
-PROJECT_DIR="/opt/LeadHunter"
+PROJECT_DIR="${PROJECT_DIR:-/opt/LeadHunter}"
 LOG_FILE="$PROJECT_DIR/logs/watchdog.log"
-ALERT_COOLDOWN_FILE="/tmp/leadhunter_watchdog_last_alert"
-ALERT_COOLDOWN=1800  # 30 minutes
+ALERT_COOLDOWN_FILE="${ALERT_COOLDOWN_FILE:-/tmp/leadhunter_watchdog_last_alert}"
+ALERT_COOLDOWN="${ALERT_COOLDOWN:-1800}"  # 30 minutes
 HEARTBEAT_MAX_AGE_SEC=1200  # 20 minutes
 QUEUE_ALERT_LEN=100
 DISK_ALERT_PCT=90
+LEADER_REJECTED_LAST_KEY="watchdog:last:worker:leader_rejected"
+LEADER_LOST_LAST_KEY="watchdog:last:worker:leader_lost"
 
 declare -A EXPECTED=(
     [leadhunter-db-1]=""
@@ -36,7 +38,7 @@ send_alert() {
         local last
         last=$(cat "$ALERT_COOLDOWN_FILE")
         if [ $((now - last)) -lt $ALERT_COOLDOWN ]; then
-            return 0
+            return 1
         fi
     fi
 
@@ -45,21 +47,48 @@ send_alert() {
     source "$PROJECT_DIR/.env" 2>/dev/null || true
     set +a
 
-    # OWNER_TELEGRAM_ID is the config source of truth; ADMIN_TELEGRAM_ID kept as alias.
-    local chat_id="${OWNER_TELEGRAM_ID:-${ADMIN_TELEGRAM_ID:-}}"
+    local chat_id="${ADMIN_CHANNEL_ID:-${OWNER_TELEGRAM_ID:-${ADMIN_TELEGRAM_ID:-}}}"
     if [ -z "$chat_id" ]; then
-        echo "[$(date -Iseconds)] [ALERT] $msg (OWNER_TELEGRAM_ID not set)" >> "$LOG_FILE"
-        return 0
+        echo "[$(date -Iseconds)] [ALERT] $msg (admin target not set)" >> "$LOG_FILE"
+        return 1
     fi
 
     local full_msg="LeadHunter Watchdog — $(date '+%H:%M:%S')%0A$msg"
-    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+    if ! curl -fsS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
         -d "chat_id=${chat_id}" \
         -d "text=${full_msg}" \
-        -d "parse_mode=HTML" > /dev/null 2>&1 || true
+        -d "parse_mode=HTML" > /dev/null 2>&1; then
+        echo "[$(date -Iseconds)] [ERROR] Failed to send watchdog alert" >> "$LOG_FILE"
+        return 1
+    fi
 
     echo "$now" > "$ALERT_COOLDOWN_FILE"
     echo "[$(date -Iseconds)] [ALERT] $msg" >> "$LOG_FILE"
+    return 0
+}
+
+redis_get() {
+    local key="$1"
+    docker compose exec -T redis redis-cli GET "$key" 2>/dev/null || echo ""
+}
+
+redis_set() {
+    local key="$1"
+    local value="$2"
+    docker compose exec -T redis redis-cli SET "$key" "$value" >/dev/null 2>&1 || true
+}
+
+leader_delta() {
+    local current="$1"
+    local last_key="$2"
+    local previous
+    previous=$(redis_get "$last_key")
+    [[ "$previous" =~ ^[0-9]+$ ]] || previous=0
+    if [ "$current" -lt "$previous" ]; then
+        redis_set "$last_key" "$current"
+        previous="$current"
+    fi
+    echo $((current - previous))
 }
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -124,17 +153,28 @@ if [[ "$llm_total" =~ ^[0-9]+$ ]] && [[ "$llm_fail" =~ ^[0-9]+$ ]] && [ "$llm_to
     fi
 fi
 
-leader_rejected=$(docker compose exec -T redis redis-cli GET "stats:worker:leader_rejected" 2>/dev/null || echo "0")
-leader_lost=$(docker compose exec -T redis redis-cli GET "stats:worker:leader_lost" 2>/dev/null || echo "0")
-if [[ "$leader_rejected" =~ ^[0-9]+$ ]] && [ "$leader_rejected" -gt 0 ]; then
-    ISSUES="${ISSUES}• second worker rejected: <b>${leader_rejected}</b>%0A"
+leader_rejected=$(redis_get "stats:worker:leader_rejected")
+leader_lost=$(redis_get "stats:worker:leader_lost")
+leader_rejected_delta=0
+leader_lost_delta=0
+if [[ "$leader_rejected" =~ ^[0-9]+$ ]]; then
+    leader_rejected_delta=$(leader_delta "$leader_rejected" "$LEADER_REJECTED_LAST_KEY")
 fi
-if [[ "$leader_lost" =~ ^[0-9]+$ ]] && [ "$leader_lost" -gt 0 ]; then
-    ISSUES="${ISSUES}• worker leader lease lost: <b>${leader_lost}</b>%0A"
+if [[ "$leader_lost" =~ ^[0-9]+$ ]]; then
+    leader_lost_delta=$(leader_delta "$leader_lost" "$LEADER_LOST_LAST_KEY")
+fi
+if [ "$leader_rejected_delta" -gt 0 ]; then
+    ISSUES="${ISSUES}• second worker rejected: <b>+${leader_rejected_delta}</b> (${leader_rejected} total)%0A"
+fi
+if [ "$leader_lost_delta" -gt 0 ]; then
+    ISSUES="${ISSUES}• worker leader lease lost: <b>+${leader_lost_delta}</b> (${leader_lost} total)%0A"
 fi
 
 if [ -n "$ISSUES" ]; then
-    send_alert "$ISSUES"
+    if send_alert "$ISSUES"; then
+        [[ "$leader_rejected" =~ ^[0-9]+$ ]] && redis_set "$LEADER_REJECTED_LAST_KEY" "$leader_rejected"
+        [[ "$leader_lost" =~ ^[0-9]+$ ]] && redis_set "$LEADER_LOST_LAST_KEY" "$leader_lost"
+    fi
 fi
 
 echo "[$(date -Iseconds)] [OK] Watchdog finished, issues=${ISSUES:-none}" >> "$LOG_FILE"

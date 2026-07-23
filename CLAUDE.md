@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-23**
 
-Статус: **Stability audit ЗАДЕПЛОЕН на прод.** `main` @ `f8c8892` (алемbic `stability_referral01`). Bot/worker/admin healthy: Pool 2, Hot 198, 0 FloodWait. Уроки деплоя: не квотить `docker compose`; ждать healthy; `chown sessions` → UID 10001; после stop чистить Redis `worker:leader`. Admin слушает `127.0.0.1:17421`. Follow-up deploy script `9ebc93f` (wait_healthy / lease clear / sudo chown) — выкатывается следом.
+Статус: **Stability audit ЗАДЕПЛОЕН на прод; watchdog fix готов локально, НЕ задеплоен.** `main` на проде @ `f8c8892` (alembic `stability_referral01`), bot/worker/admin healthy: Pool 2, Hot 198, 0 FloodWait; follow-up deploy script `9ebc93f` подготовлен. Watchdog теперь адресует `ADMIN_CHANNEL_ID` с fallback владельцу и сообщает только новые leader rejection/loss события; 6 integrity-тестов прошли. Для применения нужен отдельный deploy/обновление серверного скрипта.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 
