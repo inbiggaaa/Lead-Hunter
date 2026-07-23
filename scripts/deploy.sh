@@ -37,13 +37,27 @@ check_worker_stopped() {
   fi
 }
 
-require_healthy_service() {
+wait_healthy_service() {
   local service="$1"
-  local container
-  container="$(compose ps -q "$service")"
-  [[ -n "$container" ]] || { log "ERROR: $service container is not running"; exit 1; }
-  [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]] ||
-    { log "ERROR: $service is not healthy"; exit 1; }
+  local attempts="${2:-60}"
+  local sleep_s="${3:-2}"
+  local container status i
+  for ((i = 1; i <= attempts; i++)); do
+    container="$(compose ps -q "$service")"
+    if [[ -n "$container" ]]; then
+      status="$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || echo missing)"
+      if [[ "$status" == "healthy" ]]; then
+        log "$service healthy"
+        return 0
+      fi
+      log "waiting for $service ($status) [$i/$attempts]"
+    else
+      log "waiting for $service container [$i/$attempts]"
+    fi
+    sleep "$sleep_s"
+  done
+  log "ERROR: $service is not healthy after ${attempts} attempts"
+  exit 1
 }
 
 if [[ -z "$DB_CONTAINER" ]]; then
@@ -67,10 +81,22 @@ log "Stopping worker (anti-ban: no double Telegram load during rebuild)"
 compose stop worker || true
 check_worker_stopped
 
+# Drop stale Redis leader lease so the new worker is not rejected for ~30s.
+if [[ -n "$REDIS_CONTAINER" ]]; then
+  log "Clear Redis worker:leader lease"
+  docker exec "$REDIS_CONTAINER" redis-cli DEL worker:leader >/dev/null || \
+    log "WARN: could not clear worker:leader"
+fi
+
 log "Ensure sessions/ is writable by non-root UID 10001"
 if [[ -d sessions ]]; then
-  chown -R 10001:10001 sessions 2>/dev/null || \
-    log "WARN: chown sessions failed — worker may crash if UID 10001 cannot write"
+  if chown -R 10001:10001 sessions 2>/dev/null; then
+    chmod -R u+rwX sessions 2>/dev/null || true
+  elif command -v sudo >/dev/null && sudo chown -R 10001:10001 sessions; then
+    sudo chmod -R u+rwX sessions || true
+  else
+    log "WARN: chown sessions failed — worker may crash (readonly SQLite)"
+  fi
 fi
 
 log "Build bot/worker/admin (BuildKit off — Docker race workaround)"
@@ -84,9 +110,9 @@ check_worker_stopped
 log "Recreate app services (--no-deps: leave db/redis alone)"
 compose up -d --no-deps bot worker admin
 
-log "Verify all expected services are healthy"
+log "Verify all expected services are healthy (retry until ready)"
 for service in db redis bot worker admin; do
-  require_healthy_service "$service"
+  wait_healthy_service "$service" 90 2
 done
 
 log "Verify Alembic is current at head"
