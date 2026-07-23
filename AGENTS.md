@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **DECISIONS #89 — Business: безлимит направлений + до 20 стран (города без лимита).** Runtime defaults + locales + docs обновлены; focused pytest 32 passed. Prod bot restart / правки прод-`.env` — только по команде. Segment-aware LLM на main остаётся OFF.
+Статус: **Business #89 в проде (`79b5ca1`).** VPS `.env` 9999/20; bot-only rebuild `--no-deps`; bot healthy/polling; worker не рестартовали (0 FloodWait). Segment-aware LLM runtime OFF.
 
 Предыдущий статус: **PR #1 merged в `main` (`300b468`) — segment-aware LLM код на main, runtime OFF.** Defaults: profiles disabled, blocking allowlist empty. Следующее: staging migration+seed → shadow ≥72h. Prod apply — только по явной команде.
 
