@@ -89,10 +89,9 @@ jobs:
             cd "$DEPLOY_PATH"
             echo "[deploy] host=$(hostname) path=$DEPLOY_PATH"
             DEPLOY_SHA="${{ steps.target.outputs.sha }}"
-            case "$DEPLOY_SHA" in
-              (*[!0-9a-fA-F]*|"") echo "Invalid deploy SHA"; exit 1 ;;
-            esac
-            [ "${#DEPLOY_SHA}" -eq 40 ] || { echo "Invalid deploy SHA"; exit 1; }
+            if ! [[ "$DEPLOY_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "Invalid deploy SHA"; exit 1
+            fi
             git fetch origin "$DEPLOY_SHA"
             git checkout --detach "$DEPLOY_SHA"
             [ "$(git rev-parse HEAD)" = "$DEPLOY_SHA" ] || { echo "Detached SHA mismatch"; exit 1; }
