@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Фазы 1–8 segment-aware LLM на `feature/segment-llm-profiles` (не в prod).** Фаза 8: флаги `LLM_SEGMENT_PROFILES_ENABLED/BLOCKING` (default false); shadow сравнивает v2 с legacy + Redis `stats:llm_v2:*`; blocking подменяет delivery через `to_legacy_llm_result` и фильтрует `matched_segments` по `relevant_segments`; ошибка v2 → keep legacy. Gate: shadow+blocking_mode 6 passed. Следующее: Фаза 9 offline golden corpus.
+Статус: **Фазы 1–9 segment-aware LLM на `feature/segment-llm-profiles` (не в prod).** Фаза 9: golden corpus 552 synthetic cases (71×accept/reject/collision/offer + vacancy/job где применимо); offline marker eval P=92.2% R=100%; adapter roundtrip + profile-example coverage. Baseline `docs/eval/segment_profiles_ru_baseline.md`. Blocking в prod всё ещё запрещён без Phase 11 live shadow. Следующее: Фаза 10 admin CRUD профилей.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 
