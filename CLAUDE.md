@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Фазы 1–11 (код) segment-aware LLM на `feature/segment-llm-profiles` — prod НЕ включён.** Фаза 11: allowlist `LLM_SEGMENT_PROFILES_BLOCKING_SEGMENTS` (empty=fail-safe), first-wave cleaning/plumber/electrician/accountant/lawyer, runbook `docs/ops/segment_profiles_enablement_ru.md`, checker tool. Staging/prod shadow/blocking — только по отдельной команде владельца.
+Статус: **Closed matching feedback v2 — код готов на `feature/closed-matching-feedback-v2` (worktree), prod OFF.** Миграция `matching_feedback_v2`, domain/repo/sender/handlers/analytics/admin Matching QA. Defaults: `MATCHING_FEEDBACK_ENABLED=false`, пустой allowlist/batch. Runbook: `docs/ops/closed_matching_feedback_ru.md`. Production/worker/blocking LLM — не трогались. Следующее: staging migration + tester enable по команде владельца.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 
