@@ -24,6 +24,7 @@ from app.userbot.llm_validator import (
     llm_validator, sanitize_text, PendingMatch, is_high_confidence_demand,
     LLMResult,
 )
+from app.userbot.llm_profiles import reload_profile_snapshot
 from app.userbot.discovery_v2 import is_discovery_window
 from app.userbot.pool import UserbotPool
 from app.userbot.rate_limiter import limiter, BudgetExceeded
@@ -153,6 +154,8 @@ class ChannelPoller:
         self._entity_cache: dict[str, dict[int, tuple[int, int]]] = {}
         # Pending matches queued for batch LLM validation (flushed after each poll batch)
         self._pending_matches: list[PendingMatch] = []
+        # Phase 3: segment LLM profiles — in-memory snapshot (module store is source)
+        # Reloaded with keywords; never touches Telegram API.
 
     # ═══════════════ INIT ═══════════════
 
@@ -192,6 +195,7 @@ class ChannelPoller:
             )
             self._personal_keywords = await self._load_personal_keywords()
             await self._load_channel_segments()
+            await reload_profile_snapshot(locale="ru")
             await self._rebuild_tiers()
             await self._tag_new_channels()  # tag any new channels from discovery
 
@@ -827,10 +831,8 @@ class ChannelPoller:
             # Личные keywords безусловны (спека «Вариант Б»): если текст матчит
             # хоть один — сообщение идёт в _dispatch (keyword-ветка) даже при
             # полностью карантинных сегментах.
-            active_segments = [
-                s for s in match.candidate_segments
-                if s not in self._quarantined_slugs
-            ]
+            # Phase 8: when v2 blocking is on, intersect with relevant_segments.
+            active_segments = self._segments_for_dispatch(match, llm_result)
             if (
                 not active_segments
                 and not match.keyword_only
@@ -869,6 +871,26 @@ class ChannelPoller:
             )
 
     # ── Reality filter (zero-cost LLM bypass) ──
+
+    def _segments_for_dispatch(self, match, llm_result) -> list[str]:
+        """Segments that may reach users after quarantine (+ optional v2 filter).
+
+        When segment-profile blocking is on and the verdict came from v2,
+        use ``relevant_segments`` (already allowlist-merged in the validator).
+        """
+        active = [
+            s for s in match.candidate_segments
+            if s not in self._quarantined_slugs
+        ]
+        if (
+            settings.llm_segment_profiles_enabled
+            and settings.llm_segment_profiles_blocking
+            and getattr(llm_result, "from_v2", False)
+            and not match.keyword_only
+        ):
+            allowed = set(llm_result.relevant_segments or [])
+            active = [s for s in active if s in allowed]
+        return active
 
     def _filter_by_domain(self, text: str, segments: list[str]) -> list[str]:
         """Return only segments that have at least one domain word in the text.
@@ -1607,6 +1629,12 @@ class ChannelPoller:
                     last_reload = now
                 except Exception as e:
                     logger.warning("Keyword reload failed, using cached: %s", e)
+                # Separate try: profile DB errors must not wipe keyword cache
+                # and must keep the previous profile snapshot (Phase 3).
+                try:
+                    await reload_profile_snapshot(locale="ru")
+                except Exception as e:
+                    logger.warning("LLM profile reload failed, using cached: %s", e)
 
             if now - last_tier_rebuild > tier_rebuild_interval:
                 try:
@@ -1960,6 +1988,9 @@ class ChannelPoller:
             s.slug for s in seg_rows if s.lead_direction == "buy"
         }
         llm_validator.set_supply_segments(self._supply_segments)
+        llm_validator.set_lead_directions(
+            {s.slug: s.lead_direction for s in seg_rows}
+        )
 
         # C5: segment lookups for _dispatch + channel geo memo reset
         self._set_seg_maps(seg_rows)
@@ -2107,13 +2138,21 @@ class ChannelPoller:
                     rule_segments=rule_segments,
                     llm_verdict=llm_result.verdict,
                     llm_segments=llm_result.relevant_segments or [],
-                    llm_reason=llm_result.reason,
+                    llm_reason=(
+                        f"cid={llm_result.correlation_id} {llm_result.reason}"
+                        if getattr(llm_result, "correlation_id", "")
+                        else llm_result.reason
+                    ),
                     certainty=llm_result.certainty,
                     # B5: кэш-хиты помечаются отдельно — датасет fine-tune
                     # не засоряется дублями решений
                     llm_mode=(
                         "cache" if getattr(llm_result, "from_cache", False)
-                        else settings.llm_mode
+                        else (
+                            "v2_blocking"
+                            if getattr(llm_result, "from_v2", False)
+                            else settings.llm_mode
+                        )
                     ),
                     prompt_tokens=llm_result.prompt_tokens or None,
                     completion_tokens=llm_result.completion_tokens or None,

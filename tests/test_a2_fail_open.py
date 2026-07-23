@@ -69,7 +69,7 @@ async def test_validate_batch_denominator_excludes_skipped(mock_get_redis):
     mock_get_redis.return_value = redis
 
     matches = [
-        PendingMatch("c", 1, "точно спрос", ["seg"], skip_llm=True),
+        PendingMatch("c", 1, "точно спрос", ["seg"], skip_llm=True, keyword_only=True),
         PendingMatch("c", 2, "текст один", ["seg"]),
         PendingMatch("c", 3, "текст два", ["seg"]),
     ]

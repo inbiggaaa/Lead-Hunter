@@ -35,6 +35,8 @@ import {
   Key,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LlmProfileEditor } from "@/components/LlmProfileEditor";
 
 // ── Types ──
 
@@ -668,10 +670,12 @@ function KeywordsEditor({
   category,
   segment,
   onBack,
+  hideHeader = false,
 }: {
   category: Category;
   segment: Segment;
   onBack: () => void;
+  hideHeader?: boolean;
 }) {
   const queryClient = useQueryClient();
 
@@ -720,6 +724,7 @@ function KeywordsEditor({
 
   return (
     <div className="space-y-4">
+      {!hideHeader && (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Button
@@ -746,6 +751,19 @@ function KeywordsEditor({
           {saveMutation.isPending ? "Сохранение..." : "Сохранить"}
         </Button>
       </div>
+      )}
+      {hideHeader && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending || isLoading}
+          >
+            <Save className="size-4 mr-1" />
+            {saveMutation.isPending ? "Сохранение..." : "Сохранить"}
+          </Button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-4">
@@ -845,16 +863,51 @@ export default function CategoriesPage() {
           )}
 
           {view.level === "keywords" && (
-            <KeywordsEditor
-              category={view.category}
-              segment={view.segment}
-              onBack={() =>
-                setView({
-                  level: "subcategories",
-                  category: view.category,
-                })
-              }
-            />
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2"
+                  onClick={() =>
+                    setView({
+                      level: "subcategories",
+                      category: view.category,
+                    })
+                  }
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <h3 className="text-lg font-semibold">
+                  {view.segment.emoji} {view.segment.title_ru}
+                </h3>
+                <Badge variant="outline" className="ml-2 text-xs">
+                  {view.category.emoji} {view.category.title_ru}
+                </Badge>
+              </div>
+              <Tabs defaultValue="keywords">
+                <TabsList>
+                  <TabsTrigger value="keywords">Ключевые слова</TabsTrigger>
+                  <TabsTrigger value="llm-profile">LLM-профиль</TabsTrigger>
+                </TabsList>
+                <TabsContent value="keywords" className="mt-4">
+                  <KeywordsEditor
+                    category={view.category}
+                    segment={view.segment}
+                    onBack={() =>
+                      setView({
+                        level: "subcategories",
+                        category: view.category,
+                      })
+                    }
+                    hideHeader
+                  />
+                </TabsContent>
+                <TabsContent value="llm-profile" className="mt-4">
+                  <LlmProfileEditor segment={view.segment} />
+                </TabsContent>
+              </Tabs>
+            </div>
           )}
         </CardContent>
       </Card>

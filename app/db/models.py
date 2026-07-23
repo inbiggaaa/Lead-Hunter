@@ -16,6 +16,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -238,7 +239,78 @@ class Segment(Base):
     )
 
     keywords: Mapped[list["SegmentKeyword"]] = relationship(back_populates="segment")
+    llm_profiles: Mapped[list["SegmentLLMProfile"]] = relationship(
+        back_populates="segment", cascade="all, delete-orphan"
+    )
     category: Mapped["Category"] = relationship(back_populates="segments")
+
+
+# ── segment_llm_profiles (1 profile per segment+locale) ──
+
+class SegmentLLMProfile(Base):
+    """Compact LLM guidance for a segment — not a second keyword source of truth."""
+
+    __tablename__ = "segment_llm_profiles"
+    __table_args__ = (
+        UniqueConstraint("segment_id", "locale", name="uq_segment_llm_profiles_segment_locale"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    segment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("segments.id", ondelete="CASCADE"), nullable=False
+    )
+    locale: Mapped[str] = mapped_column(String(10), nullable=False, server_default="ru")
+    target_lead: Mapped[str] = mapped_column(Text, nullable=False)
+    accept_examples: Mapped[list] = mapped_column(JSONB, nullable=False)
+    reject_examples: Mapped[list] = mapped_column(JSONB, nullable=False)
+    conflict_slugs: Mapped[list] = mapped_column(JSONB, nullable=False)
+    requires_llm: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    # Admin-only working copy — worker/runtime ignores this column.
+    draft_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    segment: Mapped["Segment"] = relationship(back_populates="llm_profiles")
+    audits: Mapped[list["SegmentLLMProfileAudit"]] = relationship(
+        back_populates="profile", cascade="all, delete-orphan"
+    )
+
+
+class SegmentLLMProfileAudit(Base):
+    """Append-only admin audit for segment LLM profile changes."""
+
+    __tablename__ = "segment_llm_profile_audits"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    profile_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("segment_llm_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    segment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("segments.id", ondelete="CASCADE"), nullable=False
+    )
+    segment_slug: Mapped[str] = mapped_column(String(50), nullable=False)
+    admin_user: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    before_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    after_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    version_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    profile: Mapped["SegmentLLMProfile"] = relationship(back_populates="audits")
 
 
 # ── segment_keywords ──

@@ -9,6 +9,10 @@
 - LLM-вердикты и precision по feedback — из сохранённых решений;
 - шаблон таблицы ручной разметки 100 unmatched-сообщений (кандидаты в FN).
 
+Segment-aware LLM profiles (Phase 9): offline golden corpus eval is separate —
+  venv/bin/python tools/eval_segment_profiles.py
+  → docs/eval/segment_profiles_ru_baseline.md
+
 Правило процесса: любые изменения правил классификатора или LLM-промпта
 сопровождаются прогоном этого скрипта; отчёты — docs/eval/report_YYYY-MM-DD.md.
 

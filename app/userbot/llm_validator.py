@@ -18,27 +18,87 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
 import aiohttp
 
 from app.config import settings
 
+from app.userbot.llm_prompt import (
+    SYSTEM_PROMPT_VERSION as LLM_PROMPT_V2_VERSION,
+    build_segment_aware_prompt,
+    build_untrusted_batch_user_message,
+)
+from app.userbot.llm_profiles import (
+    SegmentLLMProfile,
+    get_profile_snapshot,
+    select_candidate_profiles,
+)
+from app.userbot.llm_response import (
+    CommercialIntent,
+    LLMDecision,
+    ParsedSegmentMessage,
+    SegmentVerdict,
+    parse_segment_aware_message,
+    to_legacy_llm_result,
+)
+
 logger = logging.getLogger(__name__)
 
 
-def _llm_cache_key(text: str) -> str:
-    """B5: ключ кэша вердиктов — sha256 нормализованного текста БЕЗ чата.
+def normalize_llm_cache_text(text: str) -> str:
+    """Normalize message text for cache keys (shared by v1 and v2)."""
+    return " ".join((text or "")[:500].lower().split())
 
-    Нормализация как в compute_content_hash (lower, схлоп пробелов, 500 симв.),
-    но без chat_username: репост одного объявления в N чатов должен попадать
-    в один ключ. Классификация детерминирована по тексту → одинаковый текст
-    даёт одинаковые rule_segments, кэшировать вердикт безопасно.
+
+def _llm_cache_key(text: str) -> str:
+    """B5 v1: sha256(normalized text) — namespace llm:verdict:...
+
+    Kept for the current hot-path until Phase 8 switches delivery to v2.
+    Do NOT read this namespace as v2.
     """
     import hashlib
 
-    normalized = " ".join((text or "")[:500].lower().split())
-    return f"llm:verdict:{hashlib.sha256(normalized.encode()).hexdigest()}"
+    digest = hashlib.sha256(normalize_llm_cache_text(text).encode()).hexdigest()
+    return f"llm:verdict:{digest}"
+
+
+def build_llm_cache_key(
+    *,
+    text: str,
+    candidate_segments: tuple[str, ...],
+    lead_directions: Mapping[str, str],
+    profile_versions: Mapping[str, int],
+    prompt_version: int,
+    schema_version: int,
+    model_name: str,
+) -> str:
+    """v2 cache key: text + candidates + directions + profile/prompt/schema/model.
+
+    Namespace: llm:v2:verdict:{sha256}. Deterministic JSON (sorted keys).
+    Raw message text is never placed in the Redis key.
+    """
+    import hashlib
+
+    candidates = []
+    for slug in sorted(set(candidate_segments)):
+        candidates.append(
+            {
+                "slug": slug,
+                "lead_direction": lead_directions.get(slug, "demand"),
+                "profile_version": int(profile_versions.get(slug, 0)),
+            }
+        )
+    payload = {
+        "candidates": candidates,
+        "model": model_name,
+        "prompt_version": int(prompt_version),
+        "schema_version": int(schema_version),
+        "text": normalize_llm_cache_text(text),
+    }
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    return f"llm:v2:verdict:{digest}"
 
 
 _CACHE_TTL = 86400  # 24ч — как окно контентного дедупа доставки
@@ -131,6 +191,69 @@ async def _record_llm_stats(results: "list[LLMResult]") -> None:
         await pipe.execute()
     except Exception:
         logger.warning("LLM stats recording failed", exc_info=True)
+
+
+def _llm_v2_hour() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+
+
+async def _incr_llm_v2_stat(suffix: str, amount: int = 1) -> None:
+    """Increment bounded-cardinality llm_v2 Redis counter (TTL 48h)."""
+    if amount <= 0:
+        return
+    hour = _llm_v2_hour()
+    key = f"stats:llm_v2:{suffix}:{hour}"
+    try:
+        from app.cache import get_redis
+
+        redis = await get_redis()
+        pipe = redis.pipeline()
+        pipe.incrby(key, amount)
+        pipe.expire(key, 172800)
+        await pipe.execute()
+    except Exception:
+        logger.warning("LLM v2 stats recording failed", exc_info=True)
+
+
+def _legacy_accepts_delivery(result: "LLMResult") -> bool:
+    """True when legacy should_block would NOT block this result."""
+    if result.verdict in ("DEMAND", "MIXED"):
+        return True
+    return result.certainty != "high"
+
+
+async def _record_llm_v2_message_metrics(
+    *,
+    parsed: ParsedSegmentMessage,
+    legacy: "LLMResult",
+    v2_legacy: "LLMResult",
+    profile_missing: int,
+) -> None:
+    """Per-message v2 metrics (no raw text / free-form reason cardinality)."""
+    await _incr_llm_v2_stat("total")
+    if profile_missing:
+        await _incr_llm_v2_stat("profile_missing", profile_missing)
+    if parsed.malformed or parsed.fail_open_segments or v2_legacy.error:
+        await _incr_llm_v2_stat("fail_open")
+
+    for verdict in parsed.verdicts:
+        intent = verdict.intent.value
+        await _incr_llm_v2_stat(f"intent:{intent}")
+        if verdict.decision is LLMDecision.ACCEPT:
+            await _incr_llm_v2_stat("accept")
+            await _incr_llm_v2_stat(f"segment:{verdict.segment_slug}:accept")
+        else:
+            await _incr_llm_v2_stat("reject")
+            await _incr_llm_v2_stat(f"segment:{verdict.segment_slug}:reject")
+
+    old_ok = _legacy_accepts_delivery(legacy)
+    new_ok = _legacy_accepts_delivery(v2_legacy)
+    if old_ok and not new_ok:
+        await _incr_llm_v2_stat("disagreement_old_accept_new_reject")
+    elif not old_ok and new_ok:
+        await _incr_llm_v2_stat("disagreement_old_reject_new_accept")
 
 # ═══════════════════════════════════════════════════════════════
 # Prompt — compact, tested at 92.5% accuracy (batch-adapted)
@@ -272,12 +395,77 @@ _HIGH_CONFIDENCE_DEMAND_LEAD = re.compile(
 # If message starts with demand verb AND is short (< 200 chars), skip LLM
 HIGH_CONFIDENCE_MAX_LENGTH = 200
 
+_VACANCY_MARKERS = re.compile(
+    r'(?iu)(?<!\w)(вакансия|зарплата|график|смена|в\s+штат)(?!\w)',
+)
+_JOB_SEARCH_MARKERS = re.compile(
+    r'(?iu)(?<!\w)(ищу\s+работу|возьму\s+заказы)(?!\w)',
+)
+_SOCIAL_MARKERS = re.compile(
+    r'(?iu)(ищу\s+партн[её]ра|кто\s+хочет\s+поиграть|поиграть)',
+)
+_PROVIDER_MARKERS = re.compile(
+    r'(?iu)(?<!\w)(предлагаю|оказываю\s+услуги|открыта\s+запись|набираю\s+клиентов)(?!\w)',
+)
+_SELL_MARKERS = re.compile(r'(?iu)(?<!\w)(продам|продаю)(?!\w)')
+_BUY_MARKERS = re.compile(r'(?iu)(?<!\w)(куплю|покупаю)(?!\w)')
+
+
+def _strip_leading_noise(text: str) -> str:
+    """Drop leading emoji/punctuation so verb gates still see Cyrillic leads."""
+    cleaned = (text or "").strip()
+    while cleaned and not (cleaned[0].isalnum() or cleaned[0] in "«\"'("):
+        cleaned = cleaned[1:].lstrip()
+    return cleaned
+
 
 def is_high_confidence_demand(text: str) -> bool:
-    """Check if message is an obvious demand that doesn't need LLM validation."""
+    """Surface shape check only — must also pass may_bypass_llm to skip LLM."""
     if len(text) > HIGH_CONFIDENCE_MAX_LENGTH:
         return False
-    return bool(_HIGH_CONFIDENCE_DEMAND_LEAD.match(text.strip()))
+    return bool(_HIGH_CONFIDENCE_DEMAND_LEAD.match(_strip_leading_noise(text)))
+
+
+def may_bypass_llm(
+    *,
+    text: str,
+    candidate_segments: tuple[str, ...],
+    profiles: Mapping[str, SegmentLLMProfile],
+    lead_directions: Mapping[str, str],
+) -> bool:
+    """Return True only when every candidate is proven safe to skip LLM.
+
+    v1 default profiles use requires_llm=True → bypass stays off until eval
+    justifies flipping the flag per segment.
+    """
+    candidates = tuple(dict.fromkeys(candidate_segments))
+    if not candidates:
+        return False
+
+    for slug in candidates:
+        profile = profiles.get(slug)
+        if profile is None or profile.requires_llm:
+            return False
+
+    body = _strip_leading_noise(text)
+    if _VACANCY_MARKERS.search(body):
+        return False
+    if _JOB_SEARCH_MARKERS.search(body):
+        return False
+    if _SOCIAL_MARKERS.search(body):
+        return False
+    if _PROVIDER_MARKERS.search(body):
+        return False
+
+    has_sell = bool(_SELL_MARKERS.search(body))
+    has_buy = bool(_BUY_MARKERS.search(body))
+    for slug in candidates:
+        direction = (lead_directions.get(slug) or "demand").lower()
+        if has_sell and direction != "supply":
+            return False
+        if has_buy and direction == "supply":
+            return False
+    return True
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -317,6 +505,78 @@ class LLMResult:
     completion_tokens: int = 0
     total_tokens: int = 0
     from_cache: bool = False  # B5: вердикт взят из кэша репостов, LLM не вызывалась
+    # Phase 8: correlate legacy vs segment-aware v2; from_v2 marks delivery source
+    correlation_id: str = ""
+    from_v2: bool = False
+
+
+FIRST_WAVE_BLOCKING_SEGMENTS: frozenset[str] = frozenset({
+    "cleaning",
+    "plumber",
+    "electrician",
+    "accountant",
+    "lawyer",
+})
+
+
+def merge_v2_blocking_result(
+    *,
+    candidate_segments: list[str],
+    legacy: LLMResult,
+    v2_legacy: LLMResult,
+    allowlist: frozenset[str],
+) -> LLMResult | None:
+    """Apply v2 delivery only for allowlisted segments (Phase 11).
+
+    Returns None → keep legacy delivery (shadow-only for this message).
+    Empty allowlist is fail-safe. ``*`` means all candidates are gated.
+    """
+    if not allowlist:
+        return None
+
+    candidates = list(dict.fromkeys(candidate_segments))
+    if "*" in allowlist:
+        gated = set(candidates)
+    else:
+        gated = {s for s in candidates if s in allowlist}
+    if not gated:
+        return None
+
+    ungated = [s for s in candidates if s not in gated]
+    v2_rel = set(v2_legacy.relevant_segments or [])
+    relevant = [s for s in candidates if (s in ungated) or (s in gated and s in v2_rel)]
+
+    if not relevant:
+        # All gated rejected and no ungated leftovers → full v2 block path.
+        out = LLMResult(
+            verdict=v2_legacy.verdict,
+            relevant_segments=[],
+            reason=v2_legacy.reason,
+            certainty=v2_legacy.certainty,
+            error=v2_legacy.error,
+            raw_response=v2_legacy.raw_response,
+            prompt_tokens=v2_legacy.prompt_tokens,
+            completion_tokens=v2_legacy.completion_tokens,
+            total_tokens=v2_legacy.total_tokens,
+            correlation_id=legacy.correlation_id or v2_legacy.correlation_id,
+            from_v2=True,
+        )
+        return out
+
+    out = LLMResult(
+        verdict="DEMAND",
+        relevant_segments=relevant,
+        reason=v2_legacy.reason or legacy.reason,
+        certainty=v2_legacy.certainty or legacy.certainty or "low",
+        error=v2_legacy.error,
+        raw_response=v2_legacy.raw_response,
+        prompt_tokens=v2_legacy.prompt_tokens,
+        completion_tokens=v2_legacy.completion_tokens,
+        total_tokens=v2_legacy.total_tokens,
+        correlation_id=legacy.correlation_id or v2_legacy.correlation_id,
+        from_v2=True,
+    )
+    return out
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -361,6 +621,9 @@ class LLMValidator:
         self._timeout = aiohttp.ClientTimeout(total=30)  # longer for batches
         self._system_prompt = LLM_SYSTEM_PROMPT
         self._supply_segments: frozenset[str] = DEFAULT_SUPPLY_SEGMENTS
+        self._lead_directions: dict[str, str] = {
+            slug: "supply" for slug in DEFAULT_SUPPLY_SEGMENTS
+        }
 
     def set_supply_segments(self, slugs: "set[str] | frozenset[str]") -> None:
         """Rebuild the cached system prompt from DB-driven supply segments.
@@ -373,6 +636,37 @@ class LLMValidator:
             self._supply_segments = slugs
             self._system_prompt = build_system_prompt(slugs)
             logger.info("LLM prompt rebuilt: supply segments = %s", sorted(slugs))
+        # Keep direction map in sync for bypass checks (buy/demand filled by
+        # set_lead_directions; supply always reflected here).
+        for slug in slugs:
+            self._lead_directions[slug] = "supply"
+
+    def set_lead_directions(self, directions: Mapping[str, str]) -> None:
+        """Full slug→lead_direction map from DB (demand/buy/supply)."""
+        self._lead_directions = {
+            str(slug): str(direction).lower()
+            for slug, direction in directions.items()
+        }
+
+    def build_prompt_v2(
+        self,
+        profiles: tuple,
+        *,
+        system_prompt_version: int = LLM_PROMPT_V2_VERSION,
+    ) -> str:
+        """Compose segment-aware prompt v2 (not used for delivery until Phase 8)."""
+        return build_segment_aware_prompt(
+            system_prompt_version=system_prompt_version,
+            supply_segments=self._supply_segments,
+            profiles=profiles,
+        )
+
+    @staticmethod
+    def build_user_message_v2(
+        items: list[tuple[int, str, list[str]]],
+    ) -> str:
+        """User-role payload with Telegram text marked UNTRUSTED_CONTENT."""
+        return build_untrusted_batch_user_message(items)
 
     @property
     def enabled(self) -> bool:
@@ -409,12 +703,28 @@ class LLMValidator:
                 for _ in matches
             ]
 
-        # Separate: high-confidence demands skip LLM entirely
+        # Separate: only proven-safe high-confidence demands skip LLM.
+        # keyword_only (Variant B) still skips unconditionally.
         results: list[LLMResult | None] = [None] * len(matches)
         needs_llm: list[tuple[int, PendingMatch]] = []
+        profiles = get_profile_snapshot()
 
         for i, m in enumerate(matches):
-            if m.skip_llm or is_high_confidence_demand(m.text):
+            if m.keyword_only:
+                results[i] = LLMResult(
+                    verdict="DEMAND",
+                    relevant_segments=m.candidate_segments,
+                    reason="Personal keyword — skipped LLM",
+                    certainty="high",
+                )
+                continue
+            shape_ok = m.skip_llm or is_high_confidence_demand(m.text)
+            if shape_ok and may_bypass_llm(
+                text=m.text,
+                candidate_segments=tuple(m.candidate_segments),
+                profiles=profiles,
+                lead_directions=self._lead_directions,
+            ):
                 results[i] = LLMResult(
                     verdict="DEMAND",
                     relevant_segments=m.candidate_segments,
@@ -425,7 +735,10 @@ class LLMValidator:
                 needs_llm.append((i, m))
 
         if not needs_llm:
-            return [r for r in results if r is not None]
+            filled = [r for r in results if r is not None]
+            if settings.llm_segment_profiles_enabled:
+                await self._apply_segment_profiles_v2(matches, filled)
+            return filled
 
         # B5: репосты одного объявления в N чатов — вердикт из кэша, без LLM
         cached = await _cache_get_verdicts(needs_llm)
@@ -456,7 +769,188 @@ class LLMValidator:
         # (skip_llm/high-confidence/кэш-хиты не разбавляют знаменатель алерта)
         await _record_llm_stats([results[i] for i, _ in to_llm])
 
-        return [r for r in results if r is not None]
+        filled = [r for r in results if r is not None]
+        if settings.llm_segment_profiles_enabled:
+            await self._apply_segment_profiles_v2(matches, filled)
+        return filled
+
+    async def _apply_segment_profiles_v2(
+        self,
+        matches: list[PendingMatch],
+        results: list[LLMResult],
+    ) -> None:
+        """Shadow or blocking overlay of segment-aware v2 (Phase 8).
+
+        enabled + blocking=false → metrics/log only, delivery stays legacy.
+        enabled + blocking=true → replace delivery result with v2 adapter.
+        Any v2 error keeps the legacy result unchanged.
+        """
+        import uuid
+
+        to_v2: list[tuple[int, PendingMatch]] = [
+            (i, m)
+            for i, m in enumerate(matches)
+            if not m.keyword_only and i < len(results)
+        ]
+        if not to_v2:
+            return
+
+        for i, _ in to_v2:
+            results[i].correlation_id = uuid.uuid4().hex
+
+        try:
+            raw_by_idx: dict[int, dict] = {}
+            for batch_start in range(0, len(to_v2), MAX_BATCH_SIZE):
+                batch = to_v2[batch_start:batch_start + MAX_BATCH_SIZE]
+                raw_by_idx.update(await self._call_llm_batch_v2(batch))
+        except Exception as exc:
+            logger.warning("LLM v2 batch failed: %s — keep legacy delivery", exc)
+            await _incr_llm_v2_stat("fail_open", len(to_v2))
+            await _incr_llm_v2_stat("total", len(to_v2))
+            return
+
+        profiles = get_profile_snapshot()
+        for i, match in to_v2:
+            legacy = results[i]
+            cid = legacy.correlation_id
+            raw = raw_by_idx.get(i)
+            missing = sum(1 for s in match.candidate_segments if s not in profiles)
+            if raw is None:
+                await _incr_llm_v2_stat("total")
+                await _incr_llm_v2_stat("fail_open")
+                if missing:
+                    await _incr_llm_v2_stat("profile_missing", missing)
+                continue
+
+            parsed = parse_segment_aware_message(
+                raw,
+                expected_index=i,
+                candidate_segments=match.candidate_segments,
+            )
+            v2_legacy = to_legacy_llm_result(
+                candidate_segments=match.candidate_segments,
+                verdicts=parsed.verdicts,
+                fail_open_segments=parsed.fail_open_segments,
+                malformed=parsed.malformed,
+            )
+            v2_legacy.correlation_id = cid
+            v2_legacy.raw_response = json.dumps(raw, ensure_ascii=False)[:2000]
+            await _record_llm_v2_message_metrics(
+                parsed=parsed,
+                legacy=legacy,
+                v2_legacy=v2_legacy,
+                profile_missing=missing,
+            )
+            if settings.llm_segment_profiles_blocking:
+                merged = merge_v2_blocking_result(
+                    candidate_segments=match.candidate_segments,
+                    legacy=legacy,
+                    v2_legacy=v2_legacy,
+                    allowlist=settings.blocking_segment_allowlist(),
+                )
+                if merged is not None:
+                    results[i] = merged
+                elif not settings.blocking_segment_allowlist():
+                    logger.debug(
+                        "LLM v2 blocking on but allowlist empty — shadow only "
+                        "(set LLM_SEGMENT_PROFILES_BLOCKING_SEGMENTS)",
+                    )
+    async def _call_llm_batch_v2(
+        self, items: list[tuple[int, PendingMatch]],
+    ) -> dict[int, dict]:
+        """Call DeepSeek with segment-aware prompt; return orig_idx → raw object."""
+        profiles_map = get_profile_snapshot()
+        selected: list[SegmentLLMProfile] = []
+        seen: set[str] = set()
+        for _, match in items:
+            for profile in select_candidate_profiles(
+                match.candidate_segments, profiles_map,
+            ):
+                if profile.segment_slug in seen:
+                    continue
+                seen.add(profile.segment_slug)
+                selected.append(profile)
+
+        system_prompt = self.build_prompt_v2(
+            tuple(selected),
+            system_prompt_version=settings.llm_prompt_version,
+        )
+        user_items = [
+            (orig_idx, sanitize_text(match.text), match.candidate_segments)
+            for orig_idx, match in items
+        ]
+        user_message = self.build_user_message_v2(user_items)
+
+        async with aiohttp.ClientSession() as session:
+            payload = {
+                "model": settings.deepseek_model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                "temperature": 0.0,
+                "max_tokens": BATCH_MAX_TOKENS,
+            }
+            headers = {
+                "Authorization": f"Bearer {settings.deepseek_api_key}",
+                "Content-Type": "application/json",
+            }
+            t0 = time.monotonic()
+            async with session.post(
+                self._endpoint, json=payload, headers=headers,
+                timeout=self._timeout,
+            ) as resp:
+                elapsed = time.monotonic() - t0
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.warning(
+                        "LLM v2 batch API error %d (%.1fs): %s",
+                        resp.status, elapsed, body[:200],
+                    )
+                    raise RuntimeError(f"HTTP {resp.status}")
+
+                data = await resp.json()
+                content = data["choices"][0]["message"]["content"]
+                try:
+                    cleaned = content.strip()
+                    if cleaned.startswith("```"):
+                        first_nl = cleaned.find("\n")
+                        if first_nl != -1:
+                            cleaned = cleaned[first_nl + 1:]
+                        if cleaned.rstrip().endswith("```"):
+                            cleaned = cleaned.rstrip()[:-3]
+                    if cleaned.count("[") > cleaned.count("]"):
+                        cleaned = cleaned.rstrip() + "]" * (
+                            cleaned.count("[") - cleaned.count("]")
+                        )
+                    parsed = json.loads(cleaned)
+                except json.JSONDecodeError as exc:
+                    logger.warning(
+                        "LLM v2 batch JSON parse failed: %s", content[:300],
+                    )
+                    raise RuntimeError("JSON parse error") from exc
+
+                if isinstance(parsed, dict):
+                    parsed_list = [parsed]
+                elif isinstance(parsed, list):
+                    parsed_list = parsed
+                else:
+                    raise RuntimeError("Response not JSON array/object")
+
+                results: dict[int, dict] = {}
+                for obj in parsed_list:
+                    if not isinstance(obj, dict):
+                        continue
+                    idx = obj.get("index")
+                    if not isinstance(idx, int):
+                        continue
+                    results[idx] = obj
+
+                logger.debug(
+                    "LLM v2 batch: %d/%d msgs (%.1fs)",
+                    len(results), len(items), elapsed,
+                )
+                return results
 
     async def _call_llm_batch(
         self, items: list[tuple[int, PendingMatch]],

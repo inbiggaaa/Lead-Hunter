@@ -11,6 +11,8 @@ from app.db.models import (
     City,
     Segment,
     SegmentKeyword,
+    SegmentLLMProfile,
+    SegmentLLMProfileAudit,
 )
 
 # ── Users ──
@@ -331,3 +333,451 @@ def countries_within_limit(plan: str, existing_country_ids, new_country_id: int)
     При утверждённых числах v2 обычно подчинён лимиту подписок (стран = сегментов),
     но защищает при их будущей смене через .env."""
     return len(set(existing_country_ids) | {new_country_id}) <= get_max_countries(plan)
+
+
+# ── Segment LLM profiles ──
+
+import re
+from typing import Any
+
+PROFILE_TARGET_LEAD_MAX = 500
+PROFILE_EXAMPLE_MAX = 280
+PROFILE_MAX_ACCEPT = 8
+PROFILE_MAX_REJECT = 8
+PROFILE_MAX_CONFLICTS = 15
+PROFILE_REASON_MAX = 300
+
+_INJECTION_RE = re.compile(
+    r"(?is)(^\s*system\s*:|ignore\s+(all\s+)?(previous|prior)\s+instructions|"
+    r"<\s*/?\s*system\s*>|role\s*=\s*[\"']system|"
+    r"you\s+are\s+now\s+|\[\s*system\s*\])"
+)
+
+
+class SegmentLLMProfileValidationError(ValueError):
+    """Invalid segment LLM profile payload (CRUD gate before flush)."""
+
+
+def _normalize_profile_locale(locale: str) -> str:
+    normalized = (locale or "").strip().lower()
+    if not normalized or len(normalized) > 10:
+        raise SegmentLLMProfileValidationError("locale must be 1–10 chars")
+    return normalized
+
+
+def _reject_injection(field: str, text: str) -> None:
+    if _INJECTION_RE.search(text):
+        raise SegmentLLMProfileValidationError(
+            f"{field}: looks like prompt-injection / system instruction text"
+        )
+
+
+def _clean_profile_text(field: str, text: str, *, max_len: int) -> str:
+    cleaned = " ".join((text or "").replace("\x00", " ").split())
+    if not cleaned:
+        raise SegmentLLMProfileValidationError(f"{field} items must be non-empty")
+    if len(cleaned) > max_len:
+        raise SegmentLLMProfileValidationError(
+            f"{field} item exceeds {max_len} chars"
+        )
+    _reject_injection(field, cleaned)
+    return cleaned
+
+
+def _validate_profile_string_list(
+    field: str,
+    value: object,
+    *,
+    max_items: int,
+    max_len: int = PROFILE_EXAMPLE_MAX,
+) -> list[str]:
+    if not isinstance(value, list):
+        raise SegmentLLMProfileValidationError(f"{field} must be a list of strings")
+    if len(value) > max_items:
+        raise SegmentLLMProfileValidationError(
+            f"{field} must have at most {max_items} items"
+        )
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            raise SegmentLLMProfileValidationError(f"{field} items must be strings")
+        text = _clean_profile_text(field, item, max_len=max_len)
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(text)
+    return cleaned
+
+
+def _validate_target_lead(target_lead: str) -> str:
+    text = _clean_profile_text(
+        "target_lead", target_lead, max_len=PROFILE_TARGET_LEAD_MAX
+    )
+    return text
+
+
+def _validate_profile_version(version: int) -> int:
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        raise SegmentLLMProfileValidationError("version must be a positive integer")
+    return version
+
+
+def _validate_reason(reason: str) -> str:
+    text = " ".join((reason or "").split())
+    if len(text) > PROFILE_REASON_MAX:
+        raise SegmentLLMProfileValidationError(
+            f"reason exceeds {PROFILE_REASON_MAX} chars"
+        )
+    if text:
+        _reject_injection("reason", text)
+    return text
+
+
+def profile_to_payload(profile: SegmentLLMProfile) -> dict[str, Any]:
+    """Published fields only (no draft)."""
+    return {
+        "target_lead": profile.target_lead,
+        "accept_examples": list(profile.accept_examples or []),
+        "reject_examples": list(profile.reject_examples or []),
+        "conflict_slugs": list(profile.conflict_slugs or []),
+        "requires_llm": bool(profile.requires_llm),
+        "version": int(profile.version),
+        "locale": profile.locale,
+    }
+
+
+def normalize_profile_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize an admin-submitted profile body."""
+    return {
+        "target_lead": _validate_target_lead(str(data.get("target_lead") or "")),
+        "accept_examples": _validate_profile_string_list(
+            "accept_examples",
+            data.get("accept_examples") or [],
+            max_items=PROFILE_MAX_ACCEPT,
+        ),
+        "reject_examples": _validate_profile_string_list(
+            "reject_examples",
+            data.get("reject_examples") or [],
+            max_items=PROFILE_MAX_REJECT,
+        ),
+        "conflict_slugs": _validate_profile_string_list(
+            "conflict_slugs",
+            data.get("conflict_slugs") or [],
+            max_items=PROFILE_MAX_CONFLICTS,
+            max_len=50,
+        ),
+        "requires_llm": bool(data.get("requires_llm", True)),
+    }
+
+
+def profile_diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    """Field-level diff for admin UI (ignores version)."""
+    keys = (
+        "target_lead",
+        "accept_examples",
+        "reject_examples",
+        "conflict_slugs",
+        "requires_llm",
+    )
+    changed: dict[str, Any] = {}
+    for key in keys:
+        if before.get(key) != after.get(key):
+            changed[key] = {"before": before.get(key), "after": after.get(key)}
+    return changed
+
+
+async def get_segment_llm_profile(
+    session: AsyncSession,
+    *,
+    segment_id: int,
+    locale: str = "ru",
+) -> SegmentLLMProfile | None:
+    locale = _normalize_profile_locale(locale)
+    result = await session.execute(
+        select(SegmentLLMProfile).where(
+            SegmentLLMProfile.segment_id == segment_id,
+            SegmentLLMProfile.locale == locale,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_active_segment_llm_profiles(
+    session: AsyncSession,
+    *,
+    locale: str = "ru",
+) -> list[tuple[str, SegmentLLMProfile]]:
+    """Return (segment_slug, profile_row) for active segments only."""
+    locale = _normalize_profile_locale(locale)
+    result = await session.execute(
+        select(Segment.slug, SegmentLLMProfile)
+        .join(Segment, Segment.id == SegmentLLMProfile.segment_id)
+        .where(
+            Segment.is_active.is_(True),
+            SegmentLLMProfile.locale == locale,
+        )
+    )
+    return [(slug, row) for slug, row in result.all()]
+
+
+async def create_segment_llm_profile(
+    session: AsyncSession,
+    *,
+    segment_id: int,
+    target_lead: str,
+    accept_examples: list[str],
+    reject_examples: list[str],
+    conflict_slugs: list[str],
+    locale: str = "ru",
+    requires_llm: bool = True,
+    version: int = 1,
+) -> SegmentLLMProfile:
+    payload = normalize_profile_payload(
+        {
+            "target_lead": target_lead,
+            "accept_examples": accept_examples,
+            "reject_examples": reject_examples,
+            "conflict_slugs": conflict_slugs,
+            "requires_llm": requires_llm,
+        }
+    )
+    profile = SegmentLLMProfile(
+        segment_id=segment_id,
+        locale=_normalize_profile_locale(locale),
+        target_lead=payload["target_lead"],
+        accept_examples=payload["accept_examples"],
+        reject_examples=payload["reject_examples"],
+        conflict_slugs=payload["conflict_slugs"],
+        requires_llm=payload["requires_llm"],
+        version=_validate_profile_version(version),
+    )
+    session.add(profile)
+    await session.flush()
+    return profile
+
+
+async def update_segment_llm_profile(
+    session: AsyncSession,
+    *,
+    profile_id: int,
+    target_lead: str,
+    accept_examples: list[str],
+    reject_examples: list[str],
+    conflict_slugs: list[str],
+    requires_llm: bool | None = None,
+) -> SegmentLLMProfile:
+    result = await session.execute(
+        select(SegmentLLMProfile).where(SegmentLLMProfile.id == profile_id)
+    )
+    profile = result.scalar_one()
+    payload = normalize_profile_payload(
+        {
+            "target_lead": target_lead,
+            "accept_examples": accept_examples,
+            "reject_examples": reject_examples,
+            "conflict_slugs": conflict_slugs,
+            "requires_llm": (
+                profile.requires_llm if requires_llm is None else requires_llm
+            ),
+        }
+    )
+    profile.target_lead = payload["target_lead"]
+    profile.accept_examples = payload["accept_examples"]
+    profile.reject_examples = payload["reject_examples"]
+    profile.conflict_slugs = payload["conflict_slugs"]
+    profile.requires_llm = payload["requires_llm"]
+    profile.version = profile.version + 1
+    await session.flush()
+    return profile
+
+
+async def save_segment_llm_profile_draft(
+    session: AsyncSession,
+    *,
+    profile: SegmentLLMProfile,
+    payload: dict[str, Any],
+    admin_user: str,
+    segment_slug: str,
+    reason: str = "",
+) -> SegmentLLMProfile:
+    """Store draft only — does not change published columns or version."""
+    normalized = normalize_profile_payload(payload)
+    before = {"draft": profile.draft_payload, "published": profile_to_payload(profile)}
+    profile.draft_payload = normalized
+    await _add_profile_audit(
+        session,
+        profile=profile,
+        segment_slug=segment_slug,
+        admin_user=admin_user,
+        action="draft_save",
+        before_json=before,
+        after_json={"draft": normalized},
+        reason=reason,
+        version_after=profile.version,
+    )
+    await session.flush()
+    return profile
+
+
+async def publish_segment_llm_profile(
+    session: AsyncSession,
+    *,
+    profile: SegmentLLMProfile,
+    admin_user: str,
+    segment_slug: str,
+    reason: str,
+    payload: dict[str, Any] | None = None,
+) -> SegmentLLMProfile:
+    """Apply draft (or explicit payload) to published columns and bump version."""
+    source = payload if payload is not None else profile.draft_payload
+    if not source:
+        raise SegmentLLMProfileValidationError("nothing to publish: draft is empty")
+    normalized = normalize_profile_payload(source)
+    before = profile_to_payload(profile)
+    profile.target_lead = normalized["target_lead"]
+    profile.accept_examples = normalized["accept_examples"]
+    profile.reject_examples = normalized["reject_examples"]
+    profile.conflict_slugs = normalized["conflict_slugs"]
+    profile.requires_llm = normalized["requires_llm"]
+    profile.version = profile.version + 1
+    profile.draft_payload = None
+    await _add_profile_audit(
+        session,
+        profile=profile,
+        segment_slug=segment_slug,
+        admin_user=admin_user,
+        action="publish",
+        before_json=before,
+        after_json=profile_to_payload(profile),
+        reason=reason,
+        version_after=profile.version,
+    )
+    await session.flush()
+    return profile
+
+
+async def rollback_segment_llm_profile(
+    session: AsyncSession,
+    *,
+    profile: SegmentLLMProfile,
+    admin_user: str,
+    segment_slug: str,
+    reason: str,
+    audit_id: int | None = None,
+) -> SegmentLLMProfile:
+    """Restore published fields from a prior publish audit `before_json`."""
+    if audit_id is not None:
+        result = await session.execute(
+            select(SegmentLLMProfileAudit).where(
+                SegmentLLMProfileAudit.id == audit_id,
+                SegmentLLMProfileAudit.profile_id == profile.id,
+            )
+        )
+    else:
+        result = await session.execute(
+            select(SegmentLLMProfileAudit)
+            .where(
+                SegmentLLMProfileAudit.profile_id == profile.id,
+                SegmentLLMProfileAudit.action == "publish",
+            )
+            .order_by(SegmentLLMProfileAudit.id.desc())
+            .limit(1)
+        )
+    audit = result.scalar_one_or_none()
+    if audit is None or not audit.before_json:
+        raise SegmentLLMProfileValidationError("no rollback snapshot available")
+    restore = audit.before_json
+    if "target_lead" not in restore and "published" in restore:
+        restore = restore["published"]
+    if "target_lead" not in restore:
+        raise SegmentLLMProfileValidationError(
+            "rollback snapshot missing published fields"
+        )
+    normalized = normalize_profile_payload(restore)
+    before = profile_to_payload(profile)
+    profile.target_lead = normalized["target_lead"]
+    profile.accept_examples = normalized["accept_examples"]
+    profile.reject_examples = normalized["reject_examples"]
+    profile.conflict_slugs = normalized["conflict_slugs"]
+    profile.requires_llm = normalized["requires_llm"]
+    profile.version = profile.version + 1
+    profile.draft_payload = None
+    await _add_profile_audit(
+        session,
+        profile=profile,
+        segment_slug=segment_slug,
+        admin_user=admin_user,
+        action="rollback",
+        before_json=before,
+        after_json=profile_to_payload(profile),
+        reason=reason,
+        version_after=profile.version,
+    )
+    await session.flush()
+    return profile
+
+
+async def list_segment_llm_profile_audits(
+    session: AsyncSession,
+    *,
+    profile_id: int,
+    limit: int = 20,
+) -> list[SegmentLLMProfileAudit]:
+    result = await session.execute(
+        select(SegmentLLMProfileAudit)
+        .where(SegmentLLMProfileAudit.profile_id == profile_id)
+        .order_by(SegmentLLMProfileAudit.id.desc())
+        .limit(max(1, min(limit, 100)))
+    )
+    return list(result.scalars().all())
+
+
+async def _add_profile_audit(
+    session: AsyncSession,
+    *,
+    profile: SegmentLLMProfile,
+    segment_slug: str,
+    admin_user: str,
+    action: str,
+    before_json: dict[str, Any] | None,
+    after_json: dict[str, Any] | None,
+    reason: str,
+    version_after: int,
+) -> SegmentLLMProfileAudit:
+    row = SegmentLLMProfileAudit(
+        profile_id=profile.id,
+        segment_id=profile.segment_id,
+        segment_slug=segment_slug,
+        admin_user=(admin_user or "admin")[:64],
+        action=action[:20],
+        before_json=before_json,
+        after_json=after_json,
+        reason=_validate_reason(reason),
+        version_after=version_after,
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def record_profile_create_audit(
+    session: AsyncSession,
+    *,
+    profile: SegmentLLMProfile,
+    segment_slug: str,
+    admin_user: str,
+    reason: str = "create",
+) -> SegmentLLMProfileAudit:
+    return await _add_profile_audit(
+        session,
+        profile=profile,
+        segment_slug=segment_slug,
+        admin_user=admin_user,
+        action="create",
+        before_json=None,
+        after_json=profile_to_payload(profile),
+        reason=reason,
+        version_after=profile.version,
+    )
