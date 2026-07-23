@@ -86,7 +86,7 @@ TEXTS = {
     "plan_card_business": (
         "🏆 Business — ${price}/mo\n"
         "For a team or agency with broad coverage\n"
-        "• up to 12 services · 9 countries · unlimited cities\n"
+        "• unlimited services · 20 countries · unlimited cities\n"
         "• 50 keywords · 50 custom channels · CSV export · full statistics"
     ),
     "plan_discounts": "Save more: 3 months −10% · year −20%",

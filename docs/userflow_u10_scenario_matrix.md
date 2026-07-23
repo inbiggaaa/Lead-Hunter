@@ -28,7 +28,7 @@ Checkpoint перед U10: `2fa3968`
 | Trial ending | Trial, expiry через 2/1 день | reminder → планы → период → способ оплаты | назад до plan; invoice failure/expiry | ☐ | ☐ | AUTO + STAGING |
 | Start | активный Start | меню → поиски → lead с контактами → renewal | лимит второго направления/страны/города; пустая статистика; cancel input | ☐ | ☐ | AUTO + STAGING |
 | Pro | активный Pro | 3 направления/3 страны/9 городов → stats → renewal | 10-й distinct-город; CSV paywall; пустые stats | ☐ | ☐ | AUTO + STAGING |
-| Business | активный Business | 12 направлений/9 стран → stats → CSV → renewal | превышение страны/направления; пустой CSV | ☐ | ☐ | AUTO + STAGING |
+| Business | активный Business | безлимит направлений / 20 стран → stats → CSV → renewal | превышение страны; пустой CSV | ☐ | ☐ | AUTO + STAGING |
 | Paid in grace | expiry достигнут | точный downgrade в Free → новые leads без контактов | старый callback; повторный scheduler run; кэш после downgrade | ☐ | ☐ | AUTO + STAGING |
 | Former paid | Free после expiry, lifecycle day 30 | one-time 25%/3m offer → тариф → оплата | offer expired/redeemed; повторный scheduler run | ☐ | ☐ | AUTO + STAGING |
 | Payment failed/expired | invoice failed или expired | retry → другой способ → назад → успешная активация | provider unavailable; повторный webhook; неверный payload | ☐ | ☐ | AUTO + STAGING |

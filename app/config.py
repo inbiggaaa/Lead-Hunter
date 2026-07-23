@@ -139,7 +139,7 @@ class Settings(BaseSettings):
     max_segments_free: int = 1
     max_segments_start: int = 1
     max_segments_pro: int = 3
-    max_segments_business: int = 12
+    max_segments_business: int = 9999  # #89: безлимит направлений (UI sentinel)
     max_channels_free: int = 1
     max_channels_start: int = 1
     max_channels_pro: int = 10
@@ -148,14 +148,14 @@ class Settings(BaseSettings):
     max_keywords_start: int = 3
     max_keywords_pro: int = 20
     max_keywords_business: int = 50
-    # Гео-лимиты: Free/Start — одна страна и один город; Pro — до 3 стран
-    # и 9 distinct-городов суммарно; Business/Trial — до 9 стран, города без лимита.
+    # Гео-лимиты: Free/Start — одна страна; Pro — до 3 стран; Business — до 20 стран (#89).
+    # Города без лимита на всех тарифах (runtime cities sentinel = 9999).
     max_cities_free: int = 1
     max_countries_start: int = 1
     max_cities_start: int = 1
     max_countries_pro: int = 3
     max_cities_pro: int = 9
-    max_countries_business: int = 9
+    max_countries_business: int = 20
     # Deprecated env compatibility; runtime matrix does not read these fields.
     business_hidden_cap_channels: int = 60
     business_hidden_cap_keywords: int = 60
