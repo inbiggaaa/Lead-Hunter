@@ -588,20 +588,81 @@ class LLMDecision(Base):
 # ── feedback ──
 
 class Feedback(Base):
-    """User feedback on notifications — gold labels for fine-tune."""
+    """Closed matching feedback: immutable delivery snapshot + current label."""
+
     __tablename__ = "feedback"
+    __table_args__ = (
+        Index("idx_feedback_chat_msg", "chat_username", "message_id"),
+        UniqueConstraint("public_token", name="uq_feedback_public_token"),
+        UniqueConstraint(
+            "test_batch",
+            "user_id",
+            "chat_username",
+            "message_id",
+            name="uq_feedback_batch_user_chat_msg",
+        ),
+        CheckConstraint(
+            "verdict IS NULL OR verdict IN ('correct', 'error', 'uncertain')",
+            name="ck_feedback_verdict",
+        ),
+        CheckConstraint(
+            "reason_code IS NULL OR reason_code IN ("
+            "'wrong_category', 'provider_offer', 'job_vacancy', 'job_search', "
+            "'social_request', 'discussion_news', 'wrong_geography', "
+            "'duplicate', 'other')",
+            name="ck_feedback_reason_code",
+        ),
+        CheckConstraint(
+            "("
+            "  (verdict = 'error' AND reason_code IS NOT NULL)"
+            "  OR (verdict IS DISTINCT FROM 'error' AND reason_code IS NULL)"
+            "  OR verdict IS NULL"
+            ")",
+            name="ck_feedback_verdict_reason",
+        ),
+        CheckConstraint(
+            "NOT (expected_segment_id IS NOT NULL AND expected_segment_missing)",
+            name="ck_feedback_expected_conflict",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    public_token: Mapped[str] = mapped_column(String(32), nullable=False)
+    test_batch: Mapped[str] = mapped_column(String(64), nullable=False)
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     chat_username: Mapped[str] = mapped_column(String(64), nullable=False)
     message_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    verdict: Mapped[str] = mapped_column(String(15), nullable=False)
+    message_hash: Mapped[str | None] = mapped_column(String(64))
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    message_text_masked: Mapped[str | None] = mapped_column(Text)
+    delivered_segments: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    rule_segments: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    reality_segments: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    legacy_llm_verdict: Mapped[str | None] = mapped_column(String(20))
+    legacy_llm_segments: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    v2_intent: Mapped[str | None] = mapped_column(String(40))
+    v2_segment_verdicts: Mapped[dict | None] = mapped_column(JSONB)
+    model_name: Mapped[str | None] = mapped_column(String(64))
+    prompt_version: Mapped[int | None] = mapped_column(Integer)
+    schema_version: Mapped[int | None] = mapped_column(Integer)
+    profile_versions: Mapped[dict | None] = mapped_column(JSONB)
+    # Current label (nullable until rated)
+    verdict: Mapped[str | None] = mapped_column(String(15))
+    reason_code: Mapped[str | None] = mapped_column(String(32))
+    confirmed_segments: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    expected_segment_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("segments.id", ondelete="SET NULL")
+    )
+    expected_segment_slug: Mapped[str | None] = mapped_column(String(50))
+    expected_segment_missing: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-
-    __table_args__ = (
-        Index("idx_feedback_chat_msg", "chat_username", "message_id"),
+    rated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
