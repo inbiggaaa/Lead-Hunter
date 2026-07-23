@@ -876,8 +876,7 @@ class ChannelPoller:
         """Segments that may reach users after quarantine (+ optional v2 filter).
 
         When segment-profile blocking is on and the verdict came from v2,
-        intersect candidates with ``relevant_segments`` so per-segment rejects
-        do not still dispatch every classifier hit.
+        use ``relevant_segments`` (already allowlist-merged in the validator).
         """
         active = [
             s for s in match.candidate_segments

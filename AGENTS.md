@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Фазы 1–10 segment-aware LLM на `feature/segment-llm-profiles` (не в prod).** Фаза 10: admin CRUD LLM-профилей — draft/publish/rollback + audit table `segment_llm_profile_audits`, migration `segment_profile_audit01`, API `/api/segments/{id}/llm-profile*`, UI вкладка в Categories. Preview offline. Prod migration/worker не применялись. Следующее: Фаза 11 staged enable (shadow → blocking 3–5 сегментов).
+Статус: **Фазы 1–11 (код) segment-aware LLM на `feature/segment-llm-profiles` — prod НЕ включён.** Фаза 11: allowlist `LLM_SEGMENT_PROFILES_BLOCKING_SEGMENTS` (empty=fail-safe), first-wave cleaning/plumber/electrician/accountant/lawyer, runbook `docs/ops/segment_profiles_enablement_ru.md`, checker tool. Staging/prod shadow/blocking — только по отдельной команде владельца.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 

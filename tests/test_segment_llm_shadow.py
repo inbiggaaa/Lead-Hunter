@@ -109,6 +109,7 @@ async def test_blocking_applies_v2_result(monkeypatch):
     monkeypatch.setattr(settings, "deepseek_api_key", "k")
     monkeypatch.setattr(settings, "llm_segment_profiles_enabled", True)
     monkeypatch.setattr(settings, "llm_segment_profiles_blocking", True)
+    monkeypatch.setattr(settings, "llm_segment_profiles_blocking_segments", "tennis")
 
     redis = FakeRedis()
     validator = LLMValidator()
@@ -152,6 +153,7 @@ async def test_v2_error_keeps_legacy_delivery(monkeypatch):
     monkeypatch.setattr(settings, "deepseek_api_key", "k")
     monkeypatch.setattr(settings, "llm_segment_profiles_enabled", True)
     monkeypatch.setattr(settings, "llm_segment_profiles_blocking", True)
+    monkeypatch.setattr(settings, "llm_segment_profiles_blocking_segments", "*")
 
     redis = FakeRedis()
     validator = LLMValidator()
@@ -182,6 +184,7 @@ def test_dispatch_segments_respect_v2_relevant_when_blocking(monkeypatch):
 
     monkeypatch.setattr(settings, "llm_segment_profiles_enabled", True)
     monkeypatch.setattr(settings, "llm_segment_profiles_blocking", True)
+    monkeypatch.setattr(settings, "llm_segment_profiles_blocking_segments", "*")
     match = PendingMatch("c", 1, "text", ["tennis", "fitness"])
     result = LLMResult(
         verdict="DEMAND",

@@ -510,6 +510,75 @@ class LLMResult:
     from_v2: bool = False
 
 
+FIRST_WAVE_BLOCKING_SEGMENTS: frozenset[str] = frozenset({
+    "cleaning",
+    "plumber",
+    "electrician",
+    "accountant",
+    "lawyer",
+})
+
+
+def merge_v2_blocking_result(
+    *,
+    candidate_segments: list[str],
+    legacy: LLMResult,
+    v2_legacy: LLMResult,
+    allowlist: frozenset[str],
+) -> LLMResult | None:
+    """Apply v2 delivery only for allowlisted segments (Phase 11).
+
+    Returns None → keep legacy delivery (shadow-only for this message).
+    Empty allowlist is fail-safe. ``*`` means all candidates are gated.
+    """
+    if not allowlist:
+        return None
+
+    candidates = list(dict.fromkeys(candidate_segments))
+    if "*" in allowlist:
+        gated = set(candidates)
+    else:
+        gated = {s for s in candidates if s in allowlist}
+    if not gated:
+        return None
+
+    ungated = [s for s in candidates if s not in gated]
+    v2_rel = set(v2_legacy.relevant_segments or [])
+    relevant = [s for s in candidates if (s in ungated) or (s in gated and s in v2_rel)]
+
+    if not relevant:
+        # All gated rejected and no ungated leftovers → full v2 block path.
+        out = LLMResult(
+            verdict=v2_legacy.verdict,
+            relevant_segments=[],
+            reason=v2_legacy.reason,
+            certainty=v2_legacy.certainty,
+            error=v2_legacy.error,
+            raw_response=v2_legacy.raw_response,
+            prompt_tokens=v2_legacy.prompt_tokens,
+            completion_tokens=v2_legacy.completion_tokens,
+            total_tokens=v2_legacy.total_tokens,
+            correlation_id=legacy.correlation_id or v2_legacy.correlation_id,
+            from_v2=True,
+        )
+        return out
+
+    out = LLMResult(
+        verdict="DEMAND",
+        relevant_segments=relevant,
+        reason=v2_legacy.reason or legacy.reason,
+        certainty=v2_legacy.certainty or legacy.certainty or "low",
+        error=v2_legacy.error,
+        raw_response=v2_legacy.raw_response,
+        prompt_tokens=v2_legacy.prompt_tokens,
+        completion_tokens=v2_legacy.completion_tokens,
+        total_tokens=v2_legacy.total_tokens,
+        correlation_id=legacy.correlation_id or v2_legacy.correlation_id,
+        from_v2=True,
+    )
+    return out
+
+
 # ═══════════════════════════════════════════════════════════════
 # Batch match entry (collected by poller, validated in batch)
 # ═══════════════════════════════════════════════════════════════
@@ -773,9 +842,19 @@ class LLMValidator:
                 profile_missing=missing,
             )
             if settings.llm_segment_profiles_blocking:
-                v2_legacy.from_v2 = True
-                results[i] = v2_legacy
-
+                merged = merge_v2_blocking_result(
+                    candidate_segments=match.candidate_segments,
+                    legacy=legacy,
+                    v2_legacy=v2_legacy,
+                    allowlist=settings.blocking_segment_allowlist(),
+                )
+                if merged is not None:
+                    results[i] = merged
+                elif not settings.blocking_segment_allowlist():
+                    logger.debug(
+                        "LLM v2 blocking on but allowlist empty — shadow only "
+                        "(set LLM_SEGMENT_PROFILES_BLOCKING_SEGMENTS)",
+                    )
     async def _call_llm_batch_v2(
         self, items: list[tuple[int, PendingMatch]],
     ) -> dict[int, dict]:
