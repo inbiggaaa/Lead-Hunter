@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Фазы 1–2 segment-aware LLM profiles на `feature/segment-llm-profiles` (не в prod).** Фаза 1: пустая таблица `segment_llm_profiles` + CRUD (`segment_profiles01`). Фаза 2: seed `seed/data/segment_llm_profiles_ru.json` (71 профиль), `tools/validate_segment_profiles.py` (`--validate-only/--dry-run/--apply/--rollback-manifest`) с guard против prod host; apply по умолчанию запрещён. Gates: 10+12 tests passed, validate-only OK. Production не трогали. Следующее: Фаза 3 runtime loader.
+Статус: **Фазы 1–3 segment-aware LLM profiles на `feature/segment-llm-profiles` (не в prod).** Фазы 1–2: таблица + seed 71 + validate/rollback tool. Фаза 3: runtime loader `app/userbot/llm_profiles.py` (immutable snapshot, reload в keyword cycle poller, без Telegram API). Gate: test_llm_profiles+test_poller_fixes 82 passed. Production не трогали. Следующее: Фаза 4 prompt composer v2.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 

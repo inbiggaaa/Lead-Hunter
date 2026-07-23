@@ -390,6 +390,24 @@ async def get_segment_llm_profile(
     return result.scalar_one_or_none()
 
 
+async def list_active_segment_llm_profiles(
+    session: AsyncSession,
+    *,
+    locale: str = "ru",
+) -> list[tuple[str, SegmentLLMProfile]]:
+    """Return (segment_slug, profile_row) for active segments only."""
+    locale = _normalize_profile_locale(locale)
+    result = await session.execute(
+        select(Segment.slug, SegmentLLMProfile)
+        .join(Segment, Segment.id == SegmentLLMProfile.segment_id)
+        .where(
+            Segment.is_active.is_(True),
+            SegmentLLMProfile.locale == locale,
+        )
+    )
+    return [(slug, row) for slug, row in result.all()]
+
+
 async def create_segment_llm_profile(
     session: AsyncSession,
     *,

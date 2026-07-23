@@ -24,6 +24,7 @@ from app.userbot.llm_validator import (
     llm_validator, sanitize_text, PendingMatch, is_high_confidence_demand,
     LLMResult,
 )
+from app.userbot.llm_profiles import reload_profile_snapshot
 from app.userbot.discovery_v2 import is_discovery_window
 from app.userbot.pool import UserbotPool
 from app.userbot.rate_limiter import limiter, BudgetExceeded
@@ -153,6 +154,8 @@ class ChannelPoller:
         self._entity_cache: dict[str, dict[int, tuple[int, int]]] = {}
         # Pending matches queued for batch LLM validation (flushed after each poll batch)
         self._pending_matches: list[PendingMatch] = []
+        # Phase 3: segment LLM profiles — in-memory snapshot (module store is source)
+        # Reloaded with keywords; never touches Telegram API.
 
     # ═══════════════ INIT ═══════════════
 
@@ -192,6 +195,7 @@ class ChannelPoller:
             )
             self._personal_keywords = await self._load_personal_keywords()
             await self._load_channel_segments()
+            await reload_profile_snapshot(locale="ru")
             await self._rebuild_tiers()
             await self._tag_new_channels()  # tag any new channels from discovery
 
@@ -1607,6 +1611,12 @@ class ChannelPoller:
                     last_reload = now
                 except Exception as e:
                     logger.warning("Keyword reload failed, using cached: %s", e)
+                # Separate try: profile DB errors must not wipe keyword cache
+                # and must keep the previous profile snapshot (Phase 3).
+                try:
+                    await reload_profile_snapshot(locale="ru")
+                except Exception as e:
+                    logger.warning("LLM profile reload failed, using cached: %s", e)
 
             if now - last_tier_rebuild > tier_rebuild_interval:
                 try:
