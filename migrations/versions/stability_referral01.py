@@ -43,18 +43,27 @@ def upgrade() -> None:
     )
 
     # Drop global uniqueness on edge.ref_code so many invitees can share a code.
-    op.drop_constraint("referrals_ref_code_key", "referrals", type_="unique")
-    op.create_index(
-        "idx_referrals_referrer_paid_month",
-        "referrals",
-        ["referrer_id", "activated_at"],
+    op.execute("ALTER TABLE referrals DROP CONSTRAINT IF EXISTS referrals_ref_code_key")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_referrals_referrer_paid_month "
+        "ON referrals (referrer_id, activated_at)"
     )
 
 
 def downgrade() -> None:
-    op.drop_index("idx_referrals_referrer_paid_month", table_name="referrals")
-    op.create_unique_constraint(
-        "referrals_ref_code_key", "referrals", ["ref_code"],
+    op.execute("DROP INDEX IF EXISTS idx_referrals_referrer_paid_month")
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'referrals_ref_code_key'
+            ) THEN
+                ALTER TABLE referrals
+                    ADD CONSTRAINT referrals_ref_code_key UNIQUE (ref_code);
+            END IF;
+        END $$;
+        """
     )
 
     # Restore one self-placeholder per user that still has a code and no edges.
@@ -70,5 +79,8 @@ def downgrade() -> None:
         """
     )
 
-    op.drop_constraint("uq_users_referral_code", "users", type_="unique")
+    # create_all may name the unique constraint users_referral_code_key;
+    # the migration itself uses uq_users_referral_code.
+    op.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS uq_users_referral_code")
+    op.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_referral_code_key")
     op.drop_column("users", "referral_code")

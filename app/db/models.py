@@ -27,6 +27,9 @@ class Base(DeclarativeBase):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("referral_code", name="uq_users_referral_code"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
@@ -49,7 +52,7 @@ class User(Base):
     # matched lead for users who have never had a subscription.
     free_lifecycle_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
     # Stable share code for deep-link invites (ref_<code>). Edges live in referrals.
-    referral_code: Mapped[str | None] = mapped_column(String(20), unique=True)
+    referral_code: Mapped[str | None] = mapped_column(String(20))
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
