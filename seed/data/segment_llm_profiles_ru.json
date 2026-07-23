@@ -1,0 +1,1238 @@
+{
+  "locale": "ru",
+  "version": 1,
+  "source_spec": "docs/semantic/keyword_profiles_ru_v1.md",
+  "profiles": [
+    {
+      "segment_slug": "scooter-rental",
+      "locale": "ru",
+      "target_lead": "клиент хочет временно арендовать скутер, байк, мопед или мотоцикл.",
+      "accept_examples": [
+        "Прилетаем завтра, нужен скутер на две недели, подскажите проверенный прокат."
+      ],
+      "reject_examples": [
+        "Скутеры в наличии, аренда от 150 тысяч в день, пишите в личку."
+      ],
+      "conflict_slugs": [
+        "moto-purchase",
+        "moto-sale",
+        "moto-instructor",
+        "taxi-transfer"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "car-rental",
+      "locale": "ru",
+      "target_lead": "клиент хочет временно арендовать автомобиль без водителя или с водителем.",
+      "accept_examples": [
+        "Нужна машина без водителя с 10 по 17 августа, желательно минивэн."
+      ],
+      "reject_examples": [
+        "Большой выбор автомобилей в аренду, собственный автопарк, бронируйте заранее."
+      ],
+      "conflict_slugs": [
+        "car-purchase",
+        "car-sale",
+        "taxi-transfer",
+        "driver"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "moto-purchase",
+      "locale": "ru",
+      "target_lead": "частный владелец продаёт байк, скутер или мотоцикл; получатель лида занимается выкупом.",
+      "accept_examples": [
+        "Уезжаю через неделю, срочно продам Honda PCX с документами."
+      ],
+      "reject_examples": [
+        "Куплю недорогой байк до 30 миллионов, рассмотрю варианты."
+      ],
+      "conflict_slugs": [
+        "moto-sale",
+        "scooter-rental"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "moto-sale",
+      "locale": "ru",
+      "target_lead": "человек хочет купить байк, скутер, мопед или мотоцикл.",
+      "accept_examples": [
+        "Ищу Honda PCX для покупки, бюджет до 45 миллионов, только с документами."
+      ],
+      "reject_examples": [
+        "Продам Honda PCX, отличное состояние, цена 42 миллиона."
+      ],
+      "conflict_slugs": [
+        "moto-purchase",
+        "scooter-rental"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "car-purchase",
+      "locale": "ru",
+      "target_lead": "частный владелец продаёт автомобиль; получатель лида занимается выкупом.",
+      "accept_examples": [
+        "Переезжаю, продам Toyota с документами и сервисной историей."
+      ],
+      "reject_examples": [
+        "Ищу Toyota для покупки, бюджет до 500 миллионов."
+      ],
+      "conflict_slugs": [
+        "car-sale",
+        "car-rental"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "car-sale",
+      "locale": "ru",
+      "target_lead": "человек хочет купить автомобиль.",
+      "accept_examples": [
+        "Ищу семейный кроссовер для покупки, бюджет до 700 миллионов."
+      ],
+      "reject_examples": [
+        "Продам семейный кроссовер, один владелец, торг уместен."
+      ],
+      "conflict_slugs": [
+        "car-purchase",
+        "car-rental"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "delivery",
+      "locale": "ru",
+      "target_lead": "заказчик хочет организовать доставку товара, документов, еды или посылки.",
+      "accept_examples": [
+        "Ищем службу доставки для интернет-магазина, около 30 заказов в день."
+      ],
+      "reject_examples": [
+        "Наша служба доставит ваш заказ быстро и недорого, пишите менеджеру."
+      ],
+      "conflict_slugs": [
+        "courier",
+        "cargo",
+        "taxi-transfer"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "courier",
+      "locale": "ru",
+      "target_lead": "заказчик ищет курьера для конкретного поручения или курьерскую службу.",
+      "accept_examples": [
+        "Нужен курьер сегодня забрать договор и отвезти клиенту."
+      ],
+      "reject_examples": [
+        "Требуется курьер в штат, график два через два, зарплата каждую неделю."
+      ],
+      "conflict_slugs": [
+        "delivery",
+        "cargo"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "cargo",
+      "locale": "ru",
+      "target_lead": "заказчик хочет перевезти груз и ищет перевозчика или подходящий транспорт.",
+      "accept_examples": [
+        "Ищем перевозчика на регулярный маршрут, груз 12 паллет два раза в неделю."
+      ],
+      "reject_examples": [
+        "Свободная фура завтра, возьму попутный груз, пишите водителю."
+      ],
+      "conflict_slugs": [
+        "delivery",
+        "courier",
+        "car-rental"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "housing-rent",
+      "locale": "ru",
+      "target_lead": "арендатор ищет квартиру, комнату, дом, студию, кондо или виллу.",
+      "accept_examples": [
+        "Семья из трёх человек снимет квартиру на год, бюджет до 18 миллионов."
+      ],
+      "reject_examples": [
+        "Сдам квартиру с двумя спальнями, свободна с августа, комиссия агенту."
+      ],
+      "conflict_slugs": [
+        "housing-buy",
+        "travel-agent"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "housing-buy",
+      "locale": "ru",
+      "target_lead": "покупатель ищет квартиру, дом, виллу, коммерческий объект или землю для покупки.",
+      "accept_examples": [
+        "Ищу двухкомнатную квартиру для покупки, район у моря, бюджет до 4 миллиардов."
+      ],
+      "reject_examples": [
+        "Продаётся двухкомнатная квартира у моря, полный пакет документов."
+      ],
+      "conflict_slugs": [
+        "housing-rent",
+        "company-registration"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "massage",
+      "locale": "ru",
+      "target_lead": "клиент ищет массажиста или хочет записаться на конкретный вид массажа.",
+      "accept_examples": [
+        "После тренировки болит спина, посоветуйте хорошего массажиста."
+      ],
+      "reject_examples": [
+        "Профессиональный массаж с выездом, свободные окна сегодня, прайс в профиле."
+      ],
+      "conflict_slugs": [
+        "fitness",
+        "orthopedist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "manicure",
+      "locale": "ru",
+      "target_lead": "клиент ищет мастера или хочет записаться на маникюр, педикюр или покрытие.",
+      "accept_examples": [
+        "Кто может сегодня сделать маникюр со снятием старого покрытия?"
+      ],
+      "reject_examples": [
+        "Девочки, открыла запись на маникюр, свободно два окна."
+      ],
+      "conflict_slugs": [
+        "lashes",
+        "brows",
+        "epilation"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "cosmetology",
+      "locale": "ru",
+      "target_lead": "клиент ищет косметолога или конкретную косметологическую процедуру.",
+      "accept_examples": [
+        "Посоветуйте косметолога для консультации по проблемной коже."
+      ],
+      "reject_examples": [
+        "Косметолог с медицинским образованием, открыта запись на чистку и пилинг."
+      ],
+      "conflict_slugs": [
+        "dermatologist",
+        "epilation",
+        "massage"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "hairdresser",
+      "locale": "ru",
+      "target_lead": "клиент ищет парикмахера для стрижки, укладки или причёски.",
+      "accept_examples": [
+        "Ищу парикмахера, нужно подстричь ребёнка сегодня вечером."
+      ],
+      "reject_examples": [
+        "Парикмахер с опытом, принимаю в салоне, свободны два окна."
+      ],
+      "conflict_slugs": [
+        "barber",
+        "hair-color",
+        "makeup"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "hair-color",
+      "locale": "ru",
+      "target_lead": "клиент ищет колориста или хочет заказать окрашивание волос.",
+      "accept_examples": [
+        "Нужно исправить неудачное окрашивание, посоветуйте сильного колориста."
+      ],
+      "reject_examples": [
+        "Колорист, делаю сложные окрашивания, запись на август открыта."
+      ],
+      "conflict_slugs": [
+        "hairdresser",
+        "barber"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "tattoo",
+      "locale": "ru",
+      "target_lead": "клиент ищет тату-мастера или хочет сделать, исправить либо удалить татуировку.",
+      "accept_examples": [
+        "Ищу мастера, который сможет перекрыть старую татуировку на плече."
+      ],
+      "reject_examples": [
+        "Тату-мастер, работаю в реализме, запись на следующий месяц открыта."
+      ],
+      "conflict_slugs": [
+        "design",
+        "graphics",
+        "dermatologist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "lashes",
+      "locale": "ru",
+      "target_lead": "клиент ищет мастера по наращиванию, ламинированию или коррекции ресниц.",
+      "accept_examples": [
+        "Кто может завтра сделать ламинирование ресниц недалеко от центра?"
+      ],
+      "reject_examples": [
+        "Лэшмейкер, свободные окна завтра, наращивание любого объёма."
+      ],
+      "conflict_slugs": [
+        "manicure",
+        "brows",
+        "makeup"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "brows",
+      "locale": "ru",
+      "target_lead": "клиент ищет бровиста или хочет коррекцию, окрашивание, ламинирование либо перманентный макияж бровей.",
+      "accept_examples": [
+        "Посоветуйте бровиста, нужно исправить форму и сделать окрашивание."
+      ],
+      "reject_examples": [
+        "Бровист, открыла запись на коррекцию и ламинирование."
+      ],
+      "conflict_slugs": [
+        "lashes",
+        "makeup",
+        "tattoo"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "makeup",
+      "locale": "ru",
+      "target_lead": "клиент ищет визажиста или хочет заказать макияж на определённую дату.",
+      "accept_examples": [
+        "Нужен визажист с выездом для трёх человек на свадьбу 18 августа."
+      ],
+      "reject_examples": [
+        "Визажист с выездом, создаю свадебные образы, запись открыта."
+      ],
+      "conflict_slugs": [
+        "hairdresser",
+        "photo",
+        "brows"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "barber",
+      "locale": "ru",
+      "target_lead": "клиент ищет барбера для мужской стрижки или оформления бороды.",
+      "accept_examples": [
+        "Посоветуйте барбера, нужна мужская стрижка и оформление бороды."
+      ],
+      "reject_examples": [
+        "Барбер с опытом, свободные окна сегодня, стрижка и борода."
+      ],
+      "conflict_slugs": [
+        "hairdresser",
+        "hair-color"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "epilation",
+      "locale": "ru",
+      "target_lead": "клиент хочет заказать лазерную эпиляцию, шугаринг или восковую депиляцию.",
+      "accept_examples": [
+        "Подскажите студию лазерной эпиляции и стоимость нескольких зон."
+      ],
+      "reject_examples": [
+        "Лазерная эпиляция со скидкой, свободные окна на этой неделе."
+      ],
+      "conflict_slugs": [
+        "cosmetology",
+        "dermatologist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "therapist",
+      "locale": "ru",
+      "target_lead": "пациент ищет терапевта или врача общей практики.",
+      "accept_examples": [
+        "Третий день температура, посоветуйте терапевта, который может принять сегодня."
+      ],
+      "reject_examples": [
+        "Терапевт ведёт приём по понедельникам, запись через администратора."
+      ],
+      "conflict_slugs": [
+        "psychologist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "dentist",
+      "locale": "ru",
+      "target_lead": "пациент ищет стоматолога или стоматологическую процедуру.",
+      "accept_examples": [
+        "Сильно болит зуб, подскажите стоматолога, который примет сегодня."
+      ],
+      "reject_examples": [
+        "Стоматология приглашает на бесплатную консультацию, акция на импланты."
+      ],
+      "conflict_slugs": [
+        "surgeon",
+        "pediatrician",
+        "therapist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "psychologist",
+      "locale": "ru",
+      "target_lead": "клиент ищет психолога, психотерапевта или психологическую консультацию.",
+      "accept_examples": [
+        "Ищу семейного психолога для регулярных консультаций онлайн."
+      ],
+      "reject_examples": [
+        "Психолог, провожу онлайн-консультации, открыта запись на август."
+      ],
+      "conflict_slugs": [
+        "therapist",
+        "nutritionist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "dermatologist",
+      "locale": "ru",
+      "target_lead": "пациент ищет дерматолога для диагностики или лечения кожи.",
+      "accept_examples": [
+        "Появилась сыпь, посоветуйте дерматолога, который принимает сегодня."
+      ],
+      "reject_examples": [
+        "Дерматолог ведёт приём в новой клинике, запись через администратора."
+      ],
+      "conflict_slugs": [
+        "cosmetology",
+        "epilation",
+        "therapist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "gynecologist",
+      "locale": "ru",
+      "target_lead": "пациентка ищет гинеколога или профильную медицинскую услугу.",
+      "accept_examples": [
+        "Посоветуйте русскоязычного гинеколога для консультации и осмотра."
+      ],
+      "reject_examples": [
+        "Гинеколог ведёт приём по вторникам, запись через клинику."
+      ],
+      "conflict_slugs": [
+        "therapist",
+        "surgeon"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "pediatrician",
+      "locale": "ru",
+      "target_lead": "родитель ищет педиатра или детского врача.",
+      "accept_examples": [
+        "У ребёнка высокая температура, нужен педиатр с выездом на дом."
+      ],
+      "reject_examples": [
+        "Педиатр ведёт приём детей ежедневно, запись через администратора."
+      ],
+      "conflict_slugs": [
+        "therapist",
+        "dentist",
+        "neurologist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "surgeon",
+      "locale": "ru",
+      "target_lead": "пациент ищет консультацию хирурга или решение хирургической проблемы.",
+      "accept_examples": [
+        "Нужно второе мнение по операции, посоветуйте опытного хирурга."
+      ],
+      "reject_examples": [
+        "Хирург высшей категории ведёт приём в нашей клинике."
+      ],
+      "conflict_slugs": [
+        "orthopedist",
+        "dentist",
+        "gynecologist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "orthopedist",
+      "locale": "ru",
+      "target_lead": "пациент ищет ортопеда по проблемам суставов, стопы, позвоночника или последствиям травмы.",
+      "accept_examples": [
+        "После травмы продолжает болеть колено, посоветуйте ортопеда."
+      ],
+      "reject_examples": [
+        "Ортопед принимает взрослых и детей, запись по телефону клиники."
+      ],
+      "conflict_slugs": [
+        "surgeon",
+        "neurologist",
+        "massage"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "neurologist",
+      "locale": "ru",
+      "target_lead": "пациент ищет невролога для диагностики неврологических симптомов.",
+      "accept_examples": [
+        "Частые мигрени и головокружение, посоветуйте невролога."
+      ],
+      "reject_examples": [
+        "Невролог ведёт приём в медицинском центре по предварительной записи."
+      ],
+      "conflict_slugs": [
+        "therapist",
+        "orthopedist",
+        "psychologist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "nutritionist",
+      "locale": "ru",
+      "target_lead": "клиент ищет нутрициолога или диетолога для консультации и составления рациона.",
+      "accept_examples": [
+        "Ищу диетолога, который составит рацион с учётом пищевых ограничений."
+      ],
+      "reject_examples": [
+        "Нутрициолог, составляю персональные рационы, запись открыта."
+      ],
+      "conflict_slugs": [
+        "fitness",
+        "psychologist"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "translator",
+      "locale": "ru",
+      "target_lead": "заказчик ищет письменный, устный, нотариальный или сопровождающий перевод.",
+      "accept_examples": [
+        "Нужен переводчик с вьетнамского на деловую встречу в четверг."
+      ],
+      "reject_examples": [
+        "Переводчик русского и английского языков, беру новые заказы."
+      ],
+      "conflict_slugs": [
+        "language-courses",
+        "notary",
+        "visa-support"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "language-courses",
+      "locale": "ru",
+      "target_lead": "ученик ищет языковую школу, групповой курс или программу подготовки.",
+      "accept_examples": [
+        "Ищем курсы делового английского для группы сотрудников."
+      ],
+      "reject_examples": [
+        "Языковая школа открыла набор в новую группу английского."
+      ],
+      "conflict_slugs": [
+        "tutor",
+        "translator"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "driving-instructor",
+      "locale": "ru",
+      "target_lead": "ученик ищет инструктора по вождению автомобиля.",
+      "accept_examples": [
+        "Ищу русскоязычного автоинструктора, нужно восстановить навыки на автомате."
+      ],
+      "reject_examples": [
+        "Автоинструктор с опытом, набираю новых учеников, есть свободные часы."
+      ],
+      "conflict_slugs": [
+        "moto-instructor",
+        "car-rental"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "moto-instructor",
+      "locale": "ru",
+      "target_lead": "ученик ищет инструктора или курс безопасного управления мотоциклом либо скутером.",
+      "accept_examples": [
+        "Никогда не ездил на байке, ищу инструктора для первых занятий."
+      ],
+      "reject_examples": [
+        "Мотоинструктор, обучаю с нуля, открыт набор на новый курс."
+      ],
+      "conflict_slugs": [
+        "driving-instructor",
+        "scooter-rental"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "tutor",
+      "locale": "ru",
+      "target_lead": "ученик или родитель ищет индивидуального преподавателя по конкретному предмету.",
+      "accept_examples": [
+        "Ищу репетитора по математике для ребёнка, два занятия в неделю."
+      ],
+      "reject_examples": [
+        "Репетитор по математике, набираю учеников на новый учебный год."
+      ],
+      "conflict_slugs": [
+        "language-courses"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "cleaning",
+      "locale": "ru",
+      "target_lead": "заказчик ищет разовую или регулярную уборку жилого либо коммерческого помещения.",
+      "accept_examples": [
+        "Ищем подрядчика для ежедневной уборки офиса площадью 400 метров."
+      ],
+      "reject_examples": [
+        "Клининговая компания предлагает уборку квартир и офисов, выезд бесплатно."
+      ],
+      "conflict_slugs": [
+        "repair"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "repair",
+      "locale": "ru",
+      "target_lead": "заказчик ищет мастера или бригаду для ремонта и отделки помещения.",
+      "accept_examples": [
+        "Ищем бригаду для ремонта офиса, нужна смета и работа по договору."
+      ],
+      "reject_examples": [
+        "Бригада выполнит ремонт квартиры под ключ, есть свободный объектный слот."
+      ],
+      "conflict_slugs": [
+        "plumber",
+        "electrician",
+        "cleaning"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "plumber",
+      "locale": "ru",
+      "target_lead": "заказчик ищет сантехника для ремонта, монтажа или аварийного вызова.",
+      "accept_examples": [
+        "Прорвало трубу в офисе, срочно нужен сантехник сегодня."
+      ],
+      "reject_examples": [
+        "Сантехник с опытом, выполняю любые работы, выезд по городу."
+      ],
+      "conflict_slugs": [
+        "repair",
+        "electrician"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "electrician",
+      "locale": "ru",
+      "target_lead": "заказчик ищет электрика для ремонта, монтажа или аварийного вызова.",
+      "accept_examples": [
+        "В офисе выбивает автомат, нужен электрик для диагностики сегодня."
+      ],
+      "reject_examples": [
+        "Электрик с опытом, выполняю монтаж проводки и щитов, пишите."
+      ],
+      "conflict_slugs": [
+        "repair",
+        "plumber"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "nanny",
+      "locale": "ru",
+      "target_lead": "семья или организация ищет няню либо специалиста по присмотру за ребёнком.",
+      "accept_examples": [
+        "Ищем няню для ребёнка трёх лет на пять дней в неделю."
+      ],
+      "reject_examples": [
+        "Няня с опытом и рекомендациями ищет семью на полный день."
+      ],
+      "conflict_slugs": [
+        "pets"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "pets",
+      "locale": "ru",
+      "target_lead": "владелец животного ищет груминг, выгул, передержку или зооняню.",
+      "accept_examples": [
+        "Уезжаем на неделю, ищем передержку для спокойной домашней кошки."
+      ],
+      "reject_examples": [
+        "Возьму собак и кошек на передержку, большой дом, пишите заранее."
+      ],
+      "conflict_slugs": [
+        "nanny"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "guide",
+      "locale": "ru",
+      "target_lead": "турист или группа ищет частного гида или сопровождающего.",
+      "accept_examples": [
+        "Нужен русскоязычный гид для группы из восьми человек на субботу."
+      ],
+      "reject_examples": [
+        "Русскоязычный гид, провожу авторские экскурсии, свободна суббота."
+      ],
+      "conflict_slugs": [
+        "excursions",
+        "travel-agent",
+        "translator"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "excursions",
+      "locale": "ru",
+      "target_lead": "турист ищет готовую групповую или индивидуальную экскурсию.",
+      "accept_examples": [
+        "Посоветуйте индивидуальную экскурсию на остров для семьи из четырёх человек."
+      ],
+      "reject_examples": [
+        "Набираем группу на остров, экскурсия каждый вторник и пятницу."
+      ],
+      "conflict_slugs": [
+        "guide",
+        "travel-agent",
+        "taxi-transfer"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "visa-support",
+      "locale": "ru",
+      "target_lead": "клиент ищет помощь с оформлением, продлением или изменением визового статуса.",
+      "accept_examples": [
+        "Ищем агентство для оформления рабочих виз пяти сотрудникам."
+      ],
+      "reject_examples": [
+        "Оформим рабочую визу под ключ, минимальный пакет документов."
+      ],
+      "conflict_slugs": [
+        "travel-agent",
+        "company-registration",
+        "lawyer"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "travel-agent",
+      "locale": "ru",
+      "target_lead": "клиент хочет подобрать и организовать поездку, пакетный тур, билеты и проживание.",
+      "accept_examples": [
+        "Ищем агента, который организует корпоративную поездку на 20 человек."
+      ],
+      "reject_examples": [
+        "Горящий тур на Пхукет, осталось два места, бронируйте сегодня."
+      ],
+      "conflict_slugs": [
+        "excursions",
+        "guide",
+        "visa-support"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "taxi-transfer",
+      "locale": "ru",
+      "target_lead": "пассажир или группа ищет такси либо заранее заказанный трансфер по маршруту.",
+      "accept_examples": [
+        "Нужен минивэн для трансфера восьми гостей из аэропорта в отель."
+      ],
+      "reject_examples": [
+        "Предлагаю трансфер из аэропорта, комфортная машина, встреча с табличкой."
+      ],
+      "conflict_slugs": [
+        "driver",
+        "car-rental",
+        "delivery"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "driver",
+      "locale": "ru",
+      "target_lead": "клиент ищет водителя с автомобилем на несколько часов, дней или на постоянной основе.",
+      "accept_examples": [
+        "Нужен водитель с минивэном для делегации на пять рабочих дней."
+      ],
+      "reject_examples": [
+        "Водитель с личным автомобилем ищет постоянную работу."
+      ],
+      "conflict_slugs": [
+        "taxi-transfer",
+        "car-rental"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "catering",
+      "locale": "ru",
+      "target_lead": "заказчик ищет выездное питание и обслуживание мероприятия.",
+      "accept_examples": [
+        "Ищем кейтеринг на корпоратив для 80 человек, нужна смета и обслуживание."
+      ],
+      "reject_examples": [
+        "Кейтеринг под ключ, банкеты и фуршеты от 20 человек, пишите менеджеру."
+      ],
+      "conflict_slugs": [
+        "private-chef",
+        "pastry-chef",
+        "event-management"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "private-chef",
+      "locale": "ru",
+      "target_lead": "клиент ищет частного повара или шефа для дома, виллы либо небольшого события.",
+      "accept_examples": [
+        "Ищем повара на виллу для семьи на три недели, питание два раза в день."
+      ],
+      "reject_examples": [
+        "Частный повар, готовлю ужины у вас дома, принимаю заказы."
+      ],
+      "conflict_slugs": [
+        "catering",
+        "pastry-chef"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "pastry-chef",
+      "locale": "ru",
+      "target_lead": "клиент ищет кондитера или хочет заказать торт и другие десерты.",
+      "accept_examples": [
+        "Ищем поставщика порционных десертов для кафе на постоянной основе."
+      ],
+      "reject_examples": [
+        "Кондитер, делаю торты любой сложности, принимаю заказы на август."
+      ],
+      "conflict_slugs": [
+        "catering",
+        "private-chef",
+        "design"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "event-management",
+      "locale": "ru",
+      "target_lead": "заказчик ищет организатора или агентство для события под ключ.",
+      "accept_examples": [
+        "Ищем агентство для организации открытия нового магазина под ключ."
+      ],
+      "reject_examples": [
+        "Организуем свадьбы и корпоративы под ключ, портфолио по запросу."
+      ],
+      "conflict_slugs": [
+        "catering",
+        "music",
+        "photo",
+        "video"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "music",
+      "locale": "ru",
+      "target_lead": "заказчик ищет DJ, ведущего, группу, музыкантов или звуковое сопровождение мероприятия.",
+      "accept_examples": [
+        "Нужны ведущий и диджей на корпоратив для 100 человек."
+      ],
+      "reject_examples": [
+        "DJ и ведущий на ваше мероприятие, свободные даты в августе."
+      ],
+      "conflict_slugs": [
+        "event-management",
+        "catering",
+        "video"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "fitness",
+      "locale": "ru",
+      "target_lead": "клиент ищет персонального тренера, фитнес-клуб или платную программу занятий.",
+      "accept_examples": [
+        "Ищу персонального тренера для занятий три раза в неделю."
+      ],
+      "reject_examples": [
+        "Персональный тренер, набираю клиентов на индивидуальные занятия."
+      ],
+      "conflict_slugs": [
+        "nutritionist",
+        "yoga",
+        "pilates"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "yoga",
+      "locale": "ru",
+      "target_lead": "клиент ищет инструктора, студию или платные занятия йогой.",
+      "accept_examples": [
+        "Ищем инструктора для корпоративной йоги два раза в неделю."
+      ],
+      "reject_examples": [
+        "Инструктор по йоге, набираю новую утреннюю группу."
+      ],
+      "conflict_slugs": [
+        "fitness",
+        "pilates",
+        "travel-agent"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "martial-arts",
+      "locale": "ru",
+      "target_lead": "ученик или родитель ищет тренера либо платную секцию единоборств.",
+      "accept_examples": [
+        "Ищу секцию бокса для ребёнка восьми лет недалеко от центра."
+      ],
+      "reject_examples": [
+        "Школа бокса открывает набор детей в новую группу."
+      ],
+      "conflict_slugs": [
+        "fitness"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "pilates",
+      "locale": "ru",
+      "target_lead": "клиент ищет инструктора, студию или платные занятия пилатесом.",
+      "accept_examples": [
+        "Посоветуйте студию пилатеса на реформерах для начинающего."
+      ],
+      "reject_examples": [
+        "Студия пилатеса приглашает в новую группу, первое занятие бесплатно."
+      ],
+      "conflict_slugs": [
+        "yoga",
+        "fitness"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "padel",
+      "locale": "ru",
+      "target_lead": "клиент ищет платного тренера, обучение или аренду корта для падела.",
+      "accept_examples": [
+        "Ищу тренера по паделу для двух начинающих и корт на вечер."
+      ],
+      "reject_examples": [
+        "Ищу партнёра по паделу сегодня вечером, уровень средний."
+      ],
+      "conflict_slugs": [
+        "tennis"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "tennis",
+      "locale": "ru",
+      "target_lead": "клиент ищет платного тренера, школу или аренду теннисного корта.",
+      "accept_examples": [
+        "Ищу тренера по теннису для ребёнка, два занятия в неделю."
+      ],
+      "reject_examples": [
+        "Ищу партнёра поиграть в теннис завтра утром."
+      ],
+      "conflict_slugs": [
+        "padel"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "basketball",
+      "locale": "ru",
+      "target_lead": "клиент ищет платного тренера, секцию или аренду зала для баскетбола.",
+      "accept_examples": [
+        "Ищу индивидуального тренера по баскетболу для подростка."
+      ],
+      "reject_examples": [
+        "Собираем любительскую команду, ищем игроков на бесплатные игры."
+      ],
+      "conflict_slugs": [
+        "fitness"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "football",
+      "locale": "ru",
+      "target_lead": "клиент ищет платного тренера, футбольную школу, секцию или аренду поля.",
+      "accept_examples": [
+        "Ищем футбольного тренера для корпоративной команды раз в неделю."
+      ],
+      "reject_examples": [
+        "Ищем игроков в любительскую команду, участие бесплатное."
+      ],
+      "conflict_slugs": [],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "photo",
+      "locale": "ru",
+      "target_lead": "заказчик ищет фотографа или коммерческую фотосъёмку.",
+      "accept_examples": [
+        "Ищем фотографа для регулярной предметной съёмки товаров магазина."
+      ],
+      "reject_examples": [
+        "Фотограф, снимаю свадьбы и семьи, свободны даты в августе."
+      ],
+      "conflict_slugs": [
+        "video",
+        "makeup",
+        "event-management"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "video",
+      "locale": "ru",
+      "target_lead": "заказчик ищет видеографа, оператора или монтаж коммерческого видео.",
+      "accept_examples": [
+        "Ищем команду для ежемесячной съёмки и монтажа коротких роликов."
+      ],
+      "reject_examples": [
+        "Видеограф и монтажёр, принимаю заказы на коммерческие ролики."
+      ],
+      "conflict_slugs": [
+        "photo",
+        "design",
+        "event-management"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "design",
+      "locale": "ru",
+      "target_lead": "заказчик ищет UI/UX-, web- или презентационного дизайнера.",
+      "accept_examples": [
+        "Ищем UX-дизайнера для редизайна личного кабинета SaaS-сервиса."
+      ],
+      "reject_examples": [
+        "UI/UX-дизайнер, беру новые проекты, портфолио по ссылке."
+      ],
+      "conflict_slugs": [
+        "graphics",
+        "video"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "graphics",
+      "locale": "ru",
+      "target_lead": "заказчик ищет графического дизайнера для логотипа, фирменного стиля, упаковки или полиграфии.",
+      "accept_examples": [
+        "Ищем дизайнера для разработки логотипа, упаковки и брендбука."
+      ],
+      "reject_examples": [
+        "Графический дизайнер, делаю логотипы и фирменный стиль, беру заказы."
+      ],
+      "conflict_slugs": [
+        "design",
+        "photo",
+        "tattoo"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "notary",
+      "locale": "ru",
+      "target_lead": "клиент ищет нотариуса для заверения документа или нотариального действия.",
+      "accept_examples": [
+        "Нужно срочно оформить доверенность, посоветуйте нотариуса с выездом."
+      ],
+      "reject_examples": [
+        "Нотариальная контора оказывает все виды услуг, запись по телефону."
+      ],
+      "conflict_slugs": [
+        "translator",
+        "lawyer",
+        "visa-support"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "company-registration",
+      "locale": "ru",
+      "target_lead": "предприниматель ищет помощь с регистрацией компании, лицензиями и корпоративным сопровождением запуска.",
+      "accept_examples": [
+        "Ищем консультанта для регистрации компании и открытия банковского счёта."
+      ],
+      "reject_examples": [
+        "Откроем компанию под ключ за пять дней, полный пакет документов."
+      ],
+      "conflict_slugs": [
+        "lawyer",
+        "accountant",
+        "visa-support"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "lawyer",
+      "locale": "ru",
+      "target_lead": "человек или компания ищет юридическую консультацию, защиту или сопровождение.",
+      "accept_examples": [
+        "Ищем юридическую фирму для постоянного сопровождения компании по договору."
+      ],
+      "reject_examples": [
+        "Корпоративный юрист, предлагаю абонентское обслуживание бизнеса."
+      ],
+      "conflict_slugs": [
+        "notary",
+        "company-registration",
+        "accountant"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "accountant",
+      "locale": "ru",
+      "target_lead": "предприниматель или компания ищет бухгалтера, аудитора или бухгалтерский аутсорс.",
+      "accept_examples": [
+        "Ищем бухгалтерскую компанию для ежемесячного ведения двух юридических лиц."
+      ],
+      "reject_examples": [
+        "Бухгалтер с опытом, беру компании на удалённое сопровождение."
+      ],
+      "conflict_slugs": [
+        "company-registration",
+        "lawyer"
+      ],
+      "requires_llm": true,
+      "version": 1
+    },
+    {
+      "segment_slug": "currency-exchange",
+      "locale": "ru",
+      "target_lead": "клиент хочет обменять конкретную валюту или криптовалюту и ищет контрагента либо обменный сервис.",
+      "accept_examples": [
+        "Где сегодня обменять 2 000 USDT на наличные донги в Дананге?"
+      ],
+      "reject_examples": [
+        "Обмен USDT на донги по лучшему курсу, наличные всегда в наличии."
+      ],
+      "conflict_slugs": [],
+      "requires_llm": true,
+      "version": 1
+    }
+  ]
+}

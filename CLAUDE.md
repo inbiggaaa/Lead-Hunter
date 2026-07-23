@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Фаза 1 segment-aware LLM profiles — схема готова на ветке `feature/segment-llm-profiles` (не в prod).** Таблица `segment_llm_profiles` (миграция `segment_profiles01` ← `stability_referral01`), ORM + CRUD с валидацией JSON-списков; таблица пустая, seed/apply нет. Gate: 10 passed + alembic downgrade/upgrade на `lh_test_db`. Production/worker не трогались. Следующее: Фаза 2 — seed/validate 71 профилей из спецификации без production apply.
+Статус: **Фазы 1–2 segment-aware LLM profiles на `feature/segment-llm-profiles` (не в prod).** Фаза 1: пустая таблица `segment_llm_profiles` + CRUD (`segment_profiles01`). Фаза 2: seed `seed/data/segment_llm_profiles_ru.json` (71 профиль), `tools/validate_segment_profiles.py` (`--validate-only/--dry-run/--apply/--rollback-manifest`) с guard против prod host; apply по умолчанию запрещён. Gates: 10+12 tests passed, validate-only OK. Production не трогали. Следующее: Фаза 3 runtime loader.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 
