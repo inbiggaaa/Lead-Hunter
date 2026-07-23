@@ -2,8 +2,13 @@
 
 Read-only snapshot of production data — worker is NOT touched:
 - llm_decisions (last N): rule/LLM verdicts with masked texts
-- feedback (all): user 👍/👎 verdicts on delivered notifications
+- feedback (all): closed-matching snapshots + current labels
+  (verdict taxonomy: correct/error/uncertain; legacy relevant/not_relevant
+  may still appear until migration). SELECT * exports new columns including
+  delivered/rule/reality segments, llm layer fields, keyword_only.
 - stats:unmatched (last N from Redis): messages the classifier rejected
+
+No PII columns should be present in feedback (masked text only).
 
 Connects via localhost port bindings (127.0.0.1:5432 / 127.0.0.1:6379),
 credentials read from .env. Output: JSONL files in docs/eval/.

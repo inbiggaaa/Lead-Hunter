@@ -358,24 +358,33 @@ async def popular_stats():
 
 @router.get("/segment-feedback")
 async def segment_feedback_stats(days: int = 30):
-    """A3: 👍/👎 по сегментам за N дней — источник решений о карантине.
+    """👍/👎-style counts по сегментам за N дней (карантин / QA).
 
-    Сегменты оценённого уведомления берутся из последнего llm_decision по тому
-    же сообщению (llm_segments, иначе rule_segments); legacy-slug'и, которых
-    нет в текущем каталоге, отсекаются JOIN'ом на segments.
+    Verdict taxonomy: closed matching uses correct/error (legacy relevant/
+    not_relevant mapped). Segment slugs come from feedback.delivered_segments
+    when present; otherwise last llm_decisions row for the message.
+    Response keys stay relevant/not_relevant for CatalogPage compatibility.
     """
     from sqlalchemy import text
 
     sql = text(
         """
         SELECT x.slug,
-               count(*) FILTER (WHERE x.verdict = 'relevant')      AS relevant,
-               count(*) FILTER (WHERE x.verdict = 'not_relevant')  AS not_relevant
+               count(*) FILTER (WHERE x.verdict IN ('correct', 'relevant'))
+                   AS relevant,
+               count(*) FILTER (WHERE x.verdict IN ('error', 'not_relevant'))
+                   AS not_relevant
         FROM (
             SELECT f.verdict,
-                   unnest(coalesce(nullif(d.llm_segments, '{}'), d.rule_segments)) AS slug
+                   unnest(
+                       coalesce(
+                           nullif(f.delivered_segments, '{}'),
+                           nullif(d.llm_segments, '{}'),
+                           d.rule_segments
+                       )
+                   ) AS slug
             FROM feedback f
-            JOIN LATERAL (
+            LEFT JOIN LATERAL (
                 SELECT llm_segments, rule_segments
                 FROM llm_decisions d
                 WHERE d.chat_username = f.chat_username
@@ -383,6 +392,7 @@ async def segment_feedback_stats(days: int = 30):
                 ORDER BY d.id DESC LIMIT 1
             ) d ON true
             WHERE f.created_at > now() - make_interval(days => :days)
+              AND f.verdict IN ('correct', 'error', 'relevant', 'not_relevant')
         ) x
         JOIN segments s ON s.slug = x.slug
         GROUP BY x.slug
@@ -398,11 +408,10 @@ async def segment_feedback_stats(days: int = 30):
 
 @router.get("/stop-candidates")
 async def stop_word_candidates(days: int = 90, min_count: int = 3):
-    """B1: кандидаты в стоп-слова из 👎-фидбека.
+    """B1: кандидаты в стоп-слова из отрицательных оценок (error/not_relevant).
 
-    Частотные n-граммы (1–3) из текстов not_relevant-оценок, которых нет
-    среди текущих стоп-слов. Только отчёт-подсказка: добавление стоп-слова
-    остаётся ручным (существующий CRUD /api/stop-words).
+    Частотные n-граммы (1–3) из masked-текстов, которых нет среди текущих
+    стоп-слов. Только отчёт-подсказка: добавление стоп-слова остаётся ручным.
     """
     import re as _re
     from collections import Counter
@@ -415,18 +424,18 @@ async def stop_word_candidates(days: int = 90, min_count: int = 3):
 
     sql = text(
         """
-        SELECT d.message_text_masked AS txt
+        SELECT coalesce(f.message_text_masked, d.message_text_masked) AS txt
         FROM feedback f
-        JOIN LATERAL (
+        LEFT JOIN LATERAL (
             SELECT message_text_masked
             FROM llm_decisions d
             WHERE d.chat_username = f.chat_username
               AND d.message_id = f.message_id
             ORDER BY d.id DESC LIMIT 1
         ) d ON true
-        WHERE f.verdict = 'not_relevant'
+        WHERE f.verdict IN ('error', 'not_relevant')
           AND f.created_at > now() - make_interval(days => :days)
-          AND d.message_text_masked <> ''
+          AND coalesce(f.message_text_masked, d.message_text_masked, '') <> ''
         """
     )
     async with async_session_factory() as session:

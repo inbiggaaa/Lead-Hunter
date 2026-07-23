@@ -228,6 +228,23 @@ git bisect reset
 
 ---
 
+## 4а. Closed matching feedback
+
+Focused suite (test DB on `127.0.0.1:55432`, Redis `56379`):
+
+```bash
+export POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=55432
+export POSTGRES_USER=lhtest POSTGRES_PASSWORD=lhtest POSTGRES_DB=lhtest
+export REDIS_HOST=127.0.0.1 REDIS_PORT=56379
+pytest -q tests/test_matching_feedback_*.py tests/test_eval_matching_feedback.py
+```
+
+Migration reversibility smoke: `tests/test_matching_feedback_migration.py`
+Canonical analytics: `app.matching_feedback.analytics.aggregate_feedback`
+Runbook: `docs/ops/closed_matching_feedback_ru.md`
+
+---
+
 ## 6. Известные ограничения
 
 - **Smoke-тест требует живого Telegram-соединения** — не в CI, только локально

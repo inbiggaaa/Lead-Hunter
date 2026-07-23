@@ -585,6 +585,7 @@ class ChannelPoller:
                     message_id=msg_id,
                     text=msg.message,
                     candidate_segments=verified,
+                    rule_segments=list(result.matched_segments),
                     chat_title=new_title,
                     account_id=account.account_id,
                     is_urgent=result.is_urgent,
@@ -602,6 +603,7 @@ class ChannelPoller:
                     message_id=msg_id,
                     text=msg.message,
                     candidate_segments=[],
+                    rule_segments=[],
                     chat_title=new_title,
                     account_id=account.account_id,
                     is_urgent=result.is_urgent,
@@ -852,6 +854,13 @@ class ChannelPoller:
                 urgency, match.chat_username, match.message_id,
                 active_segments, llm_result.verdict,
             )
+            from app.matching_feedback.snapshot import build_matching_feedback_snapshot
+
+            matching_snapshot = build_matching_feedback_snapshot(
+                match=match,
+                llm_result=llm_result,
+                delivered_segments=active_segments,
+            )
             await self._dispatch(
                 chat_username=match.chat_username,
                 message_text=match.text,
@@ -861,6 +870,7 @@ class ChannelPoller:
                 sender=match.sender,
                 chat_title=match.chat_title,
                 sender_name=match.sender_name,
+                matching_feedback_snapshot=matching_snapshot,
             )
 
         if matches:
@@ -1843,6 +1853,7 @@ class ChannelPoller:
         self, chat_username, message_text, message_id,
         matched_segments, is_urgent, sender,
         chat_title: str | None = None, sender_name: str | None = None,
+        matching_feedback_snapshot: dict | None = None,
     ):
         """Find interested users matching BOTH segment AND geo, push to queue."""
         from app.cache.subscription_cache import (
@@ -1924,7 +1935,7 @@ class ChannelPoller:
                     {"emoji": "🔑", "title": "Персональное ключевое слово" if lang == "ru" else "Personal keyword"}
                 ]
 
-            await push_notification({
+            payload = {
                 "user_id": user["user_id"],
                 "telegram_id": user["telegram_id"],
                 "lang": lang,
@@ -1941,7 +1952,11 @@ class ChannelPoller:
                 "content_hash": compute_content_hash(chat_username, message_text),
                 "is_urgent": is_urgent,
                 "matched_segments": matched_names,
-            })
+                "matched_segment_slugs": list(matched_segments),
+            }
+            if matching_feedback_snapshot is not None:
+                payload["matching_feedback_snapshot"] = matching_feedback_snapshot
+            await push_notification(payload)
             from app.analytics import record_once_event
             await record_once_event("first_lead_matched", user_id=user["user_id"], language=lang, plan=user.get("plan", "free"), acquisition_source=user.get("source", "direct"), context={"lead_id": message_hash})
 

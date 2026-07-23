@@ -600,7 +600,9 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Business #89 в проде (`79b5ca1`).** VPS `.env` 9999/20; bot-only rebuild `--no-deps`; bot healthy/polling; worker не рестартовали (0 FloodWait). Segment-aware LLM runtime OFF.
+Статус: **Closed matching feedback gap-closure done on `feature/closed-matching-feedback-v2` (worktree/PR), prod enable in progress.** Head `matching_feedback_keyword01` (после `matching_feedback_v2`). Defaults in git: `MATCHING_FEEDBACK_ENABLED=false`. Runbook: `docs/ops/closed_matching_feedback_ru.md`.
+
+Предыдущий статус: **Business #89 в проде (`79b5ca1`).** VPS `.env` 9999/20; bot-only rebuild `--no-deps`; bot healthy/polling; worker не рестартовали (0 FloodWait). Segment-aware LLM runtime OFF.
 
 Предыдущий статус: **PR #1 merged в `main` (`300b468`) — segment-aware LLM код на main, runtime OFF.** Defaults: profiles disabled, blocking allowlist empty. Следующее: staging migration+seed → shadow ≥72h. Prod apply — только по явной команде.
 

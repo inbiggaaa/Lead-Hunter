@@ -25,6 +25,7 @@ import {
   CircleOff,
   TriangleAlert,
   MapPin,
+  ClipboardCheck,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
@@ -37,6 +38,7 @@ const NAV_ITEMS = [
   { to: "/channels", icon: Radio, label: "Каналы" },
   { to: "/stop-words", icon: CircleOff, label: "Стоп-слова" },
   { to: "/unmatched", icon: TriangleAlert, label: "Несматченные" },
+  { to: "/matching-feedback", icon: ClipboardCheck, label: "Matching QA" },
   { to: "/chat", icon: MessageSquare, label: "Чат" },
   { to: "/broadcast", icon: Send, label: "Рассылка" },
   { to: "/settings", icon: Settings, label: "Настройки" },

@@ -42,5 +42,7 @@ def test_en_screen_renders():
     user = SimpleNamespace(plan="start", language="en")
     text, kb = build_plan_screen(user, "en")
     assert "Plan & payment" in text
-    assert "12 services" in text
+    # Business v2.2 (#89): unlimited services, 20 countries
+    assert "unlimited services" in text
+    assert "20 countries" in text
     assert "unlimited cities" in text
