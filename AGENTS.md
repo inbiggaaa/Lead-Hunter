@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Closed matching feedback v2 — код готов на `feature/closed-matching-feedback-v2` (worktree), prod OFF.** Миграция `matching_feedback_v2`, domain/repo/sender/handlers/analytics/admin Matching QA. Defaults: `MATCHING_FEEDBACK_ENABLED=false`, пустой allowlist/batch. Runbook: `docs/ops/closed_matching_feedback_ru.md`. Production/worker/blocking LLM — не трогались. Следующее: staging migration + tester enable по команде владельца.
+Статус: **Closed matching feedback gap-closure done on `feature/closed-matching-feedback-v2` (worktree), prod OFF.** Head `matching_feedback_keyword01` (после `matching_feedback_v2`). Phases 9–12: keyword_only persist, handler coverage, canonical eval/stats wiring, docs. Defaults: `MATCHING_FEEDBACK_ENABLED=false`. Runbook: `docs/ops/closed_matching_feedback_ru.md`. Production/worker/LLM blocking — не трогались. Следующее: staging migration + tester enable по команде владельца.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 

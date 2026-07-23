@@ -2,7 +2,7 @@
 
 Дата: 24.07.2026  
 Код: ветка `feature/closed-matching-feedback-v2`  
-Миграция: `matching_feedback_v2` (после `segment_profile_audit01`)
+Миграция: `matching_feedback_v2` → `matching_feedback_keyword01` (после `segment_profile_audit01`)
 
 ## Что это
 
@@ -73,10 +73,12 @@ MATCHING_FEEDBACK_BATCH=ru_matching_v1
 2. При необходимости schema rollback **только на test/staging** после backup:
 
 ```bash
-alembic downgrade -1
+# head = matching_feedback_keyword01
+alembic downgrade matching_feedback_v2   # drop keyword_only
+alembic downgrade segment_profile_audit01  # restore legacy feedback shape
 ```
 
-Downgrade **удаляет unrated** experimental rows (`verdict IS NULL`), затем возвращает legacy `relevant`/`not_relevant`.
+Full `matching_feedback_v2` downgrade **удаляет unrated** experimental rows (`verdict IS NULL`), затем возвращает legacy `relevant`/`not_relevant`.
 
 ## Quality gates (blocking candidate)
 
