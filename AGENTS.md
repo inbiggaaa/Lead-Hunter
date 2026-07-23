@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Фазы 1–5 segment-aware LLM на `feature/segment-llm-profiles` (не в prod).** Фаза 5: `llm_response.py` — per-segment parse v2 + `to_legacy_llm_result` (fail-open); hot-path delivery ещё на legacy. Gate: test_llm_response_v2+test_llm_validator 26 passed. Следующее: Фаза 6 cache key v2.
+Статус: **Фазы 1–6 segment-aware LLM на `feature/segment-llm-profiles` (не в prod).** Фаза 6: `build_llm_cache_key` → `llm:v2:verdict:{sha256}` (candidates+lead_direction+profile/prompt/schema/model); hot-path всё ещё v1 `llm:verdict:`. Gate: test_llm_cache_v2+test_b5_llm_cache 15 passed. Следующее: Фаза 7 safe bypass.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 

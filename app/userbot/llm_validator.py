@@ -18,7 +18,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
 import aiohttp
 
@@ -41,18 +41,59 @@ from app.userbot.llm_response import (
 logger = logging.getLogger(__name__)
 
 
-def _llm_cache_key(text: str) -> str:
-    """B5: ключ кэша вердиктов — sha256 нормализованного текста БЕЗ чата.
+def normalize_llm_cache_text(text: str) -> str:
+    """Normalize message text for cache keys (shared by v1 and v2)."""
+    return " ".join((text or "")[:500].lower().split())
 
-    Нормализация как в compute_content_hash (lower, схлоп пробелов, 500 симв.),
-    но без chat_username: репост одного объявления в N чатов должен попадать
-    в один ключ. Классификация детерминирована по тексту → одинаковый текст
-    даёт одинаковые rule_segments, кэшировать вердикт безопасно.
+
+def _llm_cache_key(text: str) -> str:
+    """B5 v1: sha256(normalized text) — namespace llm:verdict:...
+
+    Kept for the current hot-path until Phase 8 switches delivery to v2.
+    Do NOT read this namespace as v2.
     """
     import hashlib
 
-    normalized = " ".join((text or "")[:500].lower().split())
-    return f"llm:verdict:{hashlib.sha256(normalized.encode()).hexdigest()}"
+    digest = hashlib.sha256(normalize_llm_cache_text(text).encode()).hexdigest()
+    return f"llm:verdict:{digest}"
+
+
+def build_llm_cache_key(
+    *,
+    text: str,
+    candidate_segments: tuple[str, ...],
+    lead_directions: Mapping[str, str],
+    profile_versions: Mapping[str, int],
+    prompt_version: int,
+    schema_version: int,
+    model_name: str,
+) -> str:
+    """v2 cache key: text + candidates + directions + profile/prompt/schema/model.
+
+    Namespace: llm:v2:verdict:{sha256}. Deterministic JSON (sorted keys).
+    Raw message text is never placed in the Redis key.
+    """
+    import hashlib
+
+    candidates = []
+    for slug in sorted(set(candidate_segments)):
+        candidates.append(
+            {
+                "slug": slug,
+                "lead_direction": lead_directions.get(slug, "demand"),
+                "profile_version": int(profile_versions.get(slug, 0)),
+            }
+        )
+    payload = {
+        "candidates": candidates,
+        "model": model_name,
+        "prompt_version": int(prompt_version),
+        "schema_version": int(schema_version),
+        "text": normalize_llm_cache_text(text),
+    }
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    return f"llm:v2:verdict:{digest}"
 
 
 _CACHE_TTL = 86400  # 24ч — как окно контентного дедупа доставки
