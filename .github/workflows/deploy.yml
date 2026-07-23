@@ -44,6 +44,19 @@ jobs:
               core.setFailed("deploy_sha must be a non-empty 40-character hexadecimal SHA");
               return;
             }
+
+            // workflow_run already gates on the triggering CI conclusion — trust it.
+            // Re-querying listWorkflowRuns(head_sha) races and falsely fails deploys.
+            if (context.eventName === "workflow_run") {
+              const trigger = context.payload.workflow_run;
+              if (trigger.conclusion !== "success") {
+                core.setFailed(`Triggering CI conclusion is ${trigger.conclusion}`);
+                return;
+              }
+              core.setOutput("sha", sha);
+              return;
+            }
+
             const runs = await github.rest.actions.listWorkflowRuns({
               owner: context.repo.owner,
               repo: context.repo.repo,
