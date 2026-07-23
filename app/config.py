@@ -114,6 +114,11 @@ class Settings(BaseSettings):
     llm_response_schema_version: int = 2
     exclude_broadcast_channels: bool = True  # skip broadcast-only channels (not chats)
 
+    # Closed matching feedback (fail-closed; empty allowlist = nobody)
+    matching_feedback_enabled: bool = False
+    matching_feedback_tester_ids: str = ""
+    matching_feedback_batch: str = ""
+
     def blocking_segment_allowlist(self) -> frozenset[str]:
         """Parse blocking allowlist; empty means do not apply v2 to delivery."""
         raw = (self.llm_segment_profiles_blocking_segments or "").strip()
