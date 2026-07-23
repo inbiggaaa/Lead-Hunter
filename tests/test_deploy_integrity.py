@@ -22,5 +22,8 @@ def test_deploy_script_fails_closed_on_backup_and_worker_guards():
     assert '[[ -n "$DB_CONTAINER" ]]' in script
     assert '[[ -s "$BACKUP_FILE" ]]' in script
     assert "check_worker_stopped" in script
-    assert "require_healthy_service" in script
+    assert "wait_healthy_service" in script
+    assert "worker:leader" in script
     assert "FloodWait|CRITICAL" in script
+    assert "compose()" in script
+    assert 'docker compose "$@"' in script
