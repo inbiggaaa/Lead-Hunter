@@ -598,9 +598,9 @@ show_last_leads → done
 
 **ОБНОВЛЯТЬ ПОСЛЕ КАЖДОЙ СЕССИИ.** Полная история — `docs/SESSION_LOG.md` (записи о задачах — туда, в конец файла).
 
-Дата: **2026-07-20**
+Дата: **2026-07-23**
 
-Статус: **ПЛАН СТАБИЛИЗАЦИИ ЗАКРЫТ (repo-only)** на ветке `stability/audit-fixes` @ HEAD. Phase 0–6 в коде (admin/deploy, worker lease, queue/cache, referral/winback, supply-chain, critical-flow tests + docs). Suite 538 passed. Production/deploy — только по явной команде владельца (`docs/launch/` + safe-deploy).
+Статус: **Stability audit ЗАДЕПЛОЕН на прод.** `main` @ `f8c8892` (алемbic `stability_referral01`). Bot/worker/admin healthy: Pool 2, Hot 198, 0 FloodWait. Уроки деплоя: не квотить `docker compose`; ждать healthy; `chown sessions` → UID 10001; после stop чистить Redis `worker:leader`. Admin слушает `127.0.0.1:17421`. Follow-up deploy script `9ebc93f` (wait_healthy / lease clear / sudo chown) — выкатывается следом.
 
 Предыдущий статус: **Этап 4 — CI release gate (16.07):** 5 parallel CI jobs; deploy ждёт approve `production`; P0 очередь/оплата в коде.
 
