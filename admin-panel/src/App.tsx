@@ -14,6 +14,7 @@ import BroadcastPage from "@/pages/BroadcastPage";
 import SettingsPage from "@/pages/SettingsPage";
 import StopWordsPage from "@/pages/StopWordsPage";
 import UnmatchedPage from "@/pages/UnmatchedPage";
+import MatchingFeedbackPage from "@/pages/MatchingFeedbackPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,6 +61,7 @@ export default function App() {
               <Route path="settings" element={<SettingsPage />} />
               <Route path="stop-words" element={<StopWordsPage />} />
               <Route path="unmatched" element={<UnmatchedPage />} />
+              <Route path="matching-feedback" element={<MatchingFeedbackPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
