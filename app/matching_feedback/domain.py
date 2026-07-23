@@ -18,6 +18,7 @@ _ACTION_TO_WIRE: dict[str, str] = {
     "uncertain": "un",
     "reason": "rs",
     "confirm_seg": "cs",
+    "confirm_done": "dn",
     "candidate": "cd",
     "catalog": "ct",
     "cat_missing": "cm",
