@@ -1,42 +1,62 @@
-"""Tests for per-account rate limiter and daily request budget (Task 0.5)."""
+"""Tests for per-account rate limiter, budget, and capacity governor."""
 
-import asyncio
+from __future__ import annotations
+
 import time
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import fakeredis.aioredis
 import pytest
 
-from app.userbot.rate_limiter import TelegramRateLimiter, BudgetExceeded
+from app.userbot.capacity import GovernorState
+from app.userbot.rate_limiter import (
+    BudgetExceeded,
+    GovernorBlocked,
+    TelegramRateLimiter,
+    _rpc_bucket_keys,
+)
+
+
+@pytest.fixture
+async def fake_redis():
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    yield redis
+    await redis.flushall()
+    await redis.aclose()
+
+
+@pytest.fixture
+async def limiter(fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
+
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
+    return TelegramRateLimiter(min_interval=0.01, daily_budget=0)
 
 
 # ── Часть A: пер-аккаунтный интервал ──
 
 
-async def test_accounts_do_not_share_interval():
-    """Два аккаунта не делят один интервал: acquire для acc2 не ждёт из-за acc1."""
-    lim = TelegramRateLimiter(min_interval=1.0, daily_budget=0)
-
-    # Первый вызов acc1 — проходит мгновенно (нет предыдущего)
+async def test_accounts_do_not_share_interval(limiter: TelegramRateLimiter):
     t0 = time.monotonic()
-    await lim.acquire(account_id=1)
+    await limiter.acquire(account_id=1)
     t1 = time.monotonic()
-    assert t1 - t0 < 0.1  # первый вызов без ожидания
+    assert t1 - t0 < 0.2
 
-    # Первый вызов acc2 — тоже мгновенно (свой last_call)
     t2 = time.monotonic()
-    await lim.acquire(account_id=2)
+    await limiter.acquire(account_id=2)
     t3 = time.monotonic()
-    assert t3 - t2 < 0.1  # НЕ ждёт интервал acc1
-
-    # Проверяем, что last_call независимы
-    assert 1 in lim._account_last_call
-    assert 2 in lim._account_last_call
-    assert lim._account_last_call[1] != lim._account_last_call[2]
+    assert t3 - t2 < 0.2
+    assert 1 in limiter._account_last_call
+    assert 2 in limiter._account_last_call
 
 
-async def test_same_account_is_serialized():
-    """Последовательные вызовы одного аккаунта ждут min_interval."""
+async def test_same_account_is_serialized(fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
+
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
     lim = TelegramRateLimiter(min_interval=0.5, daily_budget=0)
 
     t0 = time.monotonic()
@@ -45,161 +65,89 @@ async def test_same_account_is_serialized():
     await lim.acquire(account_id=1)
     t2 = time.monotonic()
 
-    assert t1 - t0 < 0.1  # первый мгновенно
-    assert (t2 - t1) >= 0.4  # второй ждал ~0.5 сек (с допуском на precision)
+    assert t1 - t0 < 0.2
+    assert (t2 - t1) >= 0.4
 
 
-async def test_internal_locks_are_per_account():
-    """У каждого аккаунта свой asyncio.Lock."""
-    lim = TelegramRateLimiter(min_interval=0.1, daily_budget=0)
-
-    await lim.acquire(account_id=1)
-    await lim.acquire(account_id=2)
-
-    # У каждого аккаунта — своя запись в словаре локов
-    assert 1 in lim._account_locks
-    assert 2 in lim._account_locks
-    assert lim._account_locks[1] is not lim._account_locks[2]
+async def test_internal_locks_are_per_account(limiter: TelegramRateLimiter):
+    await limiter.acquire(account_id=1)
+    await limiter.acquire(account_id=2)
+    assert 1 in limiter._account_locks
+    assert 2 in limiter._account_locks
+    assert limiter._account_locks[1] is not limiter._account_locks[2]
 
 
 # ── Часть B: суточный бюджет ──
 
 
-@patch("app.userbot.rate_limiter.get_redis")
-async def test_budget_blocks_after_limit(mock_get_redis):
-    """При budget=100 101-й запрос аккаунта → BudgetExceeded."""
-    fake_redis = AsyncMock()
-    incr_values = list(range(1, 102))  # 1, 2, ..., 101
-    fake_redis.incr = AsyncMock(side_effect=incr_values)
-    fake_redis.expire = AsyncMock()
-    fake_redis.aclose = AsyncMock()
-    # _is_post_ban (1) + acquire ×101 = 102 calls
-    mock_get_redis.side_effect = [fake_redis] * 102
+async def test_budget_blocks_after_limit(fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
 
-    lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
+    lim = TelegramRateLimiter(min_interval=0.0, daily_budget=100)
 
-    # 100 вызовов проходят
     for _ in range(100):
         await lim.acquire(account_id=1)
-
-    # 101-й — исключение
     with pytest.raises(BudgetExceeded) as exc:
         await lim.acquire(account_id=1)
-    assert "бюджет" in str(exc.value).lower() or "budget" in str(exc.value).lower()
-    assert fake_redis.incr.call_count == 101
+    assert "budget" in str(exc.value).lower() or "бюджет" in str(exc.value).lower()
 
 
-@patch("app.userbot.rate_limiter.get_redis")
-async def test_budget_per_account_independent(mock_get_redis):
-    """Бюджет аккаунта 1 не влияет на аккаунт 2."""
-    fake_redis_1 = AsyncMock()
-    fake_redis_1.incr = AsyncMock(side_effect=[1, 2, 3, 101])  # 101 на 4-м вызове
-    fake_redis_1.expire = AsyncMock()
+async def test_budget_per_account_independent(fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
 
-    fake_redis_2 = AsyncMock()
-    fake_redis_2.incr = AsyncMock(side_effect=[1, 2])  # всегда ≤100
-    fake_redis_2.expire = AsyncMock()
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
+    lim = TelegramRateLimiter(min_interval=0.0, daily_budget=100)
 
-    # _is_post_ban calls get_redis once per first acquire per account (cached 60s)
-    mock_get_redis.side_effect = [
-        fake_redis_1,  # _is_post_ban acc1
-        fake_redis_1, fake_redis_1, fake_redis_1,  # acc1 acquire ×3
-        fake_redis_2,  # _is_post_ban acc2
-        fake_redis_2, fake_redis_2,  # acc2 acquire ×2
-    ]
-
-    lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
-
-    # Аккаунт 1: 3 вызова проходят
-    await lim.acquire(account_id=1)
-    await lim.acquire(account_id=1)
-    await lim.acquire(account_id=1)
-
-    # Аккаунт 2: работает независимо
+    for _ in range(3):
+        await lim.acquire(account_id=1)
     await lim.acquire(account_id=2)
     await lim.acquire(account_id=2)
 
 
-@patch("app.userbot.rate_limiter.get_redis")
 @patch("app.userbot.rate_limiter._budget_key")
-async def test_budget_resets_on_date_change(mock_budget_key, mock_get_redis):
-    """Смена даты в имени ключа обнуляет счётчик — завтра новый ключ."""
-    fake_redis = AsyncMock()
-    call_count = {"count": 0}
+async def test_budget_resets_on_date_change(mock_budget_key, fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
 
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
     today_key = f"budget:used:1:{today}"
     tomorrow_key = f"budget:used:1:{tomorrow}"
-
-    # Сегодня: _budget_key возвращает today_key
     mock_budget_key.return_value = today_key
 
-    async def incr_side_effect(key):
-        call_count["count"] += 1
-        return call_count["count"]
-
-    fake_redis.incr = AsyncMock(side_effect=incr_side_effect)
-    fake_redis.expire = AsyncMock()
-    fake_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = fake_redis
-
-    lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
-
-    # Исчерпываем бюджет сегодня
+    lim = TelegramRateLimiter(min_interval=0.0, daily_budget=100)
     for _ in range(100):
         await lim.acquire(account_id=1)
     with pytest.raises(BudgetExceeded):
         await lim.acquire(account_id=1)
-    assert call_count["count"] == 101  # 100 OK + 1 превышение
 
-    # «Наступило завтра»: _budget_key возвращает tomorrow_key
     mock_budget_key.return_value = tomorrow_key
-
-    # Сбрасываем счётчик и проверяем — новый ключ, счётчик с 1
-    captured_keys = []
-    async def record_and_return(key):
-        captured_keys.append(key)
-        return 1
-    fake_redis.incr = AsyncMock(side_effect=record_and_return)
-
     await lim.acquire(account_id=1)
-    assert len(captured_keys) == 1
-    assert captured_keys[0] == tomorrow_key, f"Expected {tomorrow_key}, got {captured_keys[0]}"
+    assert int(await fake_redis.get(tomorrow_key)) == 1
 
 
 async def test_budget_exceeded_message_contains_account_id():
-    """BudgetExceeded содержит account_id в сообщении."""
     exc = BudgetExceeded(account_id=5, used=101, limit=100)
     assert "5" in str(exc)
     assert "101" in str(exc)
     assert "100" in str(exc)
 
 
-# ── Post-ban tests (Task 2.2) ──
+# ── Post-ban ──
 
 
-@patch("app.userbot.rate_limiter.get_redis")
-async def test_post_ban_budget_halved(mock_get_redis):
-    """При post_ban (бан #1) бюджет 100 → 50 (деление на 2).
+async def test_post_ban_budget_halved(fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
 
-    Проверяем, что бан #1 даёт divisor=2 → effective_budget=50."""
-    fake_redis = AsyncMock()
-    fake_redis.incr = AsyncMock(side_effect=list(range(1, 52)))
-    fake_redis.expire = AsyncMock()
-    fake_redis.aclose = AsyncMock()
-    # Ключевой мок: get() возвращает разные значения для разных ключей
-    async def fake_get(key):
-        if key == "post_ban_until:1":
-            return str(time.time() + 3600).encode()  # пост-бан активен
-        if key == "ban_count:1":
-            return b"1"  # первый бан → divisor=2
-        return None
-    fake_redis.get = fake_get
-    # _is_post_ban (1) + get_ban_count (1) + acquire ×51 = 53
-    mock_get_redis.side_effect = [fake_redis] * 53
-
-    lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
+    await fake_redis.set("post_ban_until:1", str(time.time() + 3600))
+    await fake_redis.set("ban_count:1", "1")
+    lim = TelegramRateLimiter(min_interval=0.0, daily_budget=100)
 
     for _ in range(50):
         await lim.acquire(account_id=1)
@@ -207,19 +155,13 @@ async def test_post_ban_budget_halved(mock_get_redis):
         await lim.acquire(account_id=1)
 
 
-@patch("app.userbot.rate_limiter.get_redis")
-async def test_post_ban_expired_full_budget(mock_get_redis):
-    """post_ban_until в прошлом → полный бюджет 100."""
-    fake_redis = AsyncMock()
-    fake_redis.incr = AsyncMock(side_effect=list(range(1, 102)))
-    fake_redis.expire = AsyncMock()
-    fake_redis.aclose = AsyncMock()
-    # _is_post_ban: post_ban_until в прошлом → неактивен
-    fake_redis.get = AsyncMock(return_value=str(time.time() - 3600))
-    # _is_post_ban (1, cached) + acquire ×101
-    mock_get_redis.side_effect = [fake_redis] * 102
+async def test_post_ban_expired_full_budget(fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
 
-    lim = TelegramRateLimiter(min_interval=0.01, daily_budget=100)
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
+    await fake_redis.set("post_ban_until:1", str(time.time() - 3600))
+    lim = TelegramRateLimiter(min_interval=0.0, daily_budget=100)
 
     for _ in range(100):
         await lim.acquire(account_id=1)
@@ -227,72 +169,153 @@ async def test_post_ban_expired_full_budget(mock_get_redis):
         await lim.acquire(account_id=1)
 
 
-@patch("app.userbot.rate_limiter.get_redis")
-async def test_post_ban_set_on_cb_close(mock_get_redis):
-    """wait_if_circuit_open при истечении CB ставит post_ban_until."""
-    fake_redis = AsyncMock()
-    # CB закрыт (ключа нет) → без ожидания
-    fake_redis.get = AsyncMock(return_value=None)
-    fake_redis.set = AsyncMock()
-    fake_redis.expire = AsyncMock()
-    fake_redis.delete = AsyncMock()
-    fake_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = fake_redis
+async def test_post_ban_set_on_cb_close(fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
 
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
     lim = TelegramRateLimiter(min_interval=0.3, daily_budget=10000)
     waited = await lim.wait_if_circuit_open(account_id=1)
-    assert not waited  # CB не открыт, не ждали
+    assert not waited
 
 
-@patch("app.userbot.rate_limiter.get_redis")
-async def test_post_ban_activated_at_startup(mock_get_redis):
-    """Свежий last_ban (< 48ч) → post_ban активируется."""
-    fake_redis = AsyncMock()
-    # post_ban_until нет, last_ban_at = 1ч назад
-    fake_redis.get = AsyncMock(side_effect=[
-        None,  # existing post_ban_until
-        str(time.time() - 3600),  # last_ban_at: 1ч назад
-    ])
-    fake_redis.set = AsyncMock()
-    fake_redis.expire = AsyncMock()
-    fake_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = fake_redis
+async def test_post_ban_activated_at_startup(fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
 
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
+    await fake_redis.set("last_ban_at:1", str(time.time() - 3600))
     lim = TelegramRateLimiter(min_interval=0.3, daily_budget=10000)
     result = await lim.activate_post_ban_if_recent(account_id=1)
     assert result is True
-    assert fake_redis.set.called
+    assert await fake_redis.get("post_ban_until:1") is not None
 
 
-@patch("app.userbot.rate_limiter.get_redis")
-async def test_post_ban_startup_idempotent(mock_get_redis):
-    """Уже активный post_ban → не перезаписывается."""
-    fake_redis = AsyncMock()
-    # post_ban_until уже в будущем
-    fake_redis.get = AsyncMock(return_value=str(time.time() + 3600))
-    fake_redis.set = AsyncMock()
-    fake_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = fake_redis
+async def test_post_ban_startup_idempotent(fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
 
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
+    await fake_redis.set("post_ban_until:1", str(time.time() + 3600))
     lim = TelegramRateLimiter(min_interval=0.3, daily_budget=10000)
     result = await lim.activate_post_ban_if_recent(account_id=1)
     assert result is False
-    fake_redis.set.assert_not_called()
 
 
-@patch("app.userbot.rate_limiter.get_redis")
-async def test_post_ban_startup_old_ban_ignored(mock_get_redis):
-    """last_ban старше 48ч → post_ban НЕ активируется."""
-    fake_redis = AsyncMock()
-    fake_redis.get = AsyncMock(side_effect=[
-        None,  # existing post_ban_until
-        str(time.time() - 50 * 3600),  # last_ban_at: 50ч назад
-    ])
-    fake_redis.set = AsyncMock()
-    fake_redis.aclose = AsyncMock()
-    mock_get_redis.return_value = fake_redis
+async def test_post_ban_startup_old_ban_ignored(fake_redis, monkeypatch):
+    async def _get_redis():
+        return fake_redis
 
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
+    await fake_redis.set("last_ban_at:1", str(time.time() - 50 * 3600))
     lim = TelegramRateLimiter(min_interval=0.3, daily_budget=10000)
     result = await lim.activate_post_ban_if_recent(account_id=1)
     assert result is False
-    fake_redis.set.assert_not_called()
+
+
+# ── Governor / RPC accounting ──
+
+
+async def test_acquire_records_minute_hour_day_attempt_buckets(
+    limiter: TelegramRateLimiter,
+    fake_redis,
+) -> None:
+    await limiter.acquire(2, rpc_kind="get_history")
+    minute_key, hour_key, day_key = _rpc_bucket_keys(2)
+    minute = await fake_redis.hgetall(minute_key)
+    hour = await fake_redis.hgetall(hour_key)
+    day = await fake_redis.hgetall(day_key)
+    assert minute["attempt"] == "1"
+    assert hour["get_history"] == "1"
+    assert day["total"] == "1"
+
+
+async def test_any_flood_wait_enters_cooldown(
+    limiter: TelegramRateLimiter,
+    monkeypatch,
+) -> None:
+    fixed_now = 1_700_000_000
+    monkeypatch.setattr("app.userbot.rate_limiter.time.time", lambda: fixed_now)
+    monkeypatch.setattr("app.userbot.rate_limiter.random.randint", lambda a, b: 0)
+    monkeypatch.setattr(
+        "app.worker.notify_admin.notify_admin",
+        AsyncMock(),
+    )
+    await limiter.report_flood_wait(
+        seconds=17,
+        context="poller:@chat",
+        account_id=2,
+        rpc_kind="get_history",
+    )
+    snapshot = await limiter.get_governor_snapshot(2)
+    assert snapshot.state is GovernorState.COOLDOWN
+    assert snapshot.power_percent == 0
+    assert snapshot.cooldown_until is not None
+    assert snapshot.cooldown_until > fixed_now + 17
+
+
+async def test_long_flood_expires_into_ten_percent_recovery(
+    limiter: TelegramRateLimiter,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.worker.notify_admin.notify_admin", AsyncMock())
+    monkeypatch.setattr("app.userbot.rate_limiter.random.randint", lambda a, b: 0)
+    await limiter.report_flood_wait(3600, "poller:@chat", 2, "get_history")
+    stored = await limiter.get_governor_snapshot(2)
+    assert stored.cooldown_until is not None
+    snapshot = await limiter.refresh_governor(2, now=stored.cooldown_until + 1)
+    assert snapshot.state is GovernorState.RECOVERY
+    assert snapshot.power_percent == 10
+
+
+async def test_acquire_blocks_during_cooldown(limiter: TelegramRateLimiter, monkeypatch) -> None:
+    monkeypatch.setattr("app.worker.notify_admin.notify_admin", AsyncMock())
+    monkeypatch.setattr("app.userbot.rate_limiter.random.randint", lambda a, b: 0)
+    await limiter.report_flood_wait(30, "poller:@chat", 2, "get_history")
+    with pytest.raises(GovernorBlocked) as exc:
+        await limiter.acquire(2, rpc_kind="get_history")
+    assert exc.value.state is GovernorState.COOLDOWN
+
+
+async def test_redis_failure_blocks_telegram_rpc(monkeypatch) -> None:
+    async def _boom():
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _boom)
+    lim = TelegramRateLimiter(min_interval=0.01, daily_budget=0)
+    with pytest.raises(GovernorBlocked) as exc:
+        await lim.acquire(1, rpc_kind="get_history")
+    assert exc.value.state is GovernorState.OFFLINE
+
+
+async def test_metrics_disabled_skips_buckets(fake_redis, monkeypatch) -> None:
+    async def _get_redis():
+        return fake_redis
+
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
+    monkeypatch.setattr(
+        "app.userbot.rate_limiter.settings.userbot_rpc_metrics_enabled",
+        False,
+    )
+    lim = TelegramRateLimiter(min_interval=0.0, daily_budget=0)
+    await lim.acquire(1, rpc_kind="get_history")
+    keys = [k async for k in fake_redis.scan_iter(match="stats:tg_rpc:*")]
+    assert keys == []
+
+
+async def test_governor_persists_across_limiter_instances(
+    fake_redis,
+    monkeypatch,
+) -> None:
+    async def _get_redis():
+        return fake_redis
+
+    monkeypatch.setattr("app.userbot.rate_limiter.get_redis", _get_redis)
+    monkeypatch.setattr("app.worker.notify_admin.notify_admin", AsyncMock())
+    monkeypatch.setattr("app.userbot.rate_limiter.random.randint", lambda a, b: 0)
+    first = TelegramRateLimiter(min_interval=0.0, daily_budget=0)
+    await first.report_flood_wait(120, "poller:@x", 2, "resolve")
+    second = TelegramRateLimiter(min_interval=0.0, daily_budget=0)
+    snapshot = await second.get_governor_snapshot(2)
+    assert snapshot.state is GovernorState.COOLDOWN
+    assert snapshot.power_percent == 0

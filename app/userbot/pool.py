@@ -22,11 +22,13 @@ class UserbotAccount:
         self.account_id = account_id
         self.session_name = session_name
         api_id, api_hash, _ = settings.get_userbot_creds(account_id)
+        # flood_sleep_threshold=0: short FloodWait must surface to the app
+        # so the governor can enter COOLDOWN (OPERATIONS §7б / design).
         self.client = TelegramClient(
             str(SESSIONS_DIR / session_name),
             api_id,
             api_hash,
-            flood_sleep_threshold=settings.flood_sleep_threshold,
+            flood_sleep_threshold=0,
         )
         self.is_healthy = True
         self.last_error: str | None = None
@@ -45,14 +47,24 @@ class UserbotAccount:
             self.last_error = str(e)
 
     async def check_health(self) -> bool:
-        """Check if account is still healthy."""
+        """Check if account is still healthy via metered health RPC."""
         if not self.is_healthy:
             return False
+        from app.userbot.rate_limiter import GovernorBlocked, limiter
+
+        try:
+            await limiter.acquire(self.account_id, rpc_kind="health")
+        except GovernorBlocked:
+            # Cooling/offline: keep previous health, do not call Telegram.
+            return self.is_healthy
         try:
             await self.client.get_me()
+            await limiter.record_rpc_result(self.account_id, "health", "success")
             return True
-        except Exception:
+        except Exception as exc:
+            await limiter.record_rpc_result(self.account_id, "health", "error")
             self.is_healthy = False
+            self.last_error = str(exc)
             return False
 
     async def get_entity(self, username: str):
