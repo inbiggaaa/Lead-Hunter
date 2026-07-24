@@ -977,3 +977,5 @@ B4 (docs/eval/reality_audit.md): фильтр НЕ душит — блоки п�
 **24.07.2026 14:50 — Userbot Capacity Governor Phase 3.** `poll_schedule.py` A–E policy; mid-slice PAUSED/governor stop; slice cap 25; overrun sleep≠5s; adaptive loop behind flag; eligibility generation bump. Tests schedule+poller+tier_geo+cache → 104 passed. Tag phase-3-done. Production: NO.
 
 **24.07.2026 15:20 — Userbot Capacity Governor Phase 4.** Proactive soft/hard/stop throttle, recovery windows, deduped alerts, watchdog missing-governor check. Tests rate_limiter+watchdog → 28 passed. Tag phase-4-done. Production: NO.
+
+**24.07.2026 15:40 — Userbot Capacity Governor Phase 5.** GET /api/stats/userbots + UserbotCapacity dashboard (read-only). lint+build OK; API test 1 passed; static rebuilt. Tag phase-5-done. Production: NO.
