@@ -1,8 +1,11 @@
 # Userbot Capacity Governor и адаптивный polling
 
-**Дата:** 24.07.2026  
-**Статус:** design approved in principle; owner review required before implementation plan  
-**Область:** userbot polling, anti-ban, capacity planning, admin dashboard, Telegram alerts  
+**Дата:** 24.07.2026
+
+**Статус:** design approved in principle; owner review required before implementation plan
+
+**Область:** userbot polling, anti-ban, capacity planning, admin dashboard, Telegram alerts
+
 **Приоритет:** качество сервиса и минимальная задержка уведомлений при безусловном соблюдении Telegram safety
 
 ## 1. Контекст
