@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -175,6 +176,19 @@ class Settings(BaseSettings):
     message_max_age_days: int = 7        # skip messages older than N days (0 = disabled)
     keyword_match_window: int = 20       # C2: multi-word phrase words must fit in N tokens
 
+    # Userbot Capacity Governor (safe defaults; prod .env not changed by this feature)
+    userbot_safe_daily_budget: int = 4000
+    userbot_capacity_reserve_ratio: float = 0.30
+    userbot_poll_slice_size: int = 25
+    userbot_governor_soft_percent: int = 70
+    userbot_governor_hard_percent: int = 85
+    userbot_governor_stop_percent: int = 95
+    userbot_max_continuous_minutes: int = 45
+    userbot_recovery_stable_windows: int = 3
+    userbot_rpc_metrics_enabled: bool = True
+    userbot_governor_enforcing: bool = False
+    userbot_adaptive_polling_enabled: bool = False
+
     # Discovery v2
     discovery_enabled: bool = False       # ENV: DISCOVERY_ENABLED=true
     discovery_api_id: int = 0
@@ -212,6 +226,27 @@ class Settings(BaseSettings):
     # NOTIFICATIONS_PER_DAY_* left in an old baked .env after tariffs v2) so a
     # dropped setting never crashes a service on restart.
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def validate_governor_settings(self) -> "Settings":
+        soft = self.userbot_governor_soft_percent
+        hard = self.userbot_governor_hard_percent
+        stop = self.userbot_governor_stop_percent
+        if not (0 < soft < hard < stop <= 100):
+            raise ValueError(
+                "userbot_governor thresholds must satisfy "
+                "0 < soft < hard < stop <= 100"
+            )
+        reserve = self.userbot_capacity_reserve_ratio
+        if not (0.0 <= reserve <= 0.9):
+            raise ValueError(
+                "userbot_capacity_reserve_ratio must be between 0.0 and 0.9"
+            )
+        if self.userbot_safe_daily_budget < 1:
+            raise ValueError("userbot_safe_daily_budget must be >= 1")
+        if self.userbot_poll_slice_size < 1:
+            raise ValueError("userbot_poll_slice_size must be >= 1")
+        return self
 
 
 settings = Settings()
