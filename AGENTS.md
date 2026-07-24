@@ -602,6 +602,10 @@ show_last_leads → done
 
 Статус: **Closed matching feedback ENABLED on prod for owner tester (`e17b336`).** Alembic `matching_feedback_keyword01`. VPS flags ON (tester=OWNER_TELEGRAM_ID, batch=ru_matching_v1). Bot/admin/worker healthy; 0 FloodWait. LLM blocking OFF. Owner smoke: Matching QA keyboard + admin `/matching-feedback`.
 
+Предыдущий статус: **Инцидент #5 — FloodWait Account 2 на 71565с.** После 54 новых тестовых подписок Hot вырос 198→753; суточный счётчик Account 2 достиг 9843/10000, длинный батч не остановился при переходе в PAUSED. CB открыт до 24.07.2026 18:23:38 UTC. Account 1 остаётся под риском (7217/10000 на 05:18 UTC). Код и prod state не менялись; рекомендуется остановить worker до исправления capacity/session/post-ban guards. Полный разбор — `OPERATIONS.md §7б`.
+
+Предыдущий статус: **Спроектирован Userbot Capacity Governor.** Design-spec `docs/superpowers/specs/2026-07-24-userbot-capacity-governor-design.md`: RPC gateway, state machine NORMAL/THROTTLED/COOLDOWN/RECOVERY/QUARANTINED/OFFLINE, adaptive scheduler A–E, geo eligibility (нет подписчиков → нет polling), SLO A ≤5м / B ≤10м, capacity planner, dashboard/alerts и плавный recovery 10→25→50→75→100%. Runtime-код и prod не менялись. Следующее после owner review: implementation plan + единый prompt Cursor Grok 5.4.
+
 Предыдущий статус: **Business #89 в проде (`79b5ca1`).** VPS `.env` 9999/20; bot-only rebuild `--no-deps`; bot healthy/polling; worker не рестартовали (0 FloodWait). Segment-aware LLM runtime OFF.
 
 Предыдущий статус: **PR #1 merged в `main` (`300b468`) — segment-aware LLM код на main, runtime OFF.** Defaults: profiles disabled, blocking allowlist empty. Следующее: staging migration+seed → shadow ≥72h. Prod apply — только по явной команде.
