@@ -330,24 +330,400 @@ class TelegramRateLimiter:
         self,
         account_id: int,
         now: int | None = None,
+        *,
+        day_rpc_total: int | None = None,
+        window_safe: bool | None = None,
     ) -> GovernorSnapshot:
-        """Single source of truth for governor transitions (v1: cooldown→recovery)."""
+        """Single source of truth for governor transitions."""
         current = now if now is not None else int(time.time())
         snapshot = await self.get_governor_snapshot(account_id)
-        updated = self._apply_governor_rules(snapshot, current)
+        if day_rpc_total is None:
+            day_rpc_total = await self._day_rpc_total(account_id, current)
+        updated = self._apply_governor_rules(
+            snapshot,
+            current,
+            day_rpc_total=day_rpc_total,
+            window_safe=window_safe,
+        )
         if updated != snapshot:
             await self._save_governor(updated)
+            await self._emit_transition_alert(snapshot, updated, day_rpc_total)
         return updated
+
+    async def _day_rpc_total(self, account_id: int, now: int) -> int:
+        stamp = datetime.fromtimestamp(now, tz=timezone.utc).strftime("%Y%m%d")
+        key = f"stats:tg_rpc:{account_id}:day:{stamp}"
+        redis = await self._redis(account_id)
+        raw = await redis.hget(key, "total")
+        return int(raw) if raw else 0
 
     def _apply_governor_rules(
         self,
         snapshot: GovernorSnapshot,
         now: int,
+        *,
+        day_rpc_total: int = 0,
+        window_safe: bool | None = None,
     ) -> GovernorSnapshot:
         if snapshot.state is GovernorState.COOLDOWN:
             if snapshot.cooldown_until is not None and now > snapshot.cooldown_until:
                 return self._enter_recovery(snapshot, now)
-        return snapshot
+            return snapshot
+
+        if snapshot.state is GovernorState.RECOVERY:
+            return self._advance_recovery(snapshot, now, window_safe=window_safe)
+
+        if snapshot.state is GovernorState.QUARANTINED:
+            return snapshot
+
+        # Daily stop: hold power=0 until cooldown_until (next UTC day).
+        if (
+            snapshot.state is GovernorState.THROTTLED
+            and snapshot.power_percent == 0
+            and snapshot.cooldown_until is not None
+            and now <= snapshot.cooldown_until
+            and snapshot.severity is None
+        ):
+            return snapshot
+
+        # Continuous pause: hold power=0 until stage_until.
+        if (
+            snapshot.state is GovernorState.THROTTLED
+            and snapshot.power_percent == 0
+            and snapshot.stage_until is not None
+            and now <= snapshot.stage_until
+            and snapshot.cooldown_until is None
+            and snapshot.severity is None
+        ):
+            return snapshot
+
+        # Continuous session pause: 45 minutes of RPC → 5–10 minute rest.
+        if (
+            snapshot.continuous_started_at is not None
+            and snapshot.power_percent > 0
+            and now - snapshot.continuous_started_at
+            >= settings.userbot_max_continuous_minutes * 60
+        ):
+            pause = random.randint(300, 600)
+            return self._with_effective(
+                snapshot,
+                state=GovernorState.THROTTLED,
+                power=0,
+                recommended_state=GovernorState.THROTTLED,
+                recommended_power=0,
+                stage_until=now + pause,
+                continuous_started_at=None,
+                enforcing=True,
+            )
+
+        # Resume after continuous pause deadline.
+        if (
+            snapshot.state is GovernorState.THROTTLED
+            and snapshot.power_percent == 0
+            and snapshot.stage_until is not None
+            and now > snapshot.stage_until
+            and snapshot.cooldown_until is None
+            and snapshot.severity is None
+        ):
+            return self._with_effective(
+                snapshot,
+                state=GovernorState.RECOVERY,
+                power=50,
+                recommended_state=GovernorState.RECOVERY,
+                recommended_power=50,
+                stage_index=0,
+                stage_until=now + 900,
+                stable_windows=0,
+                enforcing=True,
+            )
+
+        utilization = 0
+        safe = max(1, settings.userbot_safe_daily_budget)
+        utilization = int((day_rpc_total / safe) * 100)
+        soft = settings.userbot_governor_soft_percent
+        hard = settings.userbot_governor_hard_percent
+        stop = settings.userbot_governor_stop_percent
+
+        recommended_state = GovernorState.NORMAL
+        recommended_power = 100
+        if utilization >= stop:
+            recommended_state = GovernorState.THROTTLED
+            recommended_power = 0
+        elif utilization >= hard:
+            recommended_state = GovernorState.THROTTLED
+            recommended_power = 50
+        elif utilization >= soft:
+            recommended_state = GovernorState.THROTTLED
+            recommended_power = 75
+
+        # Gradual recovery from ordinary throttle after stable windows.
+        if (
+            snapshot.state is GovernorState.THROTTLED
+            and snapshot.power_percent in {50, 75}
+            and window_safe is True
+        ):
+            windows = snapshot.stable_windows + 1
+            if windows >= settings.userbot_recovery_stable_windows:
+                next_power = 75 if snapshot.power_percent == 50 else 100
+                next_state = (
+                    GovernorState.NORMAL if next_power == 100 else GovernorState.THROTTLED
+                )
+                return self._with_effective(
+                    snapshot,
+                    state=next_state,
+                    power=next_power,
+                    recommended_state=next_state,
+                    recommended_power=next_power,
+                    stable_windows=0,
+                    enforcing=True,
+                )
+            return self._with_effective(
+                snapshot,
+                state=snapshot.state,
+                power=snapshot.power_percent,
+                recommended_state=snapshot.recommended_state,
+                recommended_power=snapshot.recommended_power_percent,
+                stable_windows=windows,
+                enforcing=True,
+            )
+
+        enforcing = settings.userbot_governor_enforcing
+        if recommended_power == 0 and utilization >= stop:
+            # Stop until next UTC day (stored in cooldown_until).
+            tomorrow = datetime.fromtimestamp(now, tz=timezone.utc).date()
+            from datetime import timedelta as _td
+            next_day = datetime.combine(
+                tomorrow + _td(days=1), datetime.min.time(), tzinfo=timezone.utc,
+            )
+            next_ts = int(next_day.timestamp())
+            return GovernorSnapshot(
+                account_id=snapshot.account_id,
+                state=GovernorState.THROTTLED if enforcing else snapshot.state,
+                power_percent=0 if enforcing else snapshot.power_percent,
+                recommended_state=recommended_state,
+                recommended_power_percent=recommended_power,
+                severity=None,
+                cooldown_until=next_ts,
+                stage_index=None,
+                stage_until=None,
+                stable_windows=0,
+                last_flood_at=snapshot.last_flood_at,
+                last_flood_seconds=snapshot.last_flood_seconds,
+                last_rpc_at=snapshot.last_rpc_at,
+                continuous_started_at=None,
+            )
+
+        return self._with_effective(
+            snapshot,
+            state=recommended_state if enforcing else snapshot.state,
+            power=recommended_power if enforcing else snapshot.power_percent,
+            recommended_state=recommended_state,
+            recommended_power=recommended_power,
+            enforcing=True,  # recommended always updated
+        )
+
+    def _with_effective(
+        self,
+        snapshot: GovernorSnapshot,
+        *,
+        state: GovernorState,
+        power: int,
+        recommended_state: GovernorState,
+        recommended_power: int,
+        enforcing: bool,
+        stage_index: int | None = None,
+        stage_until: int | None = None,
+        stable_windows: int | None = None,
+        continuous_started_at: int | None | object = ...,
+    ) -> GovernorSnapshot:
+        eff_state = state if enforcing else snapshot.state
+        eff_power = power if enforcing else snapshot.power_percent
+        cont = snapshot.continuous_started_at
+        if continuous_started_at is not ...:
+            cont = continuous_started_at  # type: ignore[assignment]
+        return GovernorSnapshot(
+            account_id=snapshot.account_id,
+            state=eff_state,
+            power_percent=eff_power,
+            recommended_state=recommended_state,
+            recommended_power_percent=recommended_power,
+            severity=snapshot.severity,
+            cooldown_until=snapshot.cooldown_until,
+            stage_index=snapshot.stage_index if stage_index is None else stage_index,
+            stage_until=snapshot.stage_until if stage_until is None else stage_until,
+            stable_windows=(
+                snapshot.stable_windows if stable_windows is None else stable_windows
+            ),
+            last_flood_at=snapshot.last_flood_at,
+            last_flood_seconds=snapshot.last_flood_seconds,
+            last_rpc_at=snapshot.last_rpc_at,
+            continuous_started_at=cont,  # type: ignore[arg-type]
+        )
+
+    def _advance_recovery(
+        self,
+        snapshot: GovernorSnapshot,
+        now: int,
+        *,
+        window_safe: bool | None,
+    ) -> GovernorSnapshot:
+        if window_safe is False:
+            # Rollback one step.
+            idx = max(0, (snapshot.stage_index or 0) - 1)
+            severity = snapshot.severity or FloodSeverity.MEDIUM
+            stages = recovery_plan(severity)
+            stage = stages[idx]
+            return GovernorSnapshot(
+                account_id=snapshot.account_id,
+                state=GovernorState.RECOVERY,
+                power_percent=stage.power_percent,
+                recommended_state=GovernorState.RECOVERY,
+                recommended_power_percent=stage.power_percent,
+                severity=severity,
+                cooldown_until=None,
+                stage_index=idx,
+                stage_until=now + max(stage.hold_seconds, 600),
+                stable_windows=0,
+                last_flood_at=snapshot.last_flood_at,
+                last_flood_seconds=snapshot.last_flood_seconds,
+                last_rpc_at=snapshot.last_rpc_at,
+                continuous_started_at=None,
+            )
+
+        if snapshot.stage_until is not None and now <= snapshot.stage_until:
+            if window_safe is True:
+                return GovernorSnapshot(
+                    account_id=snapshot.account_id,
+                    state=snapshot.state,
+                    power_percent=snapshot.power_percent,
+                    recommended_state=snapshot.recommended_state,
+                    recommended_power_percent=snapshot.recommended_power_percent,
+                    severity=snapshot.severity,
+                    cooldown_until=snapshot.cooldown_until,
+                    stage_index=snapshot.stage_index,
+                    stage_until=snapshot.stage_until,
+                    stable_windows=snapshot.stable_windows + 1,
+                    last_flood_at=snapshot.last_flood_at,
+                    last_flood_seconds=snapshot.last_flood_seconds,
+                    last_rpc_at=snapshot.last_rpc_at,
+                    continuous_started_at=snapshot.continuous_started_at,
+                )
+            return snapshot
+
+        windows = snapshot.stable_windows
+        if window_safe is True:
+            windows += 1
+        if windows < settings.userbot_recovery_stable_windows and (
+            snapshot.stage_until is None or now <= (snapshot.stage_until or 0)
+        ):
+            return GovernorSnapshot(
+                account_id=snapshot.account_id,
+                state=snapshot.state,
+                power_percent=snapshot.power_percent,
+                recommended_state=snapshot.recommended_state,
+                recommended_power_percent=snapshot.recommended_power_percent,
+                severity=snapshot.severity,
+                cooldown_until=snapshot.cooldown_until,
+                stage_index=snapshot.stage_index,
+                stage_until=snapshot.stage_until,
+                stable_windows=windows,
+                last_flood_at=snapshot.last_flood_at,
+                last_flood_seconds=snapshot.last_flood_seconds,
+                last_rpc_at=snapshot.last_rpc_at,
+                continuous_started_at=snapshot.continuous_started_at,
+            )
+
+        severity = snapshot.severity or FloodSeverity.MEDIUM
+        stages = recovery_plan(severity)
+        next_idx = (snapshot.stage_index or 0) + 1
+        if next_idx >= len(stages):
+            return GovernorSnapshot(
+                account_id=snapshot.account_id,
+                state=GovernorState.NORMAL,
+                power_percent=100,
+                recommended_state=GovernorState.NORMAL,
+                recommended_power_percent=100,
+                severity=None,
+                cooldown_until=None,
+                stage_index=None,
+                stage_until=None,
+                stable_windows=0,
+                last_flood_at=snapshot.last_flood_at,
+                last_flood_seconds=snapshot.last_flood_seconds,
+                last_rpc_at=snapshot.last_rpc_at,
+                continuous_started_at=None,
+            )
+        stage = stages[next_idx]
+        return GovernorSnapshot(
+            account_id=snapshot.account_id,
+            state=GovernorState.RECOVERY,
+            power_percent=stage.power_percent,
+            recommended_state=GovernorState.RECOVERY,
+            recommended_power_percent=stage.power_percent,
+            severity=severity,
+            cooldown_until=None,
+            stage_index=next_idx,
+            stage_until=now + stage.hold_seconds if stage.hold_seconds else None,
+            stable_windows=0,
+            last_flood_at=snapshot.last_flood_at,
+            last_flood_seconds=snapshot.last_flood_seconds,
+            last_rpc_at=snapshot.last_rpc_at,
+            continuous_started_at=None,
+        )
+
+    async def _emit_transition_alert(
+        self,
+        before: GovernorSnapshot,
+        after: GovernorSnapshot,
+        day_rpc_total: int,
+    ) -> None:
+        event = None
+        if before.state is GovernorState.COOLDOWN and after.state is GovernorState.RECOVERY:
+            event = "recovery_started"
+        elif before.state is GovernorState.RECOVERY and after.state is GovernorState.NORMAL:
+            event = "normal_restored"
+        elif before.state is GovernorState.RECOVERY and after.state is GovernorState.RECOVERY:
+            if (after.stage_index or 0) > (before.stage_index or 0):
+                event = "recovery_step"
+            elif (after.stage_index or 0) < (before.stage_index or 0):
+                event = "recovery_rollback"
+        elif after.state is GovernorState.THROTTLED and before.state is not GovernorState.THROTTLED:
+            if after.power_percent == 0:
+                event = "capacity_95"
+            elif after.power_percent <= 50:
+                event = "capacity_85"
+            else:
+                event = "throttled"
+        elif after.state is GovernorState.QUARANTINED and before.state is not GovernorState.QUARANTINED:
+            event = "quarantined"
+        if not event:
+            return
+        await self.emit_governor_alert(after.account_id, event, after, day_rpc_total)
+
+    async def emit_governor_alert(
+        self,
+        account_id: int,
+        event: str,
+        snapshot: GovernorSnapshot,
+        day_rpc_total: int = 0,
+    ) -> None:
+        """Deduplicated Telegram alert for governor events (30 min cooldown)."""
+        redis = await self._redis(account_id)
+        alert_key = f"alert:last:userbot_governor:{account_id}:{event}"
+        last = await redis.get(alert_key)
+        if last and (time.time() - float(last)) < 1800:
+            return
+        await redis.set(alert_key, str(time.time()))
+        from app.worker.notify_admin import notify_admin
+        try:
+            await notify_admin(
+                f"🛡 Userbot governor #{account_id}: {event}\n"
+                f"state={snapshot.state.value} power={snapshot.power_percent}%\n"
+                f"rpc_day={day_rpc_total}/{settings.userbot_safe_daily_budget}\n"
+                f"cooldown_until={snapshot.cooldown_until} stage_until={snapshot.stage_until}"
+            )
+        except Exception as exc:
+            logger.warning("Governor alert %s for account %d failed: %s", event, account_id, exc)
 
     def _enter_recovery(self, snapshot: GovernorSnapshot, now: int) -> GovernorSnapshot:
         severity = snapshot.severity or FloodSeverity.MEDIUM

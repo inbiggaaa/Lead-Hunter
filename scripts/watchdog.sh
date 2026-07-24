@@ -170,6 +170,19 @@ if [ "$leader_lost_delta" -gt 0 ]; then
     ISSUES="${ISSUES}• worker leader lease lost: <b>+${leader_lost_delta}</b> (${leader_lost} total)%0A"
 fi
 
+# Capacity governor: missing Redis state for configured accounts (read-only).
+SESSION_MAP="${USERBOT_SESSION_MAP:-1:userbot,2:userbot2}"
+IFS=',' read -ra _pairs <<< "$SESSION_MAP"
+for pair in "${_pairs[@]}"; do
+    acc_id="${pair%%:*}"
+    if [[ "$acc_id" =~ ^[0-9]+$ ]]; then
+        gov=$(redis_get "userbot:governor:${acc_id}")
+        if [ -z "$gov" ]; then
+            ISSUES="${ISSUES}• governor state missing for account <b>#${acc_id}</b>%0A"
+        fi
+    fi
+done
+
 if [ -n "$ISSUES" ]; then
     if send_alert "$ISSUES"; then
         [[ "$leader_rejected" =~ ^[0-9]+$ ]] && redis_set "$LEADER_REJECTED_LAST_KEY" "$leader_rejected"

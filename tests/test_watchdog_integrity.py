@@ -32,6 +32,7 @@ if [[ "$*" == *"redis-cli GET"* ]]; then
         heartbeat:userbot:1) echo 1 ;;
         stats:worker:leader_rejected) echo "${LEADER_REJECTED:-0}" ;;
         stats:worker:leader_lost) echo 0 ;;
+        userbot:governor:*) echo state ;;
         *)
             state_file="$FAKE_REDIS_DIR/${key//:/_}"
             [[ -f "$state_file" ]] && tr -d '\\n' < "$state_file"

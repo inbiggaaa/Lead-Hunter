@@ -319,3 +319,75 @@ async def test_governor_persists_across_limiter_instances(
     snapshot = await second.get_governor_snapshot(2)
     assert snapshot.state is GovernorState.COOLDOWN
     assert snapshot.power_percent == 0
+
+
+async def test_proactive_soft_throttle_when_enforcing(
+    limiter: TelegramRateLimiter,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.worker.notify_admin.notify_admin", AsyncMock())
+    monkeypatch.setattr(
+        "app.userbot.rate_limiter.settings.userbot_governor_enforcing", True,
+    )
+    snapshot = await limiter.refresh_governor(
+        1, now=1_700_000_000, day_rpc_total=2800,  # 70% of 4000
+    )
+    assert snapshot.state is GovernorState.THROTTLED
+    assert snapshot.power_percent == 75
+
+
+async def test_proactive_stop_blocks_until_next_day(
+    limiter: TelegramRateLimiter,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.worker.notify_admin.notify_admin", AsyncMock())
+    monkeypatch.setattr(
+        "app.userbot.rate_limiter.settings.userbot_governor_enforcing", True,
+    )
+    frozen = 1_700_000_000
+    monkeypatch.setattr("app.userbot.rate_limiter.time.time", lambda: frozen)
+    snapshot = await limiter.refresh_governor(
+        1, now=frozen, day_rpc_total=3900,  # 97.5%
+    )
+    assert snapshot.state is GovernorState.THROTTLED
+    assert snapshot.power_percent == 0
+    with pytest.raises(GovernorBlocked):
+        await limiter.acquire(1, rpc_kind="get_history")
+
+
+async def test_dry_run_updates_recommendation_only(
+    limiter: TelegramRateLimiter,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.userbot.rate_limiter.settings.userbot_governor_enforcing", False,
+    )
+    snapshot = await limiter.refresh_governor(
+        1, now=1_700_000_000, day_rpc_total=3600,  # 90%
+    )
+    assert snapshot.state is GovernorState.NORMAL
+    assert snapshot.power_percent == 100
+    assert snapshot.recommended_state is GovernorState.THROTTLED
+    assert snapshot.recommended_power_percent == 50
+
+
+async def test_recovery_advances_after_stable_windows(
+    limiter: TelegramRateLimiter,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.worker.notify_admin.notify_admin", AsyncMock())
+    monkeypatch.setattr("app.userbot.rate_limiter.random.randint", lambda a, b: 0)
+    await limiter.report_flood_wait(120, "x", 2, "get_history")
+    stored = await limiter.get_governor_snapshot(2)
+    after = await limiter.refresh_governor(2, now=stored.cooldown_until + 1)
+    assert after.state is GovernorState.RECOVERY
+    # Force stage deadline passed + 3 safe windows
+    stepped = after
+    for _ in range(3):
+        stepped = await limiter.refresh_governor(
+            2,
+            now=(stepped.stage_until or 0) + 1,
+            window_safe=True,
+            day_rpc_total=0,
+        )
+    assert stepped.power_percent >= after.power_percent

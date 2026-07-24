@@ -1869,7 +1869,14 @@ class ChannelPoller:
                 except Exception as e:
                     logger.warning("Tier rebuild failed: %s", e)
 
-            await asyncio.sleep(300)  # Check every 5 minutes
+            # Refresh governor state for each account (recovery / proactive throttle).
+            try:
+                for acc in self.pool.accounts:
+                    await limiter.refresh_governor(acc.account_id)
+            except Exception as e:
+                logger.warning("Governor refresh failed: %s", e)
+
+            await asyncio.sleep(60)  # Governor tick once per minute
 
     # ═══════════════ GEO AUTO-TAGGING ═══════════════
 
