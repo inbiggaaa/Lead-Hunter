@@ -269,7 +269,9 @@ async def test_session_sleeping_skips_tiers(mock_get_redis):
     poller = ChannelPoller()
     poller.pool.accounts = [_make_account(1)]
     # Warm/Cold/Dormant: need 2+ CB-free accounts
-    assert await poller._should_poll_tier("Warm") is False
+    with patch("app.userbot.poller.limiter") as fake_limiter:
+        fake_limiter.is_circuit_open = AsyncMock(return_value=False)
+        assert await poller._should_poll_tier("Warm") is False
 
 
 @patch("app.userbot.poller.get_redis")
@@ -315,9 +317,15 @@ async def test_run_tier_once_active_calls_poll_batch(mock_get_redis):
     poller._poll_batch = mock_batch
     channels = [{"chat_username": "ch1", "title": "C1"}]
 
-    with patch.object(
-        poller, "_distribute", new=AsyncMock(return_value=[(account, channels)]),
+    snap = MagicMock(power_percent=100, state=MagicMock(value="NORMAL"))
+    with (
+        patch.object(
+            poller, "_distribute", new=AsyncMock(return_value=[(account, channels)]),
+        ),
+        patch("app.userbot.poller.limiter") as fake_limiter,
     ):
+        fake_limiter.is_circuit_open = AsyncMock(return_value=False)
+        fake_limiter.refresh_governor = AsyncMock(return_value=snap)
         await poller._run_tier_once("Hot", channels)
     mock_batch.assert_called_once()
 
@@ -366,9 +374,15 @@ async def test_run_tier_once_unlocked_calls_poll_batch(mock_get_redis):
     poller._poll_batch = mock_batch
     channels = [{"chat_username": "ch1", "title": "C1"}]
 
-    with patch.object(
-        poller, "_distribute", new=AsyncMock(return_value=[(account, channels)]),
+    snap = MagicMock(power_percent=100, state=MagicMock(value="NORMAL"))
+    with (
+        patch.object(
+            poller, "_distribute", new=AsyncMock(return_value=[(account, channels)]),
+        ),
+        patch("app.userbot.poller.limiter") as fake_limiter,
     ):
+        fake_limiter.is_circuit_open = AsyncMock(return_value=False)
+        fake_limiter.refresh_governor = AsyncMock(return_value=snap)
         await poller._run_tier_once("Hot", channels)
     mock_batch.assert_called_once()
 
@@ -1522,3 +1536,67 @@ async def test_a6_zero_cursor_first_acquaintance(
     assert fetch_cursor == 0
     assert mock_classify.call_count == 2
     mock_set_cursor.assert_called_once_with("test_ch", 103)
+
+
+# ── Capacity governor: incident §7б regressions ──
+
+
+@pytest.mark.asyncio
+async def test_paused_mid_slice_stops_further_rpc():
+    """Account becomes PAUSED after 10 polls → 11th Telegram RPC must not run."""
+    poller = ChannelPoller()
+    account = _make_account(2)
+    polled: list[str] = []
+
+    async def _poll_channel(acc, username, tier_name=None, db_title=None):
+        from app.userbot.poll_schedule import PollOutcome
+        polled.append(username)
+        return PollOutcome(new_messages=0, error_kind=None)
+
+    async def _session_state(account_id: int) -> str:
+        return "PAUSED" if len(polled) >= 10 else "ACTIVE"
+
+    poller._poll_channel = _poll_channel
+    poller._get_session_state = _session_state
+    poller._flush_pending_matches = AsyncMock()
+
+    channels = [{"chat_username": f"chat{i}", "title": f"C{i}"} for i in range(753)]
+    snap = MagicMock(power_percent=100, state=MagicMock(value="NORMAL"))
+    fake_redis = AsyncMock()
+    fake_redis.get = AsyncMock(return_value=None)
+    with (
+        patch("app.userbot.poller.get_redis", AsyncMock(return_value=fake_redis)),
+        patch("app.userbot.poller.limiter") as fake_limiter,
+        patch("app.userbot.poller.next_delay", return_value=0),
+    ):
+        fake_limiter.is_circuit_open = AsyncMock(return_value=False)
+        fake_limiter.wait_if_circuit_open = AsyncMock()
+        fake_limiter.refresh_governor = AsyncMock(return_value=snap)
+        await poller._poll_batch(account, channels, tier_name="Hot")
+
+    assert len(polled) == 10
+
+
+@pytest.mark.asyncio
+async def test_slice_cap_prevents_survivor_takeover():
+    """Unavailable account's backlog is not absorbed by the remaining account."""
+    poller = ChannelPoller()
+    acc1 = _make_account(1)
+    acc2 = _make_account(2)
+    poller.pool.accounts = [acc1, acc2]
+    channels = [{"chat_username": f"chat{i}"} for i in range(753)]
+
+    snap = MagicMock(power_percent=100, state=MagicMock(value="NORMAL"))
+    with patch("app.userbot.poller.limiter") as fake_limiter:
+        fake_limiter.is_circuit_open = AsyncMock(side_effect=lambda aid: aid == 2)
+        fake_limiter.refresh_governor = AsyncMock(return_value=snap)
+        chunks = await poller._distribute(channels)
+        # Account 2 excluded → only account 1 present
+        assert all(acc.account_id == 1 for acc, _ in chunks)
+        # _run_tier_once will further slice to 25; simulate that bound here
+        from app.userbot.poll_schedule import slice_size_for_power
+        from app.config import settings
+        for acc, chunk in chunks:
+            limited = chunk[: slice_size_for_power(settings.userbot_poll_slice_size, 100)]
+            assert len(limited) <= 25
+            assert len(chunk) == 753  # full remaining due set stays assigned, not re-split

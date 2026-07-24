@@ -214,6 +214,7 @@ async def test_budget_exceeded_stops_poll_batch():
     channels = [_ch(f"chan{i}", VIETNAM) for i in range(5)]
     fake_redis = AsyncMock()
     fake_redis.get.return_value = None
+    snap = MagicMock(power_percent=100, state=MagicMock(value="NORMAL"))
     with (
         patch("app.userbot.poller.get_redis", AsyncMock(return_value=fake_redis)),
         patch("app.worker.notify_admin.notify_admin", AsyncMock()) as notify,
@@ -221,6 +222,7 @@ async def test_budget_exceeded_stops_poll_batch():
     ):
         fake_limiter.is_circuit_open = AsyncMock(return_value=False)
         fake_limiter.wait_if_circuit_open = AsyncMock()
+        fake_limiter.refresh_governor = AsyncMock(return_value=snap)
         await poller._poll_batch(account, channels, tier_name="Hot")
 
     assert len(polled) == 1, "batch must stop after the first BudgetExceeded"

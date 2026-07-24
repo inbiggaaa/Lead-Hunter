@@ -13,7 +13,13 @@ import random
 import time
 from datetime import datetime, timedelta, timezone
 
-from telethon.errors import FloodWaitError, ChannelInvalidError
+from telethon.errors import (
+    FloodWaitError,
+    ChannelInvalidError,
+    ChannelPrivateError,
+    UsernameInvalidError,
+    UsernameNotOccupiedError,
+)
 from telethon.tl.types import Message, InputPeerChannel
 
 from app.userbot.classifier import (
@@ -27,7 +33,14 @@ from app.userbot.llm_validator import (
 from app.userbot.llm_profiles import reload_profile_snapshot
 from app.userbot.discovery_v2 import is_discovery_window
 from app.userbot.pool import UserbotPool
-from app.userbot.rate_limiter import limiter, BudgetExceeded
+from app.userbot.poll_schedule import (
+    ELIGIBILITY_GENERATION_KEY,
+    PollOutcome,
+    PollScheduleStore,
+    next_schedule,
+    slice_size_for_power,
+)
+from app.userbot.rate_limiter import GovernorBlocked, limiter, BudgetExceeded
 from app.config import settings
 from app.cache import get_redis
 from app.db.session import async_session_factory
@@ -154,6 +167,10 @@ class ChannelPoller:
         self._entity_cache: dict[str, dict[int, tuple[int, int]]] = {}
         # Pending matches queued for batch LLM validation (flushed after each poll batch)
         self._pending_matches: list[PendingMatch] = []
+        # Capacity governor / adaptive polling (Phase 3)
+        self._eligible_channels: list[dict] = []
+        self._schedule_store: PollScheduleStore | None = None
+        self._eligibility_generation: int = 0
         # Phase 3: segment LLM profiles — in-memory snapshot (module store is source)
         # Reloaded with keywords; never touches Telegram API.
 
@@ -432,7 +449,7 @@ class ChannelPoller:
         if cached is not None:
             return InputPeerChannel(*cached)
 
-        await limiter.acquire(account.account_id)
+        await limiter.acquire(account.account_id, rpc_kind="resolve")
 
         # ID-based resolution for private groups without usernames
         if channel_username.startswith("-"):
@@ -458,26 +475,23 @@ class ChannelPoller:
     async def _poll_channel(
         self, account, channel_username: str, tier_name: str,
         db_title: str | None = None,
-    ) -> None:
+    ) -> PollOutcome:
         """Poll a single channel: get all new messages since cursor, classify, dispatch.
 
-        First-acquaintance mode is derived from the Redis cursor, not from a
-        restart flag: cursor == 0 (channel never polled) → fetch the last
-        FETCH_LIMIT messages and set the cursor; cursor > 0 → incremental.
-        A worker restart therefore never re-reads (and re-classifies) history.
-
-        Args:
-            account: UserbotAccount to use
-            channel_username: @username of the channel
-            tier_name: "Hot" | "Warm" | "Cold" — picks TIER_LIMITS[tier]
+        Returns PollOutcome for adaptive scheduling. On FloodWait, re-raises
+        without advancing the cursor.
         """
         try:
             entity = await self._resolve_entity(account, channel_username)
         except FloodWaitError:
             raise
+        except (ChannelInvalidError, ChannelPrivateError, UsernameInvalidError, UsernameNotOccupiedError) as e:
+            logger.warning("poll @%s: %s", channel_username, type(e).__name__)
+            kind = "private" if isinstance(e, ChannelPrivateError) else "invalid"
+            return PollOutcome(new_messages=0, error_kind=kind)
         except Exception as e:
             logger.warning("poll @%s: %s", channel_username, type(e).__name__)
-            return
+            return PollOutcome(new_messages=0, error_kind="error")
 
         # Skip broadcast-only channels (news feeds, announcement channels).
         # We want groups/supergroups where people actually post requests.
@@ -486,18 +500,26 @@ class ChannelPoller:
             is_megagroup = getattr(entity, "megagroup", False)
             if is_broadcast and not is_megagroup:
                 logger.info("Skipping broadcast channel @%s (not a chat)", channel_username)
-                return
+                return PollOutcome(new_messages=0, error_kind=None)
 
         cursor = await self._get_cursor(channel_username)
 
         # Fetch messages since cursor — single call, up to FETCH_LIMIT (no
         # pagination by design; full batch on incremental poll is logged, C4)
-        all_messages = await self._fetch_all_since(
-            account, entity, channel_username, cursor,
-        )
+        try:
+            all_messages = await self._fetch_all_since(
+                account, entity, channel_username, cursor,
+            )
+        except FloodWaitError:
+            raise
+        except (ChannelInvalidError, ChannelPrivateError) as e:
+            kind = "private" if isinstance(e, ChannelPrivateError) else "invalid"
+            return PollOutcome(new_messages=0, error_kind=kind)
 
         if not all_messages:
-            return
+            return PollOutcome(new_messages=0, error_kind=None)
+
+        new_message_count = len(all_messages)
 
         # ── 7-day freshness gate ──
         # server_max: max id from FULL server output (before any text/date filters).
@@ -623,6 +645,8 @@ class ChannelPoller:
         if server_max is not None and new_cursor != cursor:
             await self._set_cursor(channel_username, new_cursor)
 
+        return PollOutcome(new_messages=new_message_count, error_kind=None)
+
     async def _fetch_all_since(
         self, account, entity, channel_username: str, cursor: int,
     ) -> list:
@@ -635,7 +659,7 @@ class ChannelPoller:
         (DECISIONS #78): a full incremental batch is logged and counted in
         Redis `stats:full_batch:{chat}` to size the problem.
         """
-        await limiter.acquire(account.account_id)
+        await limiter.acquire(account.account_id, rpc_kind="get_history")
         try:
             if cursor > 0:
                 batch = await account.get_messages(entity, min_id=cursor, limit=FETCH_LIMIT)
@@ -709,6 +733,7 @@ class ChannelPoller:
                 await limiter.report_flood_wait(
                     e.seconds, context=f"poller:@{ch['chat_username']}",
                     account_id=account.account_id,
+                    rpc_kind="get_history",
                 )
                 return False
             except BudgetExceeded:
@@ -726,6 +751,13 @@ class ChannelPoller:
 
         ok, errors = 0, 0
         for i, ch in enumerate(shuffled):
+            # Mid-slice stop: PAUSED/SLEEPING/COOLDOWN/power=0 must abort immediately (§7б).
+            if await self._should_stop_account_slice(account.account_id):
+                logger.info(
+                    "Account %d: stopping slice mid-batch after %d channels (state/governor)",
+                    account.account_id, i,
+                )
+                break
             try:
                 result = await _poll_one(ch)
             except BudgetExceeded:
@@ -746,6 +778,12 @@ class ChannelPoller:
                         f"API-запросов. Поллинг остановлен до следующих суток."
                     )
                 break  # budget exhausted, no point polling remaining channels
+            except GovernorBlocked:
+                logger.info(
+                    "Account %d: governor blocked — stopping slice after %d channels",
+                    account.account_id, i,
+                )
+                break
             if result:
                 ok += 1
             else:
@@ -1029,7 +1067,12 @@ class ChannelPoller:
                 jitter = effective_interval * INTERVAL_JITTER
                 jittered = effective_interval + random.uniform(-jitter, jitter)
                 elapsed = time.time() - cycle_start
-                sleep_time = max(5.0, jittered - elapsed)
+                remaining = jittered - elapsed
+                if remaining <= 0:
+                    # Overrun must NOT collapse to a 5s spin (§7б continuous RPC).
+                    sleep_time = max(60.0, jittered * 0.5)
+                else:
+                    sleep_time = max(5.0, remaining)
 
             except Exception:
                 logger.exception(
@@ -1087,12 +1130,22 @@ class ChannelPoller:
                 continue
 
             async with lock:
-                ok, err = await self._poll_batch(account, chunk, tier_name=tier_name)
+                # Bound each account chunk to governor-aware slice (§7б).
+                try:
+                    snapshot = await limiter.refresh_governor(account.account_id)
+                    power = snapshot.power_percent
+                except GovernorBlocked:
+                    continue
+                limit = slice_size_for_power(settings.userbot_poll_slice_size, power)
+                if limit <= 0:
+                    continue
+                bounded = chunk[:limit]
+                ok, err = await self._poll_batch(account, bounded, tier_name=tier_name)
                 elapsed = time.time() - start
                 if ok + err > 0:
                     logger.info(
-                        "%s tier: %d ok, %d errors in %.1fs",
-                        tier_name, ok, err, elapsed,
+                        "%s tier: %d ok, %d errors in %.1fs (slice %d/%d)",
+                        tier_name, ok, err, elapsed, len(bounded), len(chunk),
                     )
 
     async def _distribute(self, channels: list[dict]) -> list[tuple]:
@@ -1589,6 +1642,158 @@ class ChannelPoller:
         effective = base * multiplier
         return min(int(effective), settings.hot_interval_cap)
 
+    async def _should_stop_account_slice(self, account_id: int) -> bool:
+        """True when session or governor forbids further Telegram RPC."""
+        state = await self._get_session_state(account_id)
+        if state in {"PAUSED", "SLEEPING"}:
+            return True
+        if await limiter.is_circuit_open(account_id):
+            return True
+        try:
+            snapshot = await limiter.refresh_governor(account_id)
+        except GovernorBlocked:
+            return True
+        if snapshot.power_percent <= 0:
+            return True
+        if snapshot.state.value in {"COOLDOWN", "QUARANTINED", "OFFLINE"}:
+            return True
+        return False
+
+    async def _rebuild_eligible_channels(self) -> None:
+        """Rebuild eligible list from current tiers (geo already applied in _rebuild_tiers)."""
+        await self._rebuild_tiers()
+        seen: set[str] = set()
+        eligible: list[dict] = []
+        for group in (
+            self._hot_channels,
+            self._warm_channels,
+            self._cold_channels,
+            self._dormant_channels,
+        ):
+            for ch in group:
+                username = ch["chat_username"].strip().lstrip("@").lower()
+                if username in seen:
+                    continue
+                seen.add(username)
+                eligible.append(ch)
+        self._eligible_channels = eligible
+
+    async def _ensure_schedule_store(self) -> PollScheduleStore:
+        if self._schedule_store is not None:
+            return self._schedule_store
+        redis = await get_redis()
+        store = PollScheduleStore(redis)
+        await store.load()
+        self._schedule_store = store
+        return store
+
+    async def _run_adaptive_loop(self) -> None:
+        """Due-based adaptive polling loop (enabled by USERBOT_ADAPTIVE_POLLING_ENABLED)."""
+        store = await self._ensure_schedule_store()
+        await self._rebuild_eligible_channels()
+        logger.info(
+            "Adaptive polling started: %d eligible channels",
+            len(self._eligible_channels),
+        )
+        while True:
+            try:
+                redis = await get_redis()
+                raw_gen = await redis.get(ELIGIBILITY_GENERATION_KEY)
+                generation = int(raw_gen) if raw_gen else 0
+                if generation != self._eligibility_generation:
+                    await self._rebuild_eligible_channels()
+                    self._eligibility_generation = generation
+
+                now = int(time.time())
+                by_username = {
+                    ch["chat_username"].strip().lstrip("@").lower(): ch
+                    for ch in self._eligible_channels
+                }
+                due = store.due_chats(now, set(by_username))
+                due_channels = [by_username[name] for name, _ in due if name in by_username]
+                account_chunks = await self._distribute(due_channels)
+                for account, chunk in account_chunks:
+                    if not chunk:
+                        continue
+                    if await self._should_stop_account_slice(account.account_id):
+                        continue
+                    try:
+                        snapshot = await limiter.refresh_governor(account.account_id)
+                        limit = slice_size_for_power(
+                            settings.userbot_poll_slice_size, snapshot.power_percent,
+                        )
+                    except GovernorBlocked:
+                        continue
+                    if limit <= 0:
+                        continue
+                    bounded = chunk[:limit]
+                    await self._poll_adaptive_slice(account, bounded, store)
+                await self._write_poll_summary(store, account_chunks)
+                sleep_for = 5.0 if due_channels else 30.0
+                await asyncio.sleep(sleep_for)
+            except Exception:
+                logger.exception("Adaptive polling cycle failed — retry in 30s")
+                await asyncio.sleep(30.0)
+
+    async def _poll_adaptive_slice(
+        self,
+        account,
+        channels: list[dict],
+        store: PollScheduleStore,
+    ) -> None:
+        for ch in channels:
+            if await self._should_stop_account_slice(account.account_id):
+                break
+            username = ch["chat_username"].strip().lstrip("@")
+            key = username.lower()
+            previous = store.get(key)
+            try:
+                outcome = await self._poll_channel(
+                    account, username, tier_name="Adaptive", db_title=ch.get("title"),
+                )
+            except FloodWaitError as e:
+                await limiter.report_flood_wait(
+                    e.seconds,
+                    context=f"poller:@{username}",
+                    account_id=account.account_id,
+                    rpc_kind="get_history",
+                )
+                break
+            except GovernorBlocked:
+                break
+            except BudgetExceeded:
+                break
+            state = next_schedule(previous, outcome, now=int(time.time()))
+            await store.save(key, state)
+            await asyncio.sleep(next_delay())
+        await self._flush_pending_matches(account.account_id)
+
+    async def _write_poll_summary(
+        self,
+        store: PollScheduleStore,
+        account_chunks: list[tuple],
+    ) -> None:
+        classes = {"A": 0, "B": 0, "C": 0, "D": 0, "E": 0}
+        quarantined = 0
+        for state in store._memory.values():
+            if state.is_quarantined:
+                quarantined += 1
+                continue
+            classes[state.poll_class.value] = classes.get(state.poll_class.value, 0) + 1
+        summary: dict[str, int | str] = {
+            "eligible": len(self._eligible_channels),
+            "parked": self._parked_count,
+            "quarantined": quarantined,
+            "class:A": classes["A"],
+            "class:B": classes["B"],
+            "class:C": classes["C"],
+            "class:D": classes["D"],
+            "class:E": classes["E"],
+        }
+        for account, chunk in account_chunks:
+            summary[f"assigned:{account.account_id}"] = len(chunk)
+        await store.save_summary(summary)
+
     # ═══════════════ MAIN LOOP ═══════════════
 
     async def run_forever(self):
@@ -1609,6 +1814,16 @@ class ChannelPoller:
         TIER_REBUILD = 3600  # Rebuild tiers every hour
         _last_reload = time.time()
         _last_tier_rebuild = time.time()
+
+        if settings.userbot_adaptive_polling_enabled:
+            # Adaptive due-loop owns catalog+watched eligible chats; legacy tiers off.
+            await asyncio.gather(
+                self._run_adaptive_loop(),
+                self._maintenance_loop(
+                    KEYWORD_RELOAD, TIER_REBUILD, _last_reload, _last_tier_rebuild,
+                ),
+            )
+            return
 
         # Launch all tier loops with staggered startup
         await asyncio.gather(

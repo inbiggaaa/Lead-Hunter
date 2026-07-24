@@ -36,6 +36,7 @@ async def test_invalidate_drops_only_subscription_keys(mock_get_redis):
     assert await fake.get("sub:by_chat:chat_b") is None
     assert await fake.get("cursor:msg:chat_a") == "42"
     assert await fake.get("budget:used:1:2026-07-09") == "10"
+    assert int(await fake.get("poll:eligibility:generation") or 0) >= 1
 
 
 @patch("app.cache.subscription_cache.get_redis")
@@ -51,6 +52,18 @@ async def test_invalidate_handles_many_keys(mock_get_redis):
 
     remaining = [k async for k in fake.scan_iter(match="sub:by_chat:*")]
     assert remaining == []
+
+
+@patch("app.cache.subscription_cache.get_redis")
+async def test_eligibility_generation_bumped_on_invalidate(mock_get_redis):
+    """Subscription invalidation advances poll eligibility generation."""
+    fake = _fake_redis()
+    mock_get_redis.return_value = fake
+    await invalidate_all_subscription_caches()
+    first = int(await fake.get("poll:eligibility:generation"))
+    await invalidate_all_subscription_caches()
+    second = int(await fake.get("poll:eligibility:generation"))
+    assert second == first + 1
 
 
 @patch("app.cache.subscription_cache.get_redis")

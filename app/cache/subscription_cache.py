@@ -11,6 +11,7 @@ from sqlalchemy import select
 from app.cache import get_redis
 from app.db.session import async_session_factory
 from app.db.models import UserSubscription, User
+from app.userbot.poll_schedule import ELIGIBILITY_GENERATION_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,7 @@ async def invalidate_all_subscription_caches() -> None:
         if cursor == 0:
             break
     deleted = await redis.delete(*keys) if keys else 0
+    await redis.incr(ELIGIBILITY_GENERATION_KEY)
     logger.info("Subscription cache invalidated: %d keys dropped", deleted)
 
 
