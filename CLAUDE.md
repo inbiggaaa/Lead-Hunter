@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Closed matching feedback ENABLED on prod for owner tester (`e17b336`).** Alembic `matching_feedback_keyword01`. VPS flags ON (tester=OWNER_TELEGRAM_ID, batch=ru_matching_v1). Bot/admin/worker healthy; 0 FloodWait. LLM blocking OFF. Owner smoke: Matching QA keyboard + admin `/matching-feedback`.
+Статус: **Userbot Capacity Governor реализован на `feature/userbot-capacity-governor` (tags phase-1..6).** RPC/FloodWait governor, bounded slices, adaptive flag OFF, capacity API+dashboard, runbook `docs/ops/userbot_capacity_governor_ru.md`. Defaults: metrics ON, enforcing OFF, adaptive OFF. Production не трогали.
 
 Предыдущий статус: **Business #89 в проде (`79b5ca1`).** VPS `.env` 9999/20; bot-only rebuild `--no-deps`; bot healthy/polling; worker не рестартовали (0 FloodWait). Segment-aware LLM runtime OFF.
 

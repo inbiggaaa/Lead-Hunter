@@ -317,6 +317,14 @@ Telegram API-вызовы и причиной инцидента не являю
 
 ---
 
+## 7в. Userbot Capacity Governor (24.07.2026)
+
+Реализация закрывает инцидент §7б: mid-slice stop, bounded slices, FloodWait→COOLDOWN→RECOVERY,
+safe budget 4000, geo eligibility generation, read-only dashboard.
+
+Полный rollout/rollback: `docs/ops/userbot_capacity_governor_ru.md`.
+Флаги по умолчанию: metrics ON, enforcing OFF, adaptive OFF. Production не включать без команды владельца.
+
 ## 8. CI / Deploy (GitHub Actions)
 
 **CI** (`.github/workflows/ci.yml`) — release gate на push/PR в `main`:

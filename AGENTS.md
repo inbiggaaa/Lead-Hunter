@@ -600,7 +600,7 @@ show_last_leads → done
 
 Дата: **2026-07-24**
 
-Статус: **Userbot Capacity Governor спроектирован и подготовлен к пофазной реализации в Cursor.** Утверждены design-spec `docs/superpowers/specs/2026-07-24-userbot-capacity-governor-design.md`, implementation plan `docs/superpowers/plans/2026-07-24-userbot-capacity-governor.md` и единый prompt `docs/cursor/CURSOR_PROMPT_USERBOT_CAPACITY_GOVERNOR_RU.md`. Scope v1 намеренно сокращён: RPC/FloodWait accounting, governor+recovery, bounded adaptive polling, geo eligibility, capacity alerts и компактный read-only dashboard; без миграций, отдельного сервиса, ML-самообучения, ручных runtime-кнопок и изменения Telegram updates. Runtime-код и prod не менялись. Production baseline: closed matching feedback включён для owner tester на `e17b336`, LLM blocking OFF. Следующее: Cursor начинает от актуального `origin/main`, проводит read-only аудит файлов и останавливается перед каждой фазой для подтверждения.
+Статус: **Userbot Capacity Governor реализован на `feature/userbot-capacity-governor` (tags phase-1..6).** RPC/FloodWait governor, bounded slices, adaptive flag OFF, capacity API+dashboard, runbook `docs/ops/userbot_capacity_governor_ru.md`. Defaults: metrics ON, enforcing OFF, adaptive OFF. Production не трогали.
 
 Предыдущий статус: **Инцидент #5 — FloodWait Account 2 на 71565с.** После 54 новых тестовых подписок Hot вырос 198→753; суточный счётчик Account 2 достиг 9843/10000, длинный батч не остановился при переходе в PAUSED. CB открыт до 24.07.2026 18:23:38 UTC. Account 1 остаётся под риском (7217/10000 на 05:18 UTC). Код и prod state не менялись; рекомендуется остановить worker до исправления capacity/session/post-ban guards. Полный разбор — `OPERATIONS.md §7б`.
 

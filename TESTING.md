@@ -251,3 +251,16 @@ Runbook: `docs/ops/closed_matching_feedback_ru.md`
 - **Тестовая БД требует отдельной PostgreSQL** — создаётся в `docker-compose.override.yml` для тестов
 - **Userbot-тесты требуют живого session-файла** — не автоматизированы в v1
 - **Платёжные тесты требуют тестового окружения (Stars sandbox / CryptoBot testnet)** — см. Фазу 7
+
+
+## Userbot Capacity Governor
+
+Targeted suite (no live Telegram):
+
+```bash
+pytest tests/test_userbot_capacity.py tests/test_poll_schedule.py tests/test_rate_limiter.py \
+  tests/test_pool.py tests/test_poller_fixes.py tests/test_tier_geo.py \
+  tests/test_userbot_capacity_api.py tests/test_watchdog_integrity.py tests/test_cache_invalidation.py -q
+```
+
+Rollout runbook: `docs/ops/userbot_capacity_governor_ru.md`.

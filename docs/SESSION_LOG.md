@@ -979,3 +979,5 @@ B4 (docs/eval/reality_audit.md): фильтр НЕ душит — блоки п�
 **24.07.2026 15:20 — Userbot Capacity Governor Phase 4.** Proactive soft/hard/stop throttle, recovery windows, deduped alerts, watchdog missing-governor check. Tests rate_limiter+watchdog → 28 passed. Tag phase-4-done. Production: NO.
 
 **24.07.2026 15:40 — Userbot Capacity Governor Phase 5.** GET /api/stats/userbots + UserbotCapacity dashboard (read-only). lint+build OK; API test 1 passed; static rebuilt. Tag phase-5-done. Production: NO.
+
+**24.07.2026 16:00 — Userbot Capacity Governor Phase 6.** Runbook `docs/ops/userbot_capacity_governor_ru.md`; OPERATIONS §7в; TESTING suite note; AGENTS/CLAUDE §8. Incident regression suite 144 passed. Full local pytest: 673 passed; 2 failed + 59 errors = no local Postgres/Redis (не регрессия governor). Production touched: NO. Tags phase-1..6-done.
