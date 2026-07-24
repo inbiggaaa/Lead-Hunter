@@ -15,6 +15,7 @@ import {
   Legend,
 } from "chart.js";
 import { Line, Doughnut, Bar } from "react-chartjs-2";
+import { UserbotCapacity } from "@/components/dashboard/UserbotCapacity";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend);
 
@@ -160,6 +161,8 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      <UserbotCapacity />
 
       {/* === LLM Token Usage === */}
       <div>
